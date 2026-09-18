@@ -1,0 +1,5 @@
+# Key bindings of qpackages, layered over the framework's built-in keymap.
+
+[app]
+search = "/"
+remove = "delete"

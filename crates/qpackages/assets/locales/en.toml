@@ -1,0 +1,102 @@
+# English: the final fallback language. Every other locale is checked against this file.
+
+[meta]
+name = "English"
+code = "en"
+
+[keys]
+search = "search"
+remove = "remove"
+
+[hints]
+check = "check"
+
+[search]
+placeholder = "Search packages"
+
+[root]
+warning = "Running as root"
+
+[source]
+pacman = "Pacman"
+aur = "AUR"
+flatpak = "Flatpak"
+snap = "Snap"
+missing = "not installed"
+missing-title = "{name} is not installed"
+missing-message = "Packages from this source appear once {package} is installed on this machine."
+missing-later = "Snap's package comes from the AUR, which a later version manages."
+install = "Install {package}"
+not-as-root = "not as root"
+root-title = "{name} cannot be used as root"
+root-message = "Packages are built as an ordinary user; building them as root is refused. Start qpackages without sudo."
+waiting-title = "{name} comes in a later version"
+waiting-message = "This version manages pacman packages only."
+detecting = "Looking for {name}"
+
+[packages]
+name = "Name"
+version = "Version"
+size = "Size"
+explicit = "Explicit"
+none-match = "No package matches the search"
+none-installed = "No packages are installed"
+loading = "Reading the installed packages"
+unreadable = { one = "{n} record could not be read", other = "{n} records could not be read" }
+
+[detail]
+no-selection = "Nothing selected"
+no-selection-message = "Choose a package to see what it is and what it needs."
+no-description = "No description"
+version = "Version"
+size = "Installed size"
+reason = "Installed"
+reason-explicit = "asked for"
+reason-dependency = "as a dependency"
+installed = "Installed on"
+licenses = "Licenses"
+depends = "Depends on"
+no-depends = "Depends on nothing"
+url = "Website"
+
+[transaction]
+checked = { one = "{n} package checked", other = "{n} packages checked" }
+remove = "Remove"
+install = "Install"
+cancel = "Cancel"
+install-title = { one = "Install {n} package?", other = "Install {n} packages?" }
+remove-title = { one = "Remove {n} package?", other = "Remove {n} packages?" }
+install-lead = "pacman will install these, with what they need:"
+remove-lead = "pacman will remove these, with the dependencies only they needed:"
+download = "Total download {size}"
+ticket-warm = "Authorization is ready"
+ticket-cold = "Your password will be asked"
+authorizing = "sudo is asking for your password. qpackages comes back right after."
+not-authorized = "Not authorized"
+not-authorized-body = "sudo did not accept. Nothing was changed."
+plan-failed = "pacman could not plan this"
+running-install = "Installing {names}"
+running-remove = "Removing {names}"
+finished-install = "Installing {names} did not go through"
+finished-remove = "Removing {names} did not go through"
+stop = "Hold to stop"
+close = "Close"
+waiting = "Waiting for pacman"
+done-install = "Installed {names}"
+done-remove = "Removed {names}"
+failed = "pacman ended with code {code}"
+failed-body = "Its output stays below."
+killed = "pacman was ended by a signal"
+cancelled = "Stopped"
+cancelled-body = "sudo was stopped. A pacman it had already started may run to its end."
+could-not-start = "pacman could not be started"
+
+[lock]
+title = "The package database is locked"
+held = "Another transaction is running"
+owner = "Held by {command}, process {pid}"
+owner-pid = "Held by process {pid}"
+owner-unknown = "Held by a process this account cannot see"
+since = "Since {time}"
+message = "pacman locks its database while a transaction runs. Wait for it to end. The lock is never removed from here: a pacman that stopped halfway may have left the database in a state a second writer would damage."
+close = "Close"

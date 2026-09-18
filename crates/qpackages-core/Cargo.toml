@@ -1,0 +1,22 @@
+[package]
+name = "quvyta-packages-core"
+description = "Reads pacman's database and plans its transactions without privileges; the core of qpackages (beta)"
+repository = "https://github.com/quvyta/packages"
+readme = "../../README.md"
+keywords = ["pacman", "arch", "packages", "quvyta"]
+categories = ["os::linux-apis", "parser-implementations"]
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+# Only what the library is built from goes into the package; the recorded outputs its tests
+# read stay in the repository.
+include = ["src/**", "Cargo.toml", "README.md", "LICENSE"]
+
+[lib]
+# Published as quvyta-packages-core, used in code as `qpackages_core`, the way the framework is
+# published as quvyta-framework and used as `qframe`.
+name = "qpackages_core"
+
+[lints]
+workspace = true

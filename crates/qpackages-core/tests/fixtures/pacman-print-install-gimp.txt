@@ -1,0 +1,9 @@
+extra|babl|0.1.128-1|1608538
+extra|lensfun|1:0.3.4-6|402059
+extra|lapack|3.12.1-2|5059573
+extra|suitesparse|7.14.1-1|1618529
+extra|gegl|0.4.72-2|4544681
+extra|libmypaint|1.6.1-2|234004
+extra|mypaint-brushes|2.0.2-2|1508614
+extra|libwmf|0.2.16-1|1916952
+extra|gimp|3.2.6-1|24907325

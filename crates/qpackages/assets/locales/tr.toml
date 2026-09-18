@@ -1,0 +1,101 @@
+[meta]
+name = "Türkçe"
+code = "tr"
+fallback = "en"
+
+[keys]
+search = "ara"
+remove = "kaldır"
+
+[hints]
+check = "işaretle"
+
+[search]
+placeholder = "Paket ara"
+
+[root]
+warning = "root olarak çalışıyor"
+
+[source]
+pacman = "Pacman"
+aur = "AUR"
+flatpak = "Flatpak"
+snap = "Snap"
+missing = "kurulu değil"
+missing-title = "{name} kurulu değil"
+missing-message = "Bu kaynağın paketleri, {package} bu makineye kurulunca görünür."
+missing-later = "Snap'in paketi AUR'dan geliyor; AUR sonraki bir sürümde yönetilecek."
+install = "{package} kur"
+not-as-root = "root ile olmaz"
+root-title = "{name} root olarak kullanılamaz"
+root-message = "Paketler sıradan bir kullanıcı olarak derlenir; root olarak derlemek reddedilir. qpackages'ı sudo olmadan başlat."
+waiting-title = "{name} sonraki bir sürümde geliyor"
+waiting-message = "Bu sürüm yalnızca pacman paketlerini yönetiyor."
+detecting = "{name} aranıyor"
+
+[packages]
+name = "Ad"
+version = "Sürüm"
+size = "Boyut"
+explicit = "İstenen"
+none-match = "Aramaya uyan paket yok"
+none-installed = "Kurulu paket yok"
+loading = "Kurulu paketler okunuyor"
+unreadable = { one = "{n} kayıt okunamadı", other = "{n} kayıt okunamadı" }
+
+[detail]
+no-selection = "Seçili paket yok"
+no-selection-message = "Ne olduğunu ve neye ihtiyaç duyduğunu görmek için bir paket seç."
+no-description = "Açıklama yok"
+version = "Sürüm"
+size = "Kurulu boyut"
+reason = "Kurulma nedeni"
+reason-explicit = "istendi"
+reason-dependency = "bağımlılık olarak"
+installed = "Kurulum tarihi"
+licenses = "Lisanslar"
+depends = "Bağımlılıklar"
+no-depends = "Bağımlılığı yok"
+url = "Web sitesi"
+
+[transaction]
+checked = { one = "{n} paket işaretli", other = "{n} paket işaretli" }
+remove = "Kaldır"
+install = "Kur"
+cancel = "Vazgeç"
+install-title = { one = "{n} paket kurulsun mu?", other = "{n} paket kurulsun mu?" }
+remove-title = { one = "{n} paket kaldırılsın mı?", other = "{n} paket kaldırılsın mı?" }
+install-lead = "pacman şunları, gerek duyduklarıyla birlikte kuracak:"
+remove-lead = "pacman şunları, yalnızca onların gerek duyduğu bağımlılıklarla birlikte kaldıracak:"
+download = "Toplam indirme {size}"
+ticket-warm = "Yetki hazır"
+ticket-cold = "Parolan sorulacak"
+authorizing = "sudo parolanı soruyor. Hemen ardından qpackages'a dönülür."
+not-authorized = "Yetki alınamadı"
+not-authorized-body = "sudo kabul etmedi. Hiçbir şey değişmedi."
+plan-failed = "pacman bunu planlayamadı"
+running-install = "{names} kuruluyor"
+running-remove = "{names} kaldırılıyor"
+finished-install = "{names} kurulamadı"
+finished-remove = "{names} kaldırılamadı"
+stop = "Durdurmak için basılı tut"
+close = "Kapat"
+waiting = "pacman bekleniyor"
+done-install = "{names} kuruldu"
+done-remove = "{names} kaldırıldı"
+failed = "pacman {code} koduyla bitti"
+failed-body = "Çıktısı aşağıda duruyor."
+killed = "pacman bir sinyalle sonlandı"
+cancelled = "Durduruldu"
+cancelled-body = "sudo durduruldu. Başlatmış olduğu bir pacman sonuna kadar çalışmaya devam edebilir."
+could-not-start = "pacman başlatılamadı"
+
+[lock]
+title = "Paket veritabanı kilitli"
+held = "Başka bir işlem sürüyor"
+owner = "Kilit {command} programında, süreç {pid}"
+owner-pid = "Kilit {pid} numaralı süreçte"
+owner-unknown = "Kilit bu hesabın göremediği bir süreçte"
+since = "{time} tarihinden beri"
+message = "pacman bir işlem sürerken veritabanını kilitler. Bitmesini bekle. Kilit buradan asla kaldırılmaz: yarıda kalan bir pacman, veritabanını ikinci bir yazıcının bozacağı bir durumda bırakmış olabilir."
+close = "Kapat"
