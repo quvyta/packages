@@ -5,7 +5,7 @@ repository = "https://github.com/quvyta/packages"
 readme = "../../README.md"
 keywords = ["tui", "terminal", "pacman", "arch", "packages"]
 categories = ["command-line-utilities"]
-version.workspace = true
+version = "0.1.1"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -14,8 +14,8 @@ license.workspace = true
 include = ["src/**", "assets/**", "Cargo.toml", "README.md", "LICENSE"]
 
 [[bin]]
-name = "qpackages"
-path = "src/bin/qpackages.rs"
+name = "qpac"
+path = "src/bin/qpac.rs"
 
 [[bin]]
 name = "quvyta-packages"

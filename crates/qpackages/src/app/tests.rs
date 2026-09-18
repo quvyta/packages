@@ -109,7 +109,7 @@ fn the_first_read_starts_from_init_and_the_first_frame_already_shows_it() {
 fn opens_on_the_installed_packages() {
     let h = harness(100, 24);
     let screen = h.screen();
-    for text in ["qpackages", "bash", "5.3.15-1", "9.6 MiB", "Explicit", "Pacman", "Snap", "not installed", "quit"] {
+    for text in ["qpac", "bash", "5.3.15-1", "9.6 MiB", "Explicit", "Pacman", "Snap", "not installed", "quit"] {
         assert!(screen.contains(text), "`{text}` is missing:\n{screen}");
     }
     assert!(screen.contains("2 records could not be read"), "the broken fixture records are counted:\n{screen}");

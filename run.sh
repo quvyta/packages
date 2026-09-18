@@ -1,5 +1,5 @@
 #!/bin/sh
-# Tries qpackages in a clean Arch Linux container with podman.
+# Tries qpac in a clean Arch Linux container with podman.
 #
 # The application installs and removes real packages, so trying it on the machine you work
 # on is a bad idea. This script builds and runs it inside a throwaway Arch container instead:
@@ -57,7 +57,7 @@ rustup toolchain install "$(sed -n "s/^channel = \"\(.*\)\"/\1/p" rust-toolchain
 export CARGO_TARGET_DIR=/work/packages/target/container
 '
 case "$mode" in
-    app) command="$setup"'exec cargo run --bin qpackages' ;;
+    app) command="$setup"'exec cargo run --bin qpac' ;;
     shell) command="$setup"'exec bash' ;;
 esac
 

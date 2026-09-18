@@ -182,7 +182,7 @@ impl Qpackages {
 
     fn header(&self, ui: &mut View<'_, Msg>) {
         ui.row(|ui| {
-            ui.add(Text::new("qpackages").color("accent").bold().no_wrap());
+            ui.add(Text::new("qpac").color("accent").bold().no_wrap());
             if self.root {
                 ui.add(Badge::new(t!("root.warning")).variant("warning"));
             }
