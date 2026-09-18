@@ -14,7 +14,6 @@ use std::path::Path;
 use std::sync::Arc;
 
 use qframe::runtime::Runtime;
-use qframe::storage::Settings;
 use qpackages_core::sources::on_path;
 
 /// The language files, compiled in so an installed binary needs nothing beside it.
@@ -39,11 +38,15 @@ fn current_uid() -> Option<u32> {
 /// Starts the application on the terminal: loads the settings, the compiled-in language files
 /// and key bindings, and runs the screen until the user quits.
 ///
+/// qpackages has no settings page yet, so whatever the settings reported (a file left in the
+/// old folder, a value that was repaired) is written to standard error once the screen is gone,
+/// where the user reads it after quitting.
+///
 /// # Errors
 ///
 /// Returns the terminal's error when the screen cannot be set up or drawn.
 pub fn run() -> std::io::Result<()> {
-    let settings = Settings::load("quvyta-packages").schema(settings::schema()).self_heal(true);
+    let settings = settings::load();
     let machine = app::Machine {
         dbpath: Path::new(LOCAL_DB),
         lock_dir: Path::new(PACMAN_DIR),
@@ -52,12 +55,16 @@ pub fn run() -> std::io::Result<()> {
         uid: current_uid(),
     };
     let app = app::Qpackages::new(machine, &settings);
-    LOCALES
+    let result = LOCALES
         .iter()
         .fold(Runtime::new(app), |runtime, (file, text)| runtime.locale_source(*file, *text))
         .keymap_source(KEYMAP.0, KEYMAP.1)
         .settings(&settings)
-        .run()
+        .run();
+    for diagnostic in settings.diagnostics() {
+        eprintln!("{diagnostic}");
+    }
+    result
 }
 
 /// The built-in files plus the compiled-in locales and keymap, as the runtime loads them, for

@@ -1,12 +1,34 @@
-//! The settings qpackages reads, described so the framework can check and repair the file.
+//! The settings qpackages reads, where they live, and how the framework checks and repairs them.
+//!
+//! The file is `packages.conf` in the Quvyta family's folder, next to the other applications of
+//! the family; any other configuration file goes into the `packages/` folder beside it.
+//!
+//! ```text
+//! ~/.config/quvyta/
+//!     packages.conf   qpackages's settings
+//!     packages/       its other configuration files
+//! ```
+//!
+//! Releases up to 0.1.1 kept `settings.toml` in `~/.config/quvyta-packages/`. That folder is
+//! brought over once, at start, before the settings are read; a file that cannot be moved without
+//! overwriting something stays whole where it is and is reported.
 //!
 //! Only keys the application actually reads are declared: a key nobody reads would be checked,
 //! healed and written for nothing.
 
-use qframe::storage::{Schema, Settings};
+use std::path::Path;
+
+use qframe::storage::{Family, Schema, Settings, config_dir};
 use qpackages_core::sources::{AurPreference, Source};
 
 use crate::sources;
+
+/// The application's id in the family: its settings file is `packages.conf` and its other files
+/// are under `packages/`.
+pub const APP: &str = "packages";
+
+/// The folder under the platform's config directory that held `settings.toml` before.
+const LEGACY: &str = "quvyta-packages";
 
 /// The key choosing which AUR helper drives the AUR when both are installed.
 const AUR_HELPER: &str = "aur.helper";
@@ -40,13 +62,149 @@ pub fn aur_preference(settings: &Settings) -> AurPreference {
     }
 }
 
+/// Brings the settings over from the folder earlier releases used and reads them from the
+/// family's folder, checked and healed. What could not be moved is among the settings'
+/// diagnostics, first. Without a home folder the settings stay in memory and say why.
+#[must_use]
+pub fn load() -> Settings {
+    match (Family::QUVYTA.config_dir(), config_dir(LEGACY)) {
+        (Some(folder), Some(legacy)) => load_in(&folder, &legacy),
+        _ => checked(Settings::load_member(&Family::QUVYTA, APP)),
+    }
+}
+
+/// [`load`] with `folder` as the family's folder and `legacy` as the folder earlier releases
+/// used, so a test never touches the user's own settings.
+///
+/// The framework copies each file, compares the copy and only then removes the original; a file
+/// whose new place is taken is left alone, so an existing `packages.conf` wins and the old
+/// `settings.toml` stays whole beside it. A missing old folder is nothing to do.
+#[must_use]
+pub fn load_in(folder: &Path, legacy: &Path) -> Settings {
+    let moved = Family::QUVYTA.adopt_in(folder, APP, legacy);
+    checked(Settings::open(folder.join(format!("{APP}.conf")))).with_diagnostics(moved.diagnostics().to_vec())
+}
+
+/// `settings` checked against qpackages's keys and healed, with a backup of what the user wrote.
+fn checked(settings: Settings) -> Settings {
+    settings.schema(schema()).self_heal(true)
+}
+
 fn source_key(source: Source) -> String {
     format!("sources.{}", sources::name(source))
 }
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+    use std::path::PathBuf;
+
     use super::*;
+
+    /// A fresh folder under the system's temporary folder; never the user's own config folder.
+    fn temp(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("qpackages-test-settings-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("folder");
+        dir
+    }
+
+    fn write(path: &Path, text: &str) {
+        fs::create_dir_all(path.parent().expect("parent")).expect("folder");
+        fs::write(path, text).expect("file");
+    }
+
+    fn read(path: &Path) -> String {
+        fs::read_to_string(path).expect("readable")
+    }
+
+    const YAY: &str = "[aur]\nhelper = \"yay\"\n";
+
+    #[test]
+    fn the_old_folder_moves_whole_into_the_family_and_is_removed() {
+        let root = temp("move");
+        let folder = root.join("quvyta");
+        let legacy = root.join("quvyta-packages");
+        write(&legacy.join("settings.toml"), YAY);
+        write(&legacy.join("settings.toml.bak"), "old backup\n");
+
+        let settings = load_in(&folder, &legacy);
+
+        assert!(settings.diagnostics().is_empty(), "{:?}", settings.diagnostics());
+        assert_eq!(read(&folder.join("packages.conf")), YAY);
+        assert_eq!(read(&folder.join("packages").join("settings.toml.bak")), "old backup\n");
+        assert!(!legacy.exists(), "the emptied old folder is removed");
+        assert_eq!(aur_preference(&settings), AurPreference::Yay);
+        assert_eq!(settings.path(), Some(folder.join("packages.conf").as_path()));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_second_start_moves_nothing_and_reads_the_same() {
+        let root = temp("again");
+        let folder = root.join("quvyta");
+        let legacy = root.join("quvyta-packages");
+        write(&legacy.join("settings.toml"), YAY);
+        let _ = load_in(&folder, &legacy);
+
+        let settings = load_in(&folder, &legacy);
+
+        assert!(settings.diagnostics().is_empty(), "{:?}", settings.diagnostics());
+        assert_eq!(read(&folder.join("packages.conf")), YAY);
+        assert_eq!(aur_preference(&settings), AurPreference::Yay);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_existing_packages_conf_wins_and_the_old_file_stays_whole_and_is_reported() {
+        let root = temp("both");
+        let folder = root.join("quvyta");
+        let legacy = root.join("quvyta-packages");
+        write(&legacy.join("settings.toml"), YAY);
+        write(&folder.join("packages.conf"), "[aur]\nhelper = \"paru\"\n");
+
+        let settings = load_in(&folder, &legacy);
+
+        assert_eq!(read(&legacy.join("settings.toml")), YAY, "the old file is never touched");
+        assert_eq!(read(&folder.join("packages.conf")), "[aur]\nhelper = \"paru\"\n");
+        assert_eq!(aur_preference(&settings), AurPreference::Paru);
+        assert_eq!(settings.diagnostics().len(), 1, "{:?}", settings.diagnostics());
+        assert!(settings.diagnostics()[0].message.contains("settings.toml"), "{}", settings.diagnostics()[0]);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_fresh_start_writes_nothing_until_a_setting_changes() {
+        let root = temp("fresh");
+        let folder = root.join("quvyta");
+        let legacy = root.join("quvyta-packages");
+
+        let mut settings = load_in(&folder, &legacy);
+
+        assert!(settings.diagnostics().is_empty(), "{:?}", settings.diagnostics());
+        assert!(!folder.join("packages.conf").exists());
+        assert!(!legacy.exists());
+        settings.set(AUR_HELPER, "yay".to_owned());
+        settings.save().expect("saved");
+        assert_eq!(read(&folder.join("packages.conf")), YAY);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_damaged_old_file_is_moved_as_it_was_then_healed_with_a_backup() {
+        let root = temp("damaged");
+        let folder = root.join("quvyta");
+        let legacy = root.join("quvyta-packages");
+        let text = "[aur]\nhelper = \"trizen\"\n";
+        write(&legacy.join("settings.toml"), text);
+
+        let settings = load_in(&folder, &legacy);
+
+        assert_eq!(read(&folder.join("packages.conf.bak")), text, "what the user wrote is kept");
+        assert!(!settings.diagnostics().is_empty());
+        assert_eq!(aur_preference(&settings), AurPreference::Auto);
+        let _ = fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn every_source_is_on_and_the_helper_is_automatic_by_default() {

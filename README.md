@@ -48,9 +48,17 @@ family's themes, icons, keys and mouse behaviour.
 ## Install
 
 ```sh
+curl -fsSL https://raw.githubusercontent.com/quvyta/quvyta/main/install.sh | sh -s -- packages
+```
+
+Or with cargo:
+
+```sh
 cargo install quvyta-packages
 qpac
 ```
+
+If the command is not found, add `~/.cargo/bin` to your `PATH` (fish: `fish_add_path ~/.cargo/bin`).
 
 The program is installed as `qpac` and also under its full name, `quvyta-packages`. Release
 0.1.0 called the short command `qpackages`; from 0.1.1 on it is `qpac`, and `cargo install`
@@ -73,7 +81,10 @@ dragged.
 
 ### Settings
 
-The settings are in `~/.config/quvyta-packages/settings.toml` (or under `$XDG_CONFIG_HOME`):
+The settings are in `~/.config/quvyta/packages.conf` (or under `$XDG_CONFIG_HOME`), next to
+the other Quvyta applications' settings. Releases up to 0.1.1 kept them in
+`~/.config/quvyta-packages/settings.toml`; the first start of 0.1.2 moves that folder over, and
+a file already in the new place is never overwritten.
 
 ```toml
 [sources]
