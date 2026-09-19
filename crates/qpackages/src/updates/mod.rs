@@ -3,8 +3,9 @@
 //!
 //! The check itself is [`check::Checker`]; it runs in the background when the application has
 //! found its sources and whenever the user asks, and the list already on screen stays while it
-//! runs. Installing the updates is not offered yet: the administrator helper has no request that
-//! upgrades the system, and the button waits for it.
+//! runs. Arch's recent news is read beside it, since an update that needs the user's hand is
+//! announced there. "Update all" hands the repositories' updates to the transaction flow; the
+//! AUR's need building, which the flow does not do, so they are listed and not offered.
 
 pub mod check;
 mod restart;
@@ -13,12 +14,15 @@ mod tests;
 
 use qframe::prelude::*;
 use qframe::widgets::EmptyState;
+use qpackages_core::backup;
+use qpackages_core::news::NewsItem;
 use qpackages_core::pacman::Update;
 
 use crate::installed::TEXT_INDENT;
+use crate::transaction::view::backup_note;
 
 use check::{Failure, Found};
-use restart::needs_restart;
+pub use restart::needs_restart;
 
 /// Cells of a list row that are not its label or its note: the pillar with its space, the gap
 /// before the note, and the spare cell at the right edge.
@@ -41,6 +45,20 @@ pub struct Updates {
     aur_failure: Option<Failure>,
     /// The row selected in the list.
     selected: Option<usize>,
+    /// Arch's news of the last two weeks, once read.
+    news: News,
+}
+
+/// Arch's recent news, as far as it was read.
+#[derive(Debug, Default)]
+enum News {
+    /// Not read yet.
+    #[default]
+    Unread,
+    /// The items of the last two weeks, newest first.
+    Read(Vec<NewsItem>),
+    /// The feed could not be read; the list says so quietly and nothing waits for it.
+    Failed,
 }
 
 /// Everything that can happen in the tab.
@@ -52,13 +70,19 @@ pub enum Msg {
     Checked(Found),
     /// A row of the list was selected.
     Select(usize),
+    /// The user asked to update everything the repositories offer.
+    UpdateAll,
+    /// Arch's news of the last two weeks was read, or why not.
+    News(Result<Vec<NewsItem>, String>),
 }
 
 /// What the tab asks of the application.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Request {
     /// Start a check in the background.
     Check,
+    /// Update the system; these are the updates the confirmation lists.
+    UpdateAll(Vec<Update>),
 }
 
 /// What the tab needs from the rest of the application to draw itself.
@@ -70,6 +94,10 @@ pub struct Cx {
     pub utc_offset: i16,
     /// Whether a check can start: not before the sources are known.
     pub can_check: bool,
+    /// Whether a transaction is under way, so no update can start.
+    pub busy: bool,
+    /// What happens around an update, for the last line.
+    pub backup: backup::Plan,
 }
 
 impl Updates {
@@ -79,8 +107,30 @@ impl Updates {
             Msg::CheckNow => return self.start(),
             Msg::Checked(found) => self.found(found),
             Msg::Select(row) => self.selected = Some(row),
+            Msg::UpdateAll => {
+                let updates = self.upgradable();
+                return (!updates.is_empty()).then_some(Request::UpdateAll(updates));
+            }
+            Msg::News(Ok(items)) => self.news = News::Read(items),
+            Msg::News(Err(_)) => self.news = News::Failed,
         }
         None
+    }
+
+    /// The repositories' updates an update of the system brings: those pacman holds back are
+    /// left out, since pacman leaves them out too.
+    #[must_use]
+    pub fn upgradable(&self) -> Vec<Update> {
+        self.repo.iter().flatten().filter(|update| !update.ignored).cloned().collect()
+    }
+
+    /// Arch's recent news, once read.
+    #[must_use]
+    pub fn news(&self) -> &[NewsItem] {
+        match &self.news {
+            News::Read(items) => items,
+            News::Unread | News::Failed => &[],
+        }
     }
 
     /// Marks a check as running and asks for it, unless one already runs.
@@ -162,6 +212,13 @@ impl Updates {
                 }
                 ui.add(Text::new(status.join(" · ")).no_wrap()).fill_width();
                 ui.add(check).id("check-now");
+                if !self.upgradable().is_empty() {
+                    let all = Button::new(t!("updates.update-all"))
+                        .variant("primary")
+                        .disabled(cx.busy || !cx.can_check)
+                        .on_press(Msg::UpdateAll);
+                    ui.add(all).id("update-all");
+                }
             })
             .gap(2)
             .padding(Padding::symmetric(0, TEXT_INDENT))
@@ -171,13 +228,48 @@ impl Updates {
                     .fill_width()
                     .padding(Padding::symmetric(0, TEXT_INDENT));
             }
+            self.news_lines(ui, cx.utc_offset);
             let arrow = ui.env().icons().glyph("arrow-right").into_owned();
             let items = self.items(self.repo.as_deref(), aur, aur_failure, &arrow, usize::from(ui.size().width));
             let list = List::new(items).selected(self.selected).empty_text(t!("updates.none")).on_select(Msg::Select);
             ui.add(list).fill().id("updates");
+            if let Some(note) = backup_note(cx.backup).filter(|_| !self.upgradable().is_empty()) {
+                ui.add(Text::new(note).role("faint")).fill_width().padding(Padding::symmetric(0, TEXT_INDENT));
+            }
         })
         .gap(1)
         .fill();
+    }
+
+    /// Arch's news of the last two weeks, above the list: each item's day and headline, those
+    /// that ask for the user's hand in the warning tone. A feed that could not be read is one
+    /// quiet line; one with nothing recent takes no room.
+    fn news_lines(&self, ui: &mut View<'_, Msg>, utc_offset: i16) {
+        match &self.news {
+            News::Unread => {}
+            News::Failed => {
+                ui.add(Text::new(t!("news.unreadable")).role("faint").no_wrap())
+                    .fill_width()
+                    .padding(Padding::symmetric(0, TEXT_INDENT));
+            }
+            News::Read(items) if !items.is_empty() => {
+                ui.column(|ui| {
+                    for item in items {
+                        let date = day(item.published, utc_offset);
+                        let text = t!("news.item", date = date, title = item.title.as_str());
+                        let line = if item.manual_intervention {
+                            Text::new(t!("news.needs-hand", item = text)).color("warning")
+                        } else {
+                            Text::new(text).role("secondary")
+                        };
+                        ui.add(line.no_wrap()).fill_width();
+                    }
+                })
+                .padding(Padding::symmetric(0, TEXT_INDENT))
+                .fill_width();
+            }
+            News::Read(_) => {}
+        }
     }
 
     /// The list's rows: each source's updates under its heading, a source without updates left
@@ -254,6 +346,12 @@ fn reason(failure: &Failure) -> String {
         Failure::Said(text) if text.is_empty() => t!("updates.no-reason"),
         Failure::Said(text) => text.clone(),
     }
+}
+
+/// The day of `at` as `YYYY-MM-DD`, `utc_offset` minutes from UTC.
+fn day(at: i64, utc_offset: i16) -> String {
+    let date = qframe::date::DateTime::from_unix(at, utc_offset).date;
+    format!("{:04}-{:02}-{:02}", date.year(), date.month(), date.day())
 }
 
 /// `at` as `HH:MM`, `utc_offset` minutes from UTC.

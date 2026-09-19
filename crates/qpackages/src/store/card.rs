@@ -4,7 +4,6 @@
 //! reached; every word a card shows is therefore worked out in the view first and handed to the
 //! grid with the cards.
 
-use std::collections::HashSet;
 use std::rc::Rc;
 
 use qframe::icons::GlyphMode;
@@ -12,7 +11,7 @@ use qframe::prelude::*;
 use qframe::widgets::{CardGrid, EmptyState};
 use qpackages_core::sources::Source;
 
-use super::model::{Card, compact};
+use super::model::{Card, Installed, compact};
 use super::{Grid, Msg};
 use crate::icons;
 
@@ -84,12 +83,12 @@ fn source_label(source: Source) -> String {
 /// be cut: an installed card names the source it is installed from, since that is the one that
 /// counts now; an AUR card with votes leads with them, the way the design draws the AUR row;
 /// every other card lists its sources most trusted first.
-fn source_line(card: &Card, installed: &HashSet<String>) -> String {
+fn source_line(card: &Card, installed: &Installed) -> String {
     let offers = &card.app.offers;
     if card.installed {
         return offers
             .iter()
-            .filter(|offer| matches!(offer.source, Source::Pacman | Source::Aur) && installed.contains(&offer.package))
+            .filter(|offer| installed.has(offer))
             .map(|offer| source_label(offer.source))
             .next()
             .unwrap_or_default();
@@ -116,7 +115,7 @@ fn votes_arg(votes: u64) -> i64 {
 /// when there are no cards; without it an empty grid draws nothing.
 pub fn grid(
     ui: &mut View<'_, Msg>,
-    installed: &HashSet<String>,
+    installed: &Installed,
     grid: Grid,
     cards: &Rc<[Card]>,
     selected: Option<usize>,
@@ -166,14 +165,22 @@ fn draw(ui: &mut View<'_, Msg>, card: &Card, index: usize, selected: bool, words
         ui.add(Text::new(card.summary(words.turkish).unwrap_or_default()).color("muted").no_wrap()).fill_width();
     }
     if words.detail != Detail::NameOnly {
-        let mut line = vec![Span::new(words.lines[index].clone()).color("muted")];
+        let sources = &words.lines[index];
         if card.installed {
-            if !words.lines[index].is_empty() {
-                line.push(Span::new(" · ").color("muted"));
-            }
-            line.push(Span::new(words.installed.clone()).color("success"));
+            // The mark and its word are never cut; where the card is too narrow for both, the
+            // source's name gives way first.
+            ui.row(|ui| {
+                let separator = if sources.is_empty() { "" } else { " · " };
+                if !sources.is_empty() {
+                    ui.add(Text::new(sources.clone()).color("muted").no_wrap()).fill_width();
+                }
+                let width = qframe::text::width(separator) + qframe::text::width(&words.installed);
+                let mark = [Span::new(separator).color("muted"), Span::new(words.installed.clone()).color("success")];
+                ui.add(Text::rich(mark).no_wrap()).width(Length::Cells(width));
+            });
+        } else {
+            ui.add(Text::new(sources.clone()).color("muted").no_wrap()).fill_width();
         }
-        ui.add(Text::rich(line).no_wrap()).fill_width();
     }
 }
 

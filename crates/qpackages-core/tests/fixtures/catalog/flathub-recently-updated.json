@@ -1,0 +1,197 @@
+{
+ "hits": [
+  {
+   "app_id": "io.github.tfuxu.Halftone",
+   "name": "Halftone",
+   "summary": "Dither your images",
+   "type": "desktop-application",
+   "main_categories": "graphics",
+   "sub_categories": [
+    "ImageProcessing",
+    "Utility"
+   ],
+   "project_license": "GPL-3.0-or-later",
+   "updated_at": 1789827167,
+   "added_at": 1685341357,
+   "installs_last_month": 408
+  },
+  {
+   "app_id": "com.github.Bleuzen.FFaudioConverter",
+   "name": "FFaudioConverter",
+   "summary": "Batch audio converter and effects processor",
+   "type": "desktop-application",
+   "main_categories": "audiovideo",
+   "sub_categories": [
+    "Audio"
+   ],
+   "project_license": "GPL-3.0",
+   "updated_at": 1789826671,
+   "added_at": 1544185776,
+   "installs_last_month": 1007
+  },
+  {
+   "app_id": "io.appflowy.AppFlowy",
+   "name": "AppFlowy",
+   "summary": "Open Source Notion Alternative",
+   "type": "desktop-application",
+   "main_categories": "office",
+   "sub_categories": [],
+   "project_license": "AGPL-3.0-only",
+   "updated_at": 1789826456,
+   "added_at": 1665962157,
+   "installs_last_month": 3094
+  },
+  {
+   "app_id": "io.github.tfuxu.floodit",
+   "name": "Flood It",
+   "summary": "Flood the board",
+   "type": "desktop-application",
+   "main_categories": "game",
+   "sub_categories": [
+    "StrategyGame",
+    "BoardGame"
+   ],
+   "project_license": "GPL-3.0-or-later",
+   "updated_at": 1789825346,
+   "added_at": 1726471409,
+   "installs_last_month": 1021
+  },
+  {
+   "app_id": "com.github.skylot.jadx",
+   "name": "JADX",
+   "summary": "Dex to Java decompiler",
+   "type": "desktop-application",
+   "main_categories": "development",
+   "sub_categories": [],
+   "project_license": "Apache-2.0",
+   "updated_at": 1789822905,
+   "added_at": 1648448532,
+   "installs_last_month": 1217
+  },
+  {
+   "app_id": "io.tdarr.Tdarr_Node",
+   "name": "Tdarr Node",
+   "summary": "Processing node for Tdarr media automation",
+   "type": "desktop-application",
+   "main_categories": "audiovideo",
+   "sub_categories": [
+    "Video"
+   ],
+   "project_license": "LicenseRef-proprietary=https://github.com/HaveAGitGat/Tdarr/blob/8cf7b5204faa98c268d11d3f75ba8b1a5501ee5f/LICENSE.md",
+   "updated_at": 1789822005,
+   "added_at": 1779846762,
+   "installs_last_month": 167
+  },
+  {
+   "app_id": "io.tdarr.Tdarr_Server",
+   "name": "Tdarr Server",
+   "summary": "Server and web UI for Tdarr media automation",
+   "type": "desktop-application",
+   "main_categories": "audiovideo",
+   "sub_categories": [
+    "Video"
+   ],
+   "project_license": "LicenseRef-proprietary=https://github.com/HaveAGitGat/Tdarr/blob/8cf7b5204faa98c268d11d3f75ba8b1a5501ee5f/LICENSE.md",
+   "updated_at": 1789821983,
+   "added_at": 1778647529,
+   "installs_last_month": 104
+  },
+  {
+   "app_id": "studio.eufonia.EufoniaClient",
+   "name": "Eufonia Client",
+   "summary": "Join Minecraft in-game events",
+   "type": "desktop-application",
+   "main_categories": "game",
+   "sub_categories": [],
+   "project_license": "LicenseRef-proprietary",
+   "updated_at": 1789821862,
+   "added_at": 1731764106,
+   "installs_last_month": 299
+  },
+  {
+   "app_id": "dev.mariinkys.Clockode",
+   "name": "Clockode",
+   "summary": "TOTP Client",
+   "type": "desktop-application",
+   "main_categories": "utility",
+   "sub_categories": [],
+   "project_license": "GPL-3.0-only",
+   "updated_at": 1789819132,
+   "added_at": 1746795665,
+   "installs_last_month": 186
+  },
+  {
+   "app_id": "top.akizip.akizip",
+   "name": "Akizip",
+   "summary": "A modern front-end for 7-Zip on GNOME",
+   "type": "desktop-application",
+   "main_categories": "utility",
+   "sub_categories": [],
+   "project_license": "GPL-3.0-or-later",
+   "updated_at": 1789818541,
+   "added_at": 1778052592,
+   "installs_last_month": 3582
+  },
+  {
+   "app_id": "org.chromium.Chromium",
+   "name": "Chromium Web Browser",
+   "summary": "The web browser from Chromium project",
+   "type": "desktop-application",
+   "main_categories": "network",
+   "sub_categories": [
+    "WebBrowser"
+   ],
+   "project_license": "BSD-3-Clause and LGPL-2.1+ and Apache-2.0 and IJG and MIT and GPL-2.0+ and ISC and OpenSSL and (MPL-1.1 or GPL-2.0 or LGPL-2.0)",
+   "updated_at": 1789817253,
+   "added_at": 1602842796,
+   "installs_last_month": 26828
+  },
+  {
+   "app_id": "com.google.AndroidStudio",
+   "name": "Android Studio",
+   "summary": "IDE for Android app development",
+   "type": "desktop-application",
+   "main_categories": "development",
+   "sub_categories": [
+    "IDE"
+   ],
+   "project_license": "LicenseRef-proprietary",
+   "updated_at": 1789816979,
+   "added_at": 1515761933,
+   "installs_last_month": 12486
+  },
+  {
+   "app_id": "page.codeberg.JakobDev.jdTextEdit",
+   "name": "jdTextEdit",
+   "summary": "An advanced text editor",
+   "type": "desktop-application",
+   "main_categories": "development",
+   "sub_categories": [
+    "TextEditor",
+    "Qt"
+   ],
+   "project_license": "GPL-3.0-only",
+   "updated_at": 1789816589,
+   "added_at": 1688972774,
+   "installs_last_month": 117
+  },
+  {
+   "app_id": "dev.gbstudio.gb-studio",
+   "name": "GB Studio",
+   "summary": "A quick and easy to use drag and drop retro game creator for Game Boy",
+   "type": "desktop-application",
+   "main_categories": "development",
+   "sub_categories": [
+    "IDE"
+   ],
+   "project_license": "MIT",
+   "updated_at": 1789815697,
+   "added_at": 1680418800,
+   "installs_last_month": 439
+  }
+ ],
+ "hitsPerPage": 14,
+ "page": 1,
+ "totalPages": 110,
+ "totalHits": 3295
+}

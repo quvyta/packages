@@ -10,6 +10,7 @@ pub mod appstream;
 pub mod aur;
 pub mod category;
 pub mod featured;
+pub mod flatpak;
 pub mod gzip;
 mod json;
 pub mod merge;

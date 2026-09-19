@@ -63,8 +63,19 @@ fn the_kinds_count_the_results_and_filter_them() {
             .any(|line| line.starts_with('▌') && line.contains(" All ") && line.contains(&format!(" {total} "))),
         "the count beside All:\n{screen}"
     );
-    // The count leaves the longest kind's name cut; a click on what shows chooses it.
-    h.click_text("Audio & vi");
+    // A name too long to stand beside its count gives way to its short form, never to a cut.
+    let column: Vec<String> = screen.lines().map(|line| line.chars().take(18).collect()).collect();
+    assert!(column.iter().all(|cell| !cell.contains('…')), "no kind is cut:\n{screen}");
+    let media = column.iter().find(|cell| cell.contains("Media")).expect("the short name");
+    assert!(media.trim_end().ends_with(" 1"), "with its count:\n{screen}");
+    assert!(column.iter().any(|cell| cell.contains("Development")), "a name that fits stays whole:\n{screen}");
+    h.set_locale("tr");
+    let turkish = h.screen();
+    let column: Vec<String> = turkish.lines().map(|line| line.chars().take(18).collect()).collect();
+    assert!(column.iter().all(|cell| !cell.contains('…')), "no kind is cut:\n{turkish}");
+    assert!(column.iter().any(|cell| cell.contains("Medya")), "{turkish}");
+    h.set_locale("en");
+    h.click_text("Media");
     let shown: Vec<_> = h.app().store.results.iter().map(|card| card.app.category).collect();
     assert!(!shown.is_empty());
     assert!(shown.iter().all(|&category| category == qpackages_core::catalog::category::Category::AudioVideo));
@@ -82,7 +93,7 @@ fn sources_answering_at_different_times_never_reshuffle_what_is_shown() {
     assert!(first.contains(&String::from("com.obsproject.studio")), "{first:?}");
     h.send(Msg::Searching(generation));
     assert!(h.screen().contains("Searching: Repo, AUR"), "{}", h.screen());
-    let aur = data::search_aur(recorded.as_ref(), "obs").map(|found| Found::Aur(Arc::from(found)));
+    let aur = data::search_aur(recorded.as_ref(), "obs").map(aur_found);
     h.send(Msg::Found { generation, source: Source::Aur, answer: aur });
     let second = keys(&h);
     let kept: Vec<&String> = second.iter().filter(|key| first.contains(key)).collect();
@@ -103,7 +114,7 @@ fn an_answer_to_an_older_search_is_dropped() {
     let mut h = held(&recorded);
     let old = start(&mut h, "obs");
     let _ = start(&mut h, "gimp");
-    let aur = data::search_aur(recorded.as_ref(), "obs").map(|found| Found::Aur(Arc::from(found)));
+    let aur = data::search_aur(recorded.as_ref(), "obs").map(aur_found);
     h.send(Msg::Found { generation: old, source: Source::Aur, answer: aur });
     assert!(!keys(&h).iter().any(|key| key.starts_with("aur:")), "{:?}", keys(&h));
     assert_eq!(h.app().store.search.as_ref().map(|search| search.pending.len()), Some(2), "gimp still waits for both");
@@ -196,7 +207,7 @@ fn clearing_the_field_goes_home_and_drops_what_is_on_its_way() {
     h.send(Msg::Query(String::new()));
     assert!(h.app().store.search.is_none());
     assert!(h.screen().contains("Popular apps"), "{}", h.screen());
-    let aur = data::search_aur(recorded.as_ref(), "obs").map(|found| Found::Aur(Arc::from(found)));
+    let aur = data::search_aur(recorded.as_ref(), "obs").map(aur_found);
     h.send(Msg::Found { generation, source: Source::Aur, answer: aur });
     assert!(h.app().store.search.is_none(), "a late answer does not bring the search back");
 }
@@ -226,4 +237,48 @@ fn offline_a_catalog_application_leads_the_packages_that_match_as_well() {
     search_for(&mut h, "obs");
     let first = h.app().store.results.first().map(|card| card.key.clone());
     assert_eq!(first.as_deref(), Some("com.obsproject.studio"), "no popularity arrived, the catalog decides");
+}
+#[test]
+fn one_info_request_after_a_search_gives_cards_and_pages_the_same_record() {
+    let recorded = online();
+    answer_obs(&recorded);
+    let found = data::search_aur(recorded.as_ref(), "obs").expect("the recorded search");
+    let first = data::first_results(&found, "obs");
+    assert_eq!(&first[..3], ["obs-pipewire-audio-capture", "obs-studio-liberty", "obs-wayland-hotkeys-git"]);
+    let urls = aur::info_urls(&first);
+    assert_eq!(urls.len(), 1, "one request");
+    answer_url(&recorded, &urls[0], &fixture("aur-info-obs.json"));
+    let mut h = harness(page(&recorded, true), 110, 34, GlyphMode::Unicode);
+    search_for(&mut h, "obs");
+    let info_calls = |recorded: &Recorded| {
+        recorded.command_lines().into_iter().filter(|line| line.contains("/rpc/v5/info?")).count()
+    };
+    let before = info_calls(&recorded);
+    let search = h.app().store.search.as_ref().expect("a search");
+    assert_eq!(search.aur_detailed.len(), 20, "every result was detailed");
+    let capture = search.aur.iter().find(|package| package.name == "obs-vkcapture").expect("found");
+    assert_eq!(capture.licenses, ["GPL-2.0-or-later"], "the full record took the summary's place");
+    h.click_text("obs-vkcapture");
+    h.render();
+    h.advance(Duration::from_secs(1));
+    let screen = h.screen();
+    for text in ["License  GPL-2.0-or-later", "Votes  25", "Maintainer  maintainer-6", "Depends on"] {
+        assert!(screen.contains(text), "`{text}` is missing:\n{screen}");
+    }
+    assert_eq!(info_calls(&recorded), before, "the page asked the AUR nothing more");
+}
+
+#[test]
+fn more_than_fifty_results_ask_about_the_first_fifty_only() {
+    let packages: Vec<AurPackage> = (0..80)
+        .map(|index| AurPackage {
+            name: format!("obs-plugin-{index:02}"),
+            popularity: f64::from(index),
+            ..AurPackage::default()
+        })
+        .collect();
+    let first = data::first_results(&packages, "obs");
+    assert_eq!(first.len(), data::AUR_DETAILED);
+    assert_eq!(first[0], "obs-plugin-79", "the most popular first among equal matches");
+    assert_eq!(aur::info_urls(&first).len(), 1);
 }

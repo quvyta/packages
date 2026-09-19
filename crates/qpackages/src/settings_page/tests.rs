@@ -31,9 +31,9 @@ fn written(h: &mut Harness<Qpackages>, scratch: &Scratch) -> String {
 
 #[test]
 fn the_page_lists_the_settings_that_exist_under_their_headings() {
-    let (h, _scratch, _) = page(100, 40);
+    let (h, _scratch, _) = page(100, 80);
     let screen = h.screen();
-    let headings = ["Sources", "Permission", "Appearance"];
+    let headings = ["Sources", "\n  Updates\n", "Backup", "Cleanup", "Mirrors", "Permission", "Appearance"];
     let positions: Vec<usize> = headings.iter().map(|text| screen.find(text).expect("a heading")).collect();
     assert!(positions.windows(2).all(|pair| pair[0] < pair[1]), "{screen}");
     for text in [
@@ -54,9 +54,6 @@ fn the_page_lists_the_settings_that_exist_under_their_headings() {
         "Pillar",
     ] {
         assert!(screen.contains(text), "`{text}` is missing:\n{screen}");
-    }
-    for later in ["Backup", "Mirrors", "reflector", "Cleanup"] {
-        assert!(!screen.contains(later), "`{later}` has no setting yet:\n{screen}");
     }
 }
 

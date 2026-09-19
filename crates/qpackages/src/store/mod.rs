@@ -8,8 +8,12 @@
 //! rest on:
 //!
 //! ```text
+//! // built with the folder its rankings are kept in:
+//! Store::new(machine, enabled).with_cache(Some(cache.join("quvyta/packages")))
 //! Msg::Store(store::Msg::Request(request)) => /* route: transaction flow, settings page */
 //! Msg::Store(msg) => return self.store.update(msg).map(Msg::Store),
+//! // after each read of the local database, the installed Flatpaks are read too:
+//! return self.store.machine_read(&sources, names).map(Msg::Store),
 //! // in view:
 //! ui.map(Msg::Store, |ui| self.store.view(ui)).fill();
 //! ```
@@ -17,6 +21,7 @@
 //! Nothing is read before [`Store::init`], and everything read after runs in the background: the
 //! first frame shows the built-in starter list, and the network's ranking replaces it in place.
 
+mod cache;
 mod card;
 mod data;
 mod model;
@@ -27,22 +32,24 @@ mod view;
 mod tests;
 
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use qframe::prelude::*;
 use qframe::runtime::{Task, TaskId};
 use qpackages_core::catalog::aur::AurPackage;
 use qpackages_core::catalog::featured::{self, FeaturedApp};
+use qpackages_core::catalog::flatpak::InstalledApp;
 use qpackages_core::catalog::merge::{Offer, RepoPackage, id_key, merge};
-use qpackages_core::catalog::popularity::{FlathubInstalls, PackageShare};
+use qpackages_core::catalog::popularity::{FlathubInstalls, FlathubUpdate, PackageShare};
 use qpackages_core::catalog::repo::RepoInfo;
 use qpackages_core::catalog::search::{Generation, Generations, SearchIndex};
-use qpackages_core::sources::{Source, Sources};
+use qpackages_core::sources::{Availability, Source, Sources};
 
-pub use data::{Failure, Loaded, Machine, SWCATALOG, flatpak_catalogs};
-use model::{Card, Kind, Popularity, Sort};
+pub use data::{Cached, Failure, Loaded, Machine, SWCATALOG, flatpak_catalogs};
+use model::{Card, Installed, Kind, Popularity, Sort};
 
 /// The starter list, compiled in: it is what the home page shows before anything is read.
 const FEATURED: &str = include_str!("../../assets/catalog/featured.toml");
@@ -84,6 +91,8 @@ pub enum Section {
     Popular,
     /// Popular packages only the AUR has.
     Aur,
+    /// What Flathub updated last.
+    Recent,
 }
 
 /// A grid of cards on screen; each keeps its own selection.
@@ -115,6 +124,7 @@ impl Page {
             Self::Home => String::from("home"),
             Self::Section(Section::Popular) => String::from("all-popular"),
             Self::Section(Section::Aur) => String::from("all-aur"),
+            Self::Section(Section::Recent) => String::from("all-recent"),
             Self::App(key) => format!("app:{key}"),
         }
     }
@@ -126,7 +136,13 @@ pub enum Found {
     /// The repositories' packages.
     Repo(Arc<[RepoPackage]>),
     /// The AUR's packages.
-    Aur(Arc<[AurPackage]>),
+    Aur {
+        /// What the search found, with the full record in place of the summary for the names in
+        /// `detailed`.
+        packages: Arc<[AurPackage]>,
+        /// The packages the AUR's `info` answered about.
+        detailed: Arc<HashSet<String>>,
+    },
 }
 
 /// What is known about one offer of an open application, beyond its card.
@@ -173,12 +189,18 @@ pub enum Msg {
     Searching(Generation),
     /// The catalogs on disk were read.
     Loaded(Arc<Loaded>),
+    /// The rankings kept from an earlier run were read.
+    Cached(Arc<Cached>),
     /// pkgstats answered.
     Pkgstats(Result<Arc<[PackageShare]>, Failure>),
     /// Flathub's ranking answered.
     Flathub(Result<Arc<[FlathubInstalls]>, Failure>),
+    /// Flathub said what it updated last.
+    FlathubRecent(Result<Arc<[FlathubUpdate]>, Failure>),
     /// The AUR answered about the packages of the AUR row.
     AurStats(Result<Arc<[AurPackage]>, Failure>),
+    /// `flatpak list` said which applications are installed.
+    Flatpaks(Result<Arc<[InstalledApp]>, Failure>),
     /// A source answered a search.
     Found {
         /// The search it answers.
@@ -211,6 +233,8 @@ struct Search {
     failed: Vec<(Source, Failure)>,
     repo: Arc<[RepoPackage]>,
     aur: Arc<[AurPackage]>,
+    /// The AUR packages whose full record is in `aur`, so their page needs no other request.
+    aur_detailed: Arc<HashSet<String>>,
     /// Every result, in the order shown.
     ranked: Vec<Card>,
     /// Whether the search has run long enough to show that it is running.
@@ -236,24 +260,29 @@ struct OpenApp {
 /// The Discover page.
 pub struct Store {
     machine: Machine,
+    /// Where the network's rankings are kept between runs; `None` keeps nothing.
+    cache: Option<PathBuf>,
     /// The sources the settings keep on, in the order the settings list them.
     enabled: Vec<Source>,
     /// Which sources this machine has, once the application looked.
     sources: Option<Sources>,
-    /// The names of the installed pacman packages.
-    installed: HashSet<String>,
+    /// The installed pacman packages and Flatpak applications.
+    installed: Installed,
     featured: Vec<FeaturedApp>,
     loaded: Option<Arc<Loaded>>,
     /// Where each catalog application is in `loaded.apps`, by id key.
     catalog_index: HashMap<String, usize>,
     popularity: Popularity,
     aur_stats: Arc<[AurPackage]>,
+    flathub_recent: Arc<[FlathubUpdate]>,
     /// The home rows' whole lists, before the kind is applied.
     popular_all: Vec<Card>,
     aur_all: Vec<Card>,
+    recent_all: Vec<Card>,
     /// The home rows' lists for the kind chosen, shared with the grids.
     popular: Rc<[Card]>,
     aur_row: Rc<[Card]>,
+    recent_row: Rc<[Card]>,
     /// The search results for the kind chosen, at most [`MAX_RESULTS`].
     results: Rc<[Card]>,
     kind: Kind,
@@ -295,18 +324,22 @@ impl Store {
         let featured = featured::parse(FEATURED).0;
         let mut store = Self {
             machine,
+            cache: None,
             enabled,
             sources: None,
-            installed: HashSet::new(),
+            installed: Installed::default(),
             featured,
             loaded: None,
             catalog_index: HashMap::new(),
             popularity: Popularity::default(),
             aur_stats: Arc::from([]),
+            flathub_recent: Arc::from([]),
             popular_all: Vec::new(),
             aur_all: Vec::new(),
+            recent_all: Vec::new(),
             popular: Rc::from([]),
             aur_row: Rc::from([]),
+            recent_row: Rc::from([]),
             results: Rc::from([]),
             kind: Kind::All,
             source_row: None,
@@ -326,8 +359,17 @@ impl Store {
         store
     }
 
-    /// Starts reading the catalogs and asking the network for its rankings, in the background.
-    /// Only the first call does anything.
+    /// Keeps the network's rankings in `folder` between runs (`~/.cache/quvyta/packages`), so
+    /// the next start shows them before the network answers and asks again only once a day.
+    /// Without it every start asks the network and keeps nothing.
+    #[must_use]
+    pub fn with_cache(mut self, folder: Option<PathBuf>) -> Self {
+        self.cache = folder;
+        self
+    }
+
+    /// Starts reading the catalogs and the kept rankings, and asking the network for the rankings
+    /// that are not recent, in the background. Only the first call does anything.
     pub fn init(&mut self) -> Command<Msg> {
         if self.started {
             return Command::none();
@@ -335,34 +377,85 @@ impl Store {
         self.started = true;
         let loader = self.machine.clone();
         let mut commands = vec![Command::perform(move || Msg::Loaded(Arc::new(data::load(&loader))))];
-        let runner = Arc::clone(&self.machine.runner);
-        commands.push(Command::perform(move || Msg::Pkgstats(data::pkgstats(runner.as_ref()).map(Arc::from))));
-        if self.enabled.contains(&Source::Flatpak) {
-            let runner = Arc::clone(&self.machine.runner);
-            commands
-                .push(Command::perform(move || Msg::Flathub(data::flathub_popular(runner.as_ref()).map(Arc::from))));
+        match self.cache.clone() {
+            // The kept rankings are read first; what is missing or old is asked for once they are.
+            Some(folder) => {
+                commands.push(Command::perform(move || {
+                    Msg::Cached(Arc::new(data::read_cached(&folder, SystemTime::now())))
+                }));
+            }
+            None => commands.extend(self.ask_rankings(&Cached::default())),
         }
-        let aur_names: Vec<String> = self
-            .aur_all
+        Command::batch(commands)
+    }
+
+    /// The packages of the AUR row, which the AUR is asked about.
+    fn aur_row_names(&self) -> Vec<String> {
+        self.aur_all
             .iter()
             .flat_map(|card| card.app.offers.iter().filter(|offer| offer.source == Source::Aur))
             .map(|offer| offer.package.clone())
-            .collect();
-        if !aur_names.is_empty() {
-            let runner = Arc::clone(&self.machine.runner);
+            .collect()
+    }
+
+    /// Asks the network for every ranking `kept` has no recent answer for.
+    fn ask_rankings(&self, kept: &Cached) -> Vec<Command<Msg>> {
+        let mut commands = Vec::new();
+        let recent = |fresh: Option<bool>| fresh == Some(true);
+        if !recent(kept.pkgstats.as_ref().map(|kept| kept.fresh)) {
+            let (runner, keep) = (Arc::clone(&self.machine.runner), self.cache.clone());
             commands.push(Command::perform(move || {
-                Msg::AurStats(data::aur_info(runner.as_ref(), &aur_names).map(Arc::from))
+                Msg::Pkgstats(data::pkgstats(runner.as_ref(), keep.as_deref()).map(Arc::from))
             }));
         }
-        Command::batch(commands)
+        if self.is_enabled(Source::Flatpak) && !recent(kept.flathub.as_ref().map(|kept| kept.fresh)) {
+            let (runner, keep) = (Arc::clone(&self.machine.runner), self.cache.clone());
+            commands.push(Command::perform(move || {
+                Msg::Flathub(data::flathub_popular(runner.as_ref(), keep.as_deref()).map(Arc::from))
+            }));
+        }
+        if self.is_enabled(Source::Flatpak) && !recent(kept.flathub_recent.as_ref().map(|kept| kept.fresh)) {
+            let (runner, keep) = (Arc::clone(&self.machine.runner), self.cache.clone());
+            commands.push(Command::perform(move || {
+                Msg::FlathubRecent(data::flathub_recent(runner.as_ref(), keep.as_deref()).map(Arc::from))
+            }));
+        }
+        let names = self.aur_row_names();
+        if !names.is_empty() && !recent(kept.aur_row.as_ref().map(|kept| kept.fresh)) {
+            let (runner, keep) = (Arc::clone(&self.machine.runner), self.cache.clone());
+            commands.push(Command::perform(move || {
+                Msg::AurStats(data::aur_row(runner.as_ref(), &names, keep.as_deref()).map(Arc::from))
+            }));
+        }
+        commands
     }
 
     /// Tells the page what the machine has: which sources' programs exist and which pacman
     /// packages are installed. Call it after every read of the local database, so "Installed"
     /// marks and the Install and Remove buttons follow what a transaction changed.
-    pub fn machine_read(&mut self, sources: &Sources, installed: impl IntoIterator<Item = String>) {
+    ///
+    /// The command it returns asks `flatpak list` which applications are installed, when Flatpak
+    /// is on in the settings and this machine has it; the application runs it through
+    /// [`Command::map`] like the page's other work. Listing changes nothing and needs no
+    /// permission.
+    pub fn machine_read(&mut self, sources: &Sources, installed: impl IntoIterator<Item = String>) -> Command<Msg> {
         self.sources = Some(sources.clone());
-        self.installed = installed.into_iter().collect();
+        self.installed.packages = installed.into_iter().collect();
+        self.installed_changed();
+        let has_flatpak = matches!(sources.get(Source::Flatpak), Availability::Ready { .. });
+        if !(has_flatpak && self.is_enabled(Source::Flatpak)) {
+            if !self.installed.flatpaks.is_empty() {
+                self.installed.flatpaks.clear();
+                self.installed_changed();
+            }
+            return Command::none();
+        }
+        let runner = Arc::clone(&self.machine.runner);
+        Command::perform(move || Msg::Flatpaks(data::installed_flatpaks(runner.as_ref()).map(Arc::from)))
+    }
+
+    /// Works out every "Installed" mark again after the installed packages changed.
+    fn installed_changed(&mut self) {
         self.rebuild_home();
         self.rebuild_results();
         if let Some(open) = &mut self.open {
@@ -457,21 +550,51 @@ impl Store {
                 // while sources are still answering.
                 self.rebuild_results();
             }
+            Msg::Cached(kept) => {
+                // A kept ranking takes its place the way the network's answer would, so the rows
+                // take their order once and the answer that follows changes only what moved.
+                if let Some(shares) = &kept.pkgstats {
+                    self.apply_pkgstats(&shares.value);
+                }
+                if let Some(hits) = &kept.flathub {
+                    self.popularity.flathub_order = hits.value.iter().map(|hit| hit.app_id.clone()).collect();
+                }
+                if let Some(updates) = &kept.flathub_recent {
+                    self.flathub_recent = Arc::from(updates.value.as_slice());
+                }
+                if let Some(stats) = &kept.aur_row {
+                    self.aur_stats = Arc::from(stats.value.as_slice());
+                }
+                self.rebuild_home();
+                return Command::batch(self.ask_rankings(&kept));
+            }
             Msg::Pkgstats(Ok(shares)) => {
-                self.popularity.repo_order = shares.iter().map(|share| share.name.clone()).collect();
-                self.popularity.repo = shares.iter().map(|share| (share.name.clone(), share.popularity)).collect();
+                self.apply_pkgstats(&shares);
                 self.rebuild_home();
             }
             Msg::Flathub(Ok(hits)) => {
                 self.popularity.flathub_order = hits.iter().map(|hit| hit.app_id.clone()).collect();
                 self.rebuild_home();
             }
+            Msg::FlathubRecent(Ok(updates)) => {
+                self.flathub_recent = updates;
+                self.rebuild_home();
+            }
             Msg::AurStats(Ok(stats)) => {
                 self.aur_stats = stats;
                 self.rebuild_home();
             }
-            // Without the network the starter list stays; there is nothing to tell.
-            Msg::Pkgstats(Err(_)) | Msg::Flathub(Err(_)) | Msg::AurStats(Err(_)) => {}
+            Msg::Flatpaks(Ok(apps)) => {
+                self.installed.set_flatpaks(&apps);
+                self.installed_changed();
+            }
+            // Without the network the starter list stays; there is nothing to tell. Without
+            // Flatpak nothing is installed from it.
+            Msg::Pkgstats(Err(_))
+            | Msg::Flathub(Err(_))
+            | Msg::FlathubRecent(Err(_))
+            | Msg::AurStats(Err(_))
+            | Msg::Flatpaks(Err(_)) => {}
             Msg::Found { generation, source, answer } => self.found(generation, source, answer),
             Msg::Details { key, offer, answer } => {
                 if let Some(open) = &mut self.open
@@ -544,6 +667,7 @@ impl Store {
         match grid {
             Grid::Row(Section::Popular) | Grid::All(Section::Popular) => Rc::clone(&self.popular),
             Grid::Row(Section::Aur) | Grid::All(Section::Aur) => Rc::clone(&self.aur_row),
+            Grid::Row(Section::Recent) | Grid::All(Section::Recent) => Rc::clone(&self.recent_row),
             Grid::Results => Rc::clone(&self.results),
         }
     }
@@ -564,6 +688,11 @@ impl Store {
     /// The offers the checked cards install.
     fn checked_offers(&self) -> Vec<Offer> {
         self.checked.iter().map(|(_, offer)| offer.clone()).collect()
+    }
+
+    fn apply_pkgstats(&mut self, shares: &[PackageShare]) {
+        self.popularity.repo_order = shares.iter().map(|share| share.name.clone()).collect();
+        self.popularity.repo = shares.iter().map(|share| (share.name.clone(), share.popularity)).collect();
     }
 
     /// Works the home rows out again from what is known now.
@@ -598,6 +727,18 @@ impl Store {
         } else {
             Vec::new()
         };
+        self.recent_all = if self.is_enabled(Source::Flatpak) {
+            self.flathub_recent
+                .iter()
+                .filter_map(|update| {
+                    let app = model::recent_app(update, &self.catalog_index, apps);
+                    model::keep_enabled(app, &self.enabled)
+                })
+                .map(|app| Card::new(app, installed))
+                .collect()
+        } else {
+            Vec::new()
+        };
         let kind = self.kind;
         // Fonts are browsed under their own kind, not among the popular applications.
         let fits = |card: &&Card| match kind {
@@ -606,6 +747,7 @@ impl Store {
         };
         self.popular = self.popular_all.iter().filter(fits).cloned().collect();
         self.aur_row = self.aur_all.iter().filter(fits).cloned().collect();
+        self.recent_row = self.recent_all.iter().filter(fits).cloned().collect();
     }
 
     fn query_changed(&mut self, text: String) -> Command<Msg> {
@@ -651,6 +793,7 @@ impl Store {
             failed: Vec::new(),
             repo: Arc::from([]),
             aur: Arc::from([]),
+            aur_detailed: Arc::default(),
             ranked: Vec::new(),
             spinner: false,
         });
@@ -667,7 +810,9 @@ impl Store {
         let query = query.to_owned();
         Command::perform(move || {
             let answer = match source {
-                Source::Aur => data::search_aur(runner.as_ref(), &query).map(|found| Found::Aur(Arc::from(found))),
+                Source::Aur => data::search_aur_detailed(runner.as_ref(), &query).map(|(packages, detailed)| {
+                    Found::Aur { packages: Arc::from(packages), detailed: Arc::new(detailed) }
+                }),
                 _ => data::search_repo(runner.as_ref(), &query).map(|found| Found::Repo(Arc::from(found))),
             };
             Msg::Found { generation, source, answer }
@@ -692,7 +837,10 @@ impl Store {
         search.pending.retain(|&waiting| waiting != source);
         match answer {
             Ok(Found::Repo(packages)) => search.repo = packages,
-            Ok(Found::Aur(packages)) => search.aur = packages,
+            Ok(Found::Aur { packages, detailed }) => {
+                search.aur = packages;
+                search.aur_detailed = detailed;
+            }
             Err(failure) => search.failed.push((source, failure)),
         }
         self.rebuild_results();
@@ -762,11 +910,27 @@ impl Store {
     }
 
     fn open_app(&mut self, card: Card) -> Command<Msg> {
-        let offers = card.app.offers.len();
         let key = card.key.clone();
-        self.open = Some(OpenApp { card, offer: 0, details: vec![None; offers] });
+        // What the search's own `info` request brought is the page's already: the card and the
+        // page show the same record, and the AUR is not asked twice.
+        let details = card
+            .app
+            .offers
+            .iter()
+            .map(|offer| {
+                let search = self.search.as_ref().filter(|_| offer.source == Source::Aur)?;
+                if !search.aur_detailed.contains(&offer.package) {
+                    return None;
+                }
+                let package = search.aur.iter().find(|package| package.name == offer.package)?;
+                Some(Ok(Details::Aur(Box::new(package.clone()))))
+            })
+            .collect();
+        self.open = Some(OpenApp { card, offer: 0, details });
         self.router.push(Page::App(key));
-        Command::batch([self.fetch_details(0), Command::focus("store-back")])
+        let known = self.open.as_ref().is_some_and(|open| open.details.first().is_some_and(Option::is_some));
+        let details = if known { Command::none() } else { self.fetch_details(0) };
+        Command::batch([details, Command::focus("store-back")])
     }
 
     fn choose_offer(&mut self, index: usize) -> Command<Msg> {

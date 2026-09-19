@@ -5,7 +5,7 @@ repository = "https://github.com/quvyta/packages"
 readme = "../../README.md"
 keywords = ["tui", "terminal", "pacman", "arch", "packages"]
 categories = ["command-line-utilities"]
-version = "0.1.4"
+version = "0.1.5"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -22,7 +22,7 @@ name = "quvyta-packages"
 path = "src/bin/quvyta-packages.rs"
 
 [dependencies]
-quvyta-packages-core = { version = "0.1.2", path = "../qpackages-core" }
+quvyta-packages-core = { version = "0.1.3", path = "../qpackages-core" }
 quvyta-framework = "0.1.7"
 
 [lints]

@@ -2,6 +2,8 @@
 //! details beside it (or instead of it on a narrow screen), and a summary line with the removal
 //! at the bottom.
 
+use std::collections::BTreeSet;
+
 use qframe::prelude::*;
 use qframe::widgets::{Segmented, Splitter, Table, TextInput};
 
@@ -112,7 +114,7 @@ impl Installed {
             t!("packages.none-installed")
         };
         let key = RowsKey::new(ui.env().icons().mode(), narrow);
-        let rows = self.rows.get(key, |key| table::rows(cx.library.packages, &self.shown, cx.library.foreign, key));
+        let rows = self.rows.get(key, |key| table::rows(cx.library, &self.shown, key));
         let (col, direction) = self.sort;
         let sort_index = cols.iter().position(|shown| *shown == col).unwrap_or(0);
         let table = Table::new(table::columns(cols), rows)
@@ -148,8 +150,17 @@ impl Installed {
         if !self.checked.is_empty() {
             parts.push(t!("transaction.checked", n = self.checked.len()));
         }
+        // Orphans are a matter of every package, where they are marked; among the applications
+        // they would be a count of rows that are not there.
+        let orphans = cx.library.orphans.as_ref().map_or(0, BTreeSet::len);
+        let clean = self.show == Show::All && orphans > 0;
         ui.row(|ui| {
             ui.add(Text::new(parts.join(" · ")).role("faint").no_wrap()).fill_width();
+            if clean {
+                ui.add(Text::new(t!("installed.orphans", n = orphans)).role("faint").no_wrap());
+                let button = Button::new(t!("installed.clean-up")).loading(cx.planning).on_press(Msg::CleanOrphans);
+                ui.add(button).id("clean-orphans");
+            }
             if !self.checked.is_empty() {
                 let remove = Button::new(t!("installed.remove-checked"))
                     .variant("danger")

@@ -87,26 +87,7 @@ pub(super) fn ask_to_install_flatpak(h: &mut Harness<Qpackages>) {
     }
 }
 
-/// Where `label` stands as a whole word in `line`: `Install` in a button, not in `Installed`.
-fn word_at(line: &str, label: &str) -> Option<usize> {
-    line.match_indices(label)
-        .map(|(start, _)| start)
-        .find(|&start| !line[start + label.len()..].starts_with(char::is_alphabetic))
-}
-
-/// Clicks the last place `label` appears on screen as a word: a dialog's action buttons sit at
-/// its bottom, below a title that may carry the same word; a toast's `Installed` is not `Install`.
-pub(super) fn click_last(h: &mut Harness<Qpackages>, label: &str) {
-    let screen = h.screen();
-    let (y, line, start) = screen
-        .lines()
-        .enumerate()
-        .filter_map(|(y, line)| word_at(line, label).map(|start| (y, line, start)))
-        .last()
-        .unwrap_or_else(|| panic!("`{label}` is not on screen:\n{screen}"));
-    let x = line[..start].chars().count();
-    h.click(i32::try_from(x).expect("a screen column"), i32::try_from(y).expect("a screen row"));
-}
+pub(super) use crate::testing::click_last;
 
 /// Lets the chain after a confirmation run to its end: the handoff, the helper's start in the
 /// background, then the transaction. Toasts slide in; a moment passes so the words are on screen.

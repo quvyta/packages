@@ -1,5 +1,6 @@
 //! How widely packages are used: pkgstats for the repositories, Flathub's own numbers for
-//! Flatpak. (The AUR's votes and popularity come with its RPC answers.)
+//! Flatpak. (The AUR's votes and popularity come with its RPC answers.) Also what Flathub
+//! updated last, for the home page's "recently updated" row.
 //!
 //! pkgstats counts the machines that report their installed packages each month, so its top is
 //! `bash` and `glibc` at 100 %; the store intersects it with the AppStream applications before
@@ -34,6 +35,22 @@ pub struct FlathubInstalls {
     pub installs_last_month: u64,
 }
 
+/// An application Flathub updated recently, as its collection describes it: enough for a card
+/// when no catalog on disk knows the application yet.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FlathubUpdate {
+    /// The application id, the same as its AppStream id.
+    pub app_id: String,
+    /// Its name, in English.
+    pub name: String,
+    /// Its one-line summary, in English.
+    pub summary: Option<String>,
+    /// Flathub's main category, a freedesktop name in lower case (`audiovideo`).
+    pub main_category: Option<String>,
+    /// When it was last updated, as a Unix timestamp.
+    pub updated_at: Option<i64>,
+}
+
 /// A page of pkgstats' package list, most used first. `limit` is capped at
 /// [`PKGSTATS_MAX_LIMIT`]; the whole list is a few pages of it, with `offset` moving by `limit`.
 #[must_use]
@@ -48,6 +65,34 @@ pub fn pkgstats_url(limit: u32, offset: u32) -> String {
 pub fn flathub_popular_url(page: u32, per_page: u32) -> String {
     let per_page = per_page.min(FLATHUB_MAX_PER_PAGE);
     format!("https://flathub.org/api/v2/collection/popular?page={}&per_page={per_page}", page.max(1))
+}
+
+/// A page of Flathub's most recently updated applications, counted from 1. `per_page` is capped
+/// at [`FLATHUB_MAX_PER_PAGE`].
+#[must_use]
+pub fn flathub_recent_url(page: u32, per_page: u32) -> String {
+    let per_page = per_page.min(FLATHUB_MAX_PER_PAGE);
+    format!("https://flathub.org/api/v2/collection/recently-updated?page={}&per_page={per_page}", page.max(1))
+}
+
+/// Reads a Flathub `recently-updated` answer, keeping its order (latest first). An entry without
+/// an id or a name is skipped; a missing summary, category or date is left empty.
+pub fn parse_flathub_recent(json: &str) -> Result<Vec<FlathubUpdate>, Problem> {
+    let value = json::parse(json)?;
+    let hits = list(&value, "hits")?;
+    Ok(hits
+        .iter()
+        .filter_map(|hit| {
+            let text = |key: &str| json::text(hit, key).map(str::to_owned);
+            Some(FlathubUpdate {
+                app_id: text("app_id")?,
+                name: text("name")?,
+                summary: text("summary"),
+                main_category: text("main_categories"),
+                updated_at: json::integer(hit, "updated_at"),
+            })
+        })
+        .collect())
 }
 
 /// Reads a pkgstats `/api/packages` answer, keeping its order (most used first). An entry
@@ -91,6 +136,7 @@ mod tests {
 
     const PKGSTATS: &str = include_str!("../../tests/fixtures/catalog/pkgstats.json");
     const FLATHUB: &str = include_str!("../../tests/fixtures/catalog/flathub-popular.json");
+    const RECENT: &str = include_str!("../../tests/fixtures/catalog/flathub-recently-updated.json");
 
     #[test]
     fn page_urls_cap_what_the_servers_refuse() {
@@ -98,6 +144,10 @@ mod tests {
         assert_eq!(pkgstats_url(99_999, 10_000), "https://pkgstats.archlinux.de/api/packages?limit=10000&offset=10000");
         assert_eq!(flathub_popular_url(1, 30), "https://flathub.org/api/v2/collection/popular?page=1&per_page=30");
         assert_eq!(flathub_popular_url(0, 1000), "https://flathub.org/api/v2/collection/popular?page=1&per_page=250");
+        assert_eq!(
+            flathub_recent_url(1, 30),
+            "https://flathub.org/api/v2/collection/recently-updated?page=1&per_page=30"
+        );
     }
 
     #[test]
@@ -116,6 +166,28 @@ mod tests {
             apps[1],
             FlathubInstalls { app_id: String::from("org.mozilla.firefox"), installs_last_month: 186_403 }
         );
+    }
+
+    #[test]
+    fn reads_the_recorded_recently_updated_page() {
+        let apps = parse_flathub_recent(RECENT).expect("a real answer");
+        assert_eq!(apps.len(), 14);
+        assert_eq!(
+            apps[1],
+            FlathubUpdate {
+                app_id: String::from("com.github.Bleuzen.FFaudioConverter"),
+                name: String::from("FFaudioConverter"),
+                summary: Some(String::from("Batch audio converter and effects processor")),
+                main_category: Some(String::from("audiovideo")),
+                updated_at: Some(1_789_826_671),
+            }
+        );
+        assert!(apps.windows(2).all(|pair| pair[0].updated_at >= pair[1].updated_at), "latest first");
+        let partial = r#"{"hits":[{"app_id":"a.b.C"},{"app_id":"d.e.F","name":"F","updated_at":"soon"}]}"#;
+        let apps = parse_flathub_recent(partial).expect("readable");
+        assert_eq!(apps.len(), 1, "no name, no card");
+        assert_eq!((apps[0].summary.as_deref(), apps[0].updated_at), (None, None));
+        assert!(parse_flathub_recent("{\"hits\": 3}").is_err());
     }
 
     #[test]

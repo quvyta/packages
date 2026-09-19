@@ -1,0 +1,4 @@
+com.spotify.Client	system
+org.gimp.GIMP	system
+org.videolan.VLC	user
+org.gimp.GIMP	user

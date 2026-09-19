@@ -6,6 +6,8 @@ use std::time::Duration;
 
 use qframe::icons::GlyphMode;
 use qframe::storage::Settings;
+use qpackages_core::catalog::net::{CURL, curl_args};
+use qpackages_core::news::NEWS_URL;
 use qpackages_core::pacman::command::{self, FAKEROOT, PACMAN};
 
 use super::*;
@@ -46,7 +48,7 @@ impl App for Tab {
 }
 
 fn tab(width: u16, height: u16) -> Harness<Tab> {
-    let cx = Cx { aur: true, utc_offset: 0, can_check: true };
+    let cx = Cx { aur: true, utc_offset: 0, can_check: true, busy: false, backup: backup::Plan::Off };
     let mut h = Harness::with_env(Tab(Updates::default(), cx), crate::test_env(), width, height);
     h.set_locale("en").set_glyph_mode(GlyphMode::Unicode).set_reduced_motion(true);
     h
@@ -74,7 +76,8 @@ fn updates_are_grouped_by_source_with_the_restart_note_on_the_kernel() {
     assert!(!mesa.contains("restart"), "{mesa}");
     let repo = screen.find("Repositories").expect("a heading");
     assert!(repo < screen.find("AUR").expect("a heading"), "the repositories come first:\n{screen}");
-    assert!(!screen.contains("Update all"), "installing the updates waits for the helper:\n{screen}");
+    let top = screen.lines().find(|line| line.contains("Check now")).expect("the status line");
+    assert!(top.contains("Update all"), "the update sits beside the check:\n{screen}");
 }
 
 #[test]
@@ -146,7 +149,7 @@ fn a_first_check_that_fails_says_why_and_offers_another() {
 
 #[test]
 fn a_turned_off_aur_is_neither_shown_nor_counted() {
-    let cx = Cx { aur: false, utc_offset: 0, can_check: true };
+    let cx = Cx { aur: false, utc_offset: 0, can_check: true, busy: false, backup: backup::Plan::Off };
     let mut h = Harness::with_env(Tab(Updates::default(), cx), crate::test_env(), 100, 20);
     h.set_locale("en").set_glyph_mode(GlyphMode::Unicode);
     h.send(Msg::Checked(found()));
@@ -237,4 +240,86 @@ fn a_turned_off_aur_is_not_asked() {
     let screen = h.screen();
     assert!(screen.contains("2 updates") && !screen.contains("visual-studio"), "{screen}");
     assert!(!recorded.command_lines().iter().any(|line| line.starts_with("paru")), "{:?}", recorded.command_lines());
+}
+
+/// Two news items of the last days: one asking for the user's hand, one not.
+fn news() -> Vec<NewsItem> {
+    let item = |title: &str, published: i64, manual_intervention: bool| NewsItem {
+        title: title.to_owned(),
+        link: "https://archlinux.org/news/".to_owned(),
+        published,
+        manual_intervention,
+    };
+    vec![
+        item("virtualbox-ext-vnc >= 7.2.12-2 requires manual intervention", AT - 86_400, true),
+        item("Arch Linux 2026 Leader Election Results", AT - 3 * 86_400, false),
+    ]
+}
+
+#[test]
+fn recent_news_stands_above_the_list_in_every_glyph_mode_and_narrow() {
+    for (width, height) in [(40, 16), (100, 20)] {
+        let mut h = tab(width, height);
+        h.send(Msg::Checked(found()));
+        h.send(Msg::News(Ok(news())));
+        for mode in [GlyphMode::Unicode, GlyphMode::Ascii, GlyphMode::Nerd] {
+            h.set_glyph_mode(mode);
+            let screen = h.screen();
+            let manual = screen.lines().position(|line| line.contains("2026-09-20  virtualbox")).expect("the item");
+            let list = screen.lines().position(|line| line.contains("Repositories")).expect("the list");
+            assert!(manual < list, "the news comes first:\n{screen}");
+            assert!(screen.contains("2026-09-18  Arch Linux 2026"), "{mode:?} at {width}:\n{screen}");
+            for forbidden in ['[', ']', '{', '}', '|'] {
+                assert!(!screen.contains(forbidden), "`{forbidden}` at {width}:\n{screen}");
+            }
+        }
+        if width >= 100 {
+            assert!(h.screen().contains("requires manual intervention · needs your hand"), "{}", h.screen());
+            h.set_locale("tr");
+            assert!(h.screen().contains("elle müdahale"), "{}", h.screen());
+        }
+    }
+}
+
+#[test]
+fn news_that_could_not_be_read_is_one_quiet_line() {
+    let mut h = tab(100, 20);
+    h.send(Msg::Checked(found()));
+    h.send(Msg::News(Err("Could not resolve host: archlinux.org".to_owned())));
+    let screen = h.screen();
+    assert!(screen.contains("Arch news could not be read."), "{screen}");
+    assert!(!screen.contains("resolve host"), "the reason is not the user's business here:\n{screen}");
+    h.send(Msg::News(Ok(Vec::new())));
+    assert!(!h.screen().contains("Arch news"), "nothing recent takes no room:\n{}", h.screen());
+}
+
+#[test]
+fn update_all_asks_for_the_repositories_updates_without_those_held_back() {
+    let mut updates = Updates::default();
+    let mut found = found();
+    if let Ok(repo) = &mut found.repo {
+        repo.push(Update { ignored: true, ..update("glibc", "2.42-1", "2.42-2") });
+    }
+    let _ = updates.update(Msg::Checked(found));
+    let Some(Request::UpdateAll(list)) = updates.update(Msg::UpdateAll) else {
+        panic!("an update is asked for");
+    };
+    let names: Vec<&str> = list.iter().map(|update| update.name.as_str()).collect();
+    assert_eq!(names, ["linux", "mesa"], "pacman holds glibc back and the AUR is not built here");
+}
+
+#[test]
+fn the_feed_is_read_with_curl_and_the_recent_manual_item_reaches_the_tab() {
+    let (mut h, _scratch, recorded) = machine("");
+    let xml = "<rss><channel><item><title>foo &gt;= 2 requires manual intervention</title>\
+               <link>https://archlinux.org/news/foo/</link>\
+               <pubDate>Thu, 01 Jan 2099 00:00:00 +0000</pubDate></item></channel></rss>";
+    recorded.answer(CURL, &curl_args(NEWS_URL), xml, 0);
+    h.send(AppMsg::Tab(crate::app::Tab::Updates.index()));
+    h.click_text("Check now");
+    h.advance(Duration::from_millis(20));
+    let screen = h.screen();
+    assert!(screen.contains("2099-01-01  foo >= 2 requires manual intervention"), "{screen}");
+    let curl = recorded.calls().into_iter().find(|call| call.program == CURL).expect("curl ran");
+    assert!(curl.args.contains(&"=https".to_owned()), "only https: {:?}", curl.args);
 }

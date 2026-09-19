@@ -51,7 +51,7 @@ fn the_network_ranking_replaces_the_starter_list_without_moving_the_rows() {
     // The same answers the background work gets, delivered one by one.
     let loaded = Arc::new(data::load(&machine(&recorded, true)));
     h.send(Msg::Loaded(loaded));
-    h.send(Msg::Pkgstats(data::pkgstats(recorded.as_ref()).map(Arc::from)));
+    h.send(Msg::Pkgstats(data::pkgstats(recorded.as_ref(), None).map(Arc::from)));
     let names = aur_row_names(&h.app().store);
     h.send(Msg::AurStats(data::aur_info(recorded.as_ref(), &names).map(Arc::from)));
     let screen = h.screen();
@@ -281,4 +281,97 @@ fn learning_the_catalog_is_missing_moves_nothing_on_screen() {
     h.send(Msg::Loaded(Arc::new(data::load(&machine(&recorded, false)))));
     assert!(h.screen().contains("need the app catalog"), "{}", h.screen());
     assert_eq!((h.find("Popular apps"), h.find("Popular in the AUR")), before, "{}", h.screen());
+}
+
+#[test]
+fn an_installed_flatpak_is_marked_and_offers_removal() {
+    let recorded = online();
+    let list = qpackages_core::catalog::flatpak::list_args();
+    recorded.answer("flatpak", &list, &core_fixture("flatpak-list-apps.txt"), 0);
+    let mut h = harness(page(&recorded, true), 100, 30, GlyphMode::Unicode);
+    assert!(recorded.command_lines().contains(&list_line(&list)), "{:?}", recorded.command_lines());
+    let screen = h.screen();
+    let spotify = screen.lines().skip_while(|line| !line.contains("Spotify")).nth(2).unwrap_or_default();
+    assert!(spotify.contains("Flatp… · Installed ✓"), "the source gives way, the mark stays whole:\n{screen}");
+    let wide = harness(page(&recorded, true), 130, 30, GlyphMode::Unicode).screen();
+    assert!(wide.contains("Flatpak · Installed ✓"), "with room the card names where it is installed from:\n{wide}");
+    h.click_text("Spotify");
+    h.advance(Duration::from_secs(1));
+    let screen = h.screen();
+    assert!(screen.contains("Remove"), "{screen}");
+    h.click_text("Remove");
+    let spotify = Offer { source: Source::Flatpak, package: String::from("com.spotify.Client") };
+    assert_eq!(h.app().requests, [Request::Remove(vec![spotify])]);
+}
+
+#[test]
+fn without_flatpak_nothing_is_installed_from_it_and_nothing_is_asked_when_it_is_off() {
+    // No recording for `flatpak list`: the program cannot be run.
+    let h = started(100, 30);
+    assert!(!h.app().store.installed.flatpaks.contains_key("com.spotify.client"));
+    let recorded = online();
+    let asked = |recorded: &Recorded| recorded.command_lines().iter().any(|line| line.starts_with("flatpak"));
+    let mut store = Store::new(machine(&recorded, true), vec![Source::Pacman]);
+    let read = Some(store.machine_read(&sources(), []));
+    let h = harness(Page { store, requests: Vec::new(), held: false, init: true, read }, 100, 30, GlyphMode::Unicode);
+    assert!(!asked(&recorded), "Flatpak is off: {:?}", recorded.command_lines());
+    assert!(h.screen().contains("Firefox"));
+    let mut store = Store::new(machine(&recorded, true), crate::sources::ALL.to_vec());
+    let read = Some(store.machine_read(&Sources { flatpak: Availability::Missing, ..sources() }, []));
+    let _ = harness(Page { store, requests: Vec::new(), held: false, init: true, read }, 100, 30, GlyphMode::Unicode);
+    assert!(!asked(&recorded), "this machine has no Flatpak: {:?}", recorded.command_lines());
+}
+
+fn list_line(args: &[String]) -> String {
+    std::iter::once("flatpak").chain(args.iter().map(String::as_str)).collect::<Vec<_>>().join(" ")
+}
+
+#[test]
+fn flathubs_latest_updates_have_a_row_of_their_own_when_flatpak_is_on() {
+    let mut h = started(96, 30);
+    let screen = h.screen();
+    let aur = h.find("Popular in the AUR").expect("the AUR row");
+    let recent = h.find("Recently updated").expect("the row of updates");
+    assert!(aur.1 < recent.1, "it comes after the AUR row:\n{screen}");
+    for text in ["Halftone", "Dither your images", "FFaudioConverter", "Flatpak"] {
+        assert!(screen.contains(text), "`{text}` is missing:\n{screen}");
+    }
+    h.click_text("Audio & video");
+    assert!(h.screen().contains("Audio & video: recently updated"), "{}", h.screen());
+    assert!(!h.screen().contains("Halftone"), "a graphics app is not audio:\n{}", h.screen());
+    h.set_locale("tr");
+    assert!(h.screen().contains("Ses ve video: yeni güncellenenler"), "{}", h.screen());
+
+    let recorded = online();
+    let mut store = Store::new(machine(&recorded, true), vec![Source::Pacman, Source::Aur]);
+    let read = Some(store.machine_read(&sources(), []));
+    let h = harness(Page { store, requests: Vec::new(), held: false, init: true, read }, 96, 30, GlyphMode::Unicode);
+    assert!(!h.screen().contains("Recently updated"), "not without Flatpak:\n{}", h.screen());
+    let asked = recorded.command_lines().into_iter().any(|line| line.contains("recently-updated"));
+    assert!(!asked, "nor asked for");
+}
+
+#[test]
+fn a_latest_update_opens_its_page_and_installs_as_a_flatpak() {
+    let mut h = started(96, 30);
+    h.click_text("Halftone");
+    h.advance(Duration::from_secs(1));
+    let screen = h.screen();
+    assert!(screen.contains("Flatpak id  io.github.tfuxu.Halftone"), "{screen}");
+    h.click_text("Install");
+    let halftone = Offer { source: Source::Flatpak, package: String::from("io.github.tfuxu.Halftone") };
+    assert_eq!(h.app().requests, [Request::Install(vec![halftone])]);
+}
+
+#[test]
+fn every_short_kind_name_fits_beside_a_three_digit_count_in_both_languages() {
+    let mut h = started(96, 30);
+    for language in ["en", "tr"] {
+        h.set_locale(language);
+        for kind in Kind::column(true) {
+            let short = h.env().i18n().translate(&kind.short_key(), &[]);
+            let width = qframe::text::width(&short) + view::COUNTED_OVERHEAD + 3;
+            assert!(width <= view::KINDS_WIDTH, "`{short}` in {language} takes {width} cells with a count");
+        }
+    }
 }

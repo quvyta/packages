@@ -5,6 +5,9 @@
 //! function and one line in [`view`]. The page holds no state of its own: the values live in the
 //! application's settings, the row the keyboard is on lives in each list.
 
+mod backend;
+#[cfg(test)]
+mod backend_tests;
 #[cfg(test)]
 mod tests;
 
@@ -18,8 +21,10 @@ use crate::helper::pkexec::Tool;
 use crate::settings::{self, AUR_HELPERS, PRIVILEGE_TOOLS};
 use crate::sources;
 
+pub use backend::{Countries, Msg as BackendMsg, Reflector};
+
 /// Columns a choice takes on the right of its row.
-const CONTROL_WIDTH: u16 = 18;
+pub(crate) const CONTROL_WIDTH: u16 = 18;
 
 /// The sources the page can turn on and off. pacman is not among them: without it there is
 /// nothing to manage.
@@ -40,6 +45,8 @@ pub enum Msg {
     Install(Source),
     /// A setting every application of the family shares was chosen.
     Shared(Shared),
+    /// A setting of what happens around the packages changed.
+    Backend(BackendMsg),
 }
 
 /// A change to what the framework keeps for every application of the family.
@@ -70,6 +77,14 @@ pub struct Cx<'a> {
     pub planning: bool,
     /// The program that asks for permission, as the setting and the machine decide.
     pub tool: &'a Tool,
+    /// Which snapshot tools this machine has.
+    pub detected: &'a qpackages_core::backup::Detected,
+    /// Whether the background check can be switched: there is a unit folder and qpac's own path.
+    pub background: bool,
+    /// What is known about reflector.
+    pub reflector: &'a Reflector,
+    /// Whether a transaction is under way, so the settings that need the helper wait.
+    pub busy: bool,
 }
 
 /// Draws the page.
@@ -88,6 +103,10 @@ pub fn view(ui: &mut View<'_, Msg>, cx: Cx<'_>) {
         ui.add_with(ScrollView::new(), |ui| {
             ui.column(|ui| {
                 SettingsList::show(ui, |list| sources_section(list, cx)).fill_width().id("settings-sources");
+                SettingsList::show(ui, |list| backend::updates_section(list, cx)).fill_width().id("settings-updates");
+                SettingsList::show(ui, |list| backend::backup_section(list, cx)).fill_width().id("settings-backup");
+                SettingsList::show(ui, |list| backend::cleanup_section(list, cx)).fill_width().id("settings-cleanup");
+                SettingsList::show(ui, |list| backend::mirrors_section(list, cx)).fill_width().id("settings-mirrors");
                 SettingsList::show(ui, |list| privilege_section(list, cx)).fill_width().id("settings-privilege");
                 SettingsList::show(ui, |list| appearance_section(list, &appearance))
                     .fill_width()
@@ -96,6 +115,7 @@ pub fn view(ui: &mut View<'_, Msg>, cx: Cx<'_>) {
             .fill_width();
         })
         .fill();
+        backend::countries(ui, cx);
     })
     .gap(1)
     .fill();

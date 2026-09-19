@@ -22,8 +22,11 @@ of the Quvyta family of terminal applications, is built on
   <img src="https://raw.githubusercontent.com/quvyta/packages/main/docs/screenshots/confirm.png" alt="The removal confirmation: neovim and tmux with the libraries only they needed, eight packages in all" width="49%">
 </p>
 <p>
+  <img src="https://raw.githubusercontent.com/quvyta/packages/main/docs/screenshots/updates.png" alt="The Updates tab: three updates from the repositories with a restart note beside the kernel, a recent Arch news item above them, Check now and Update all" width="49%">
+</p>
+<p>
   <img src="https://raw.githubusercontent.com/quvyta/packages/main/docs/screenshots/running.png" alt="The removal running: pacman's output in a pane below the list, the progress at half way and the admin badge in the header" width="49%">
-  <img src="https://raw.githubusercontent.com/quvyta/packages/main/docs/screenshots/flatpak.png" alt="The settings page: sources with Flatpak missing and a button to install it, the AUR helper, who asks for permission, and the appearance" width="49%">
+  <img src="https://raw.githubusercontent.com/quvyta/packages/main/docs/screenshots/flatpak.png" alt="The settings page: sources with Flatpak missing and a button to install it, the AUR helper, the background check, snapshots and orphaned packages" width="49%">
 </p>
 
 ## What it does
@@ -36,15 +39,24 @@ of the Quvyta family of terminal applications, is built on
   website and dependencies, and an Install or Remove button. Categories and descriptions come
   from AppStream, the data GNOME Software and KDE Discover use; without it (the
   `archlinux-appstream-data` package) qpac offers to install it and works with a built-in list
-  meanwhile. Popularity comes from pkgstats and the AUR's votes.
+  meanwhile. Popularity comes from pkgstats, Flathub and the AUR's votes, and is kept for a day so the page opens with it; with Flatpak on, a row shows what Flathub updated recently, and installed Flatpaks are marked.
 - **Installed.** Your applications, or every package, in a table you can search and sort, with
   the source of each (`source:aur` in the search keeps only the AUR's), and a detail panel:
   version, installed size, whether you asked for it or it came as a dependency, install date,
   licences, dependencies and website. The list is read straight from pacman's local database, so
   it opens at once and needs no privileges.
-- **Updates.** The waiting updates, grouped by source, with a note on those that need a restart.
-  The check refreshes a private copy of pacman's database and never runs `pacman -Sy` on the real
-  one, so it can never leave the system half upgraded.
+- **Updates.** The waiting updates, grouped by source, with a note on those that need a restart,
+  and the last two weeks of Arch news above them, those that need your hand marked. The check
+  refreshes a private copy of pacman's database and never runs `pacman -Sy` on the real one, so it
+  can never leave the system half upgraded. **Update all** shows the full list, takes a snapper or
+  timeshift snapshot before (and with snapper after) when one is installed, and lists the new
+  `.pacnew` files when it is done. Installing while updates wait offers to update first, so the
+  system is never partly upgraded.
+- **Orphans.** Packages nothing needs any more are marked among all packages and can be cleaned
+  up in one step; after a removal or an update qpac asks, cleans up by itself, or leaves them, as
+  you choose.
+- **Mirrors.** With reflector installed, the settings choose pacman's mirrors by country, count,
+  age and speed, keep the old list beside the new one, and can turn on reflector's weekly timer.
 - **Changes you can see.** Install from the store, or check packages and remove them. Before
   anything runs, pacman is asked what the change would do, and the full list, dependencies
   included, is shown for you to confirm. Cancel has the focus, so the safe answer is the default.
@@ -61,17 +73,16 @@ of the Quvyta family of terminal applications, is built on
   with the reason, and where its program is in the official repositories (`paru` for the AUR,
   `flatpak` for Flatpak) it can be installed from there, through the same confirmation. The AUR
   is refused when qpac runs as root, because packages are never built as root.
-- **A check in the background, if you want one.** `qpac --check` looks for updates without
-  opening the screen and without privileges, and writes what it found to
-  `~/.local/state/quvyta-packages/state.json`. It never checks more often than once an hour.
+- **A check in the background, if you want one.** Turned on in the settings, a systemd user
+  timer runs `qpac --check` every few hours (6 by default, never more often than hourly): it
+  looks for updates without opening the screen and without privileges, and writes what it found
+  to `~/.local/state/quvyta-packages/state.json`. Nothing runs as root and nothing is installed.
 
 The interface follows your system language (English and Turkish are included) and uses the
 family's themes, icons, keys and mouse behaviour.
 
 ### Not yet
 
-- Upgrading the whole system, with a snapshot before and after, and cleaning up orphaned
-  packages, from the screen.
 - Building from the AUR (through `paru` or `yay`, with a look at the recipe first), Flatpak
   installs and Snap.
 

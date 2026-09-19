@@ -19,6 +19,10 @@ pub const KINDS_WIDTH: u16 = 18;
 /// cell a lit row slides by.
 const ROW_OVERHEAD: u16 = 8;
 
+/// Cells a kinds row takes besides its name and count: the lead, the cell a lit row slides by,
+/// the gap before the count and the row's last cell, which stays free.
+pub const COUNTED_OVERHEAD: u16 = 6;
+
 /// Cells between the kinds column and the cards.
 const KINDS_GAP: u16 = 2;
 
@@ -110,12 +114,12 @@ fn catalog_line(store: &Store, ui: &mut View<'_, Msg>) {
 fn kinds_column(store: &Store, ui: &mut View<'_, Msg>) {
     let kinds = store.kinds();
     let counts = store.search.as_ref().map(|search| kind_counts(&search.ranked));
-    let items = kinds.iter().map(|kind| {
-        let item = ListItem::new(t!(&kind.key()));
-        match &counts {
-            Some(counts) => item.detail(counts.get(kind).copied().unwrap_or(0).to_string()),
-            None => item,
+    let items = kinds.iter().map(|kind| match &counts {
+        Some(counts) => {
+            let count = counts.get(kind).copied().unwrap_or(0).to_string();
+            ListItem::new(counted_name(*kind, &count)).detail(count)
         }
+        None => ListItem::new(t!(&kind.key())),
     });
     let selected = kinds.iter().position(|&kind| kind == store.kind);
     let rows = u16::try_from(kinds.len()).unwrap_or(u16::MAX);
@@ -147,14 +151,27 @@ fn kinds_column(store: &Store, ui: &mut View<'_, Msg>) {
         .id("store-sources");
 }
 
+/// A kind's name beside `count`: the whole name where both fit in the column, even on the lit row,
+/// else the short one, so the count is never what gets cut.
+fn counted_name(kind: Kind, count: &str) -> String {
+    let name = t!(&kind.key());
+    let room = KINDS_WIDTH.saturating_sub(COUNTED_OVERHEAD + qframe::text::width(count));
+    if qframe::text::width(&name) <= room { name } else { t!(&kind.short_key()) }
+}
+
 /// The rows of cards before anything is typed.
 fn home(store: &Store, narrow: bool, ui: &mut View<'_, Msg>) {
     let size = ui.size();
     let width = if narrow { size.width } else { size.width.saturating_sub(KINDS_WIDTH + KINDS_GAP) };
     let per_row = card::columns(width);
     row(store, Section::Popular, per_row, ui);
-    if size.height >= SHORT && !store.aur_row.is_empty() {
-        row(store, Section::Aur, per_row, ui);
+    if size.height >= SHORT {
+        if !store.aur_row.is_empty() {
+            row(store, Section::Aur, per_row, ui);
+        }
+        if !store.recent_row.is_empty() {
+            row(store, Section::Recent, per_row, ui);
+        }
     }
     catalog_line(store, ui);
 }
@@ -186,6 +203,7 @@ fn section_id(section: Section) -> &'static str {
     match section {
         Section::Popular => "popular",
         Section::Aur => "aur",
+        Section::Recent => "recent",
     }
 }
 
@@ -194,8 +212,10 @@ fn section_title(store: &Store, section: Section) -> String {
     match (section, store.kind) {
         (Section::Popular, Kind::All) => t!("store.home.popular"),
         (Section::Aur, Kind::All) => t!("store.home.aur"),
+        (Section::Recent, Kind::All) => t!("store.home.recent"),
         (Section::Popular, kind) => t!("store.home.kind-popular", kind = t!(&kind.key())),
         (Section::Aur, kind) => t!("store.home.kind-aur", kind = t!(&kind.key())),
+        (Section::Recent, kind) => t!("store.home.kind-recent", kind = t!(&kind.key())),
     }
 }
 

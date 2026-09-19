@@ -8,9 +8,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use qframe::prelude::{App, Harness};
 use qframe::storage::Settings;
 
-use crate::app::{Machine, Qpackages};
+use crate::app::{Machine, Places, Qpackages};
 use crate::helper::session::InProcess;
 use crate::runner::{Recorded, Runner};
 use crate::settings;
@@ -25,13 +26,23 @@ pub fn programs(program: &str) -> Option<PathBuf> {
 /// on the Installed tab, which the pages these tests look at are reached from; the frame's own
 /// tests check that qpac opens on Discover.
 pub fn app_in(scratch: &Scratch, settings: Settings, recorded: &Arc<Recorded>) -> Qpackages {
+    app_with(scratch, settings, recorded, programs)
+}
+
+/// [`app_in`] on a machine whose programs `lookup` finds.
+pub fn app_with(
+    scratch: &Scratch,
+    settings: Settings,
+    recorded: &Arc<Recorded>,
+    lookup: fn(&str) -> Option<PathBuf>,
+) -> Qpackages {
     let machine = Machine {
         dbpath: &scratch.local(),
         sync_dir: &scratch.sync(),
         applications: &scratch.applications(),
         check_dir: Some(&scratch.check()),
         lock_dir: &scratch.lock(),
-        lookup: Arc::new(programs),
+        lookup: Arc::new(lookup),
         runner: Arc::clone(recorded) as Arc<dyn Runner>,
         helper: InProcess::new(recorded, 0).start_fn(),
         uid: Some(1000),
@@ -41,7 +52,12 @@ pub fn app_in(scratch: &Scratch, settings: Settings, recorded: &Arc<Recorded>) -
         app_catalog: &scratch.catalog(),
         flatpak_catalogs: &[],
     };
-    Qpackages::new(machine, &settings.schema(settings::schema())).on_tab(crate::app::Tab::Installed)
+    let places = Places {
+        root: scratch.root().to_path_buf(),
+        units: Some(scratch.units()),
+        exe: Some(PathBuf::from("/usr/bin/qpac")),
+    };
+    Qpackages::new(machine, &settings.schema(settings::schema())).with_places(places).on_tab(crate::app::Tab::Installed)
 }
 
 /// One package of a pretend machine.
@@ -121,6 +137,11 @@ impl Scratch {
         self.root.join("swcatalog")
     }
 
+    /// The user's systemd unit folder.
+    pub fn units(&self) -> PathBuf {
+        self.root.join("units")
+    }
+
     /// Where pacman's lock would be.
     pub fn lock(&self) -> PathBuf {
         self.root.join("lock")
@@ -165,4 +186,29 @@ impl Drop for Scratch {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.root);
     }
+}
+
+/// Where `label` stands as a whole word in `line`: `Install` in a button, not in `Installed`.
+fn word_at(line: &str, label: &str) -> Option<usize> {
+    line.match_indices(label)
+        .map(|(start, _)| start)
+        .find(|&start| !line[start + label.len()..].starts_with(char::is_alphabetic))
+}
+
+/// Clicks the last place `label` appears on screen as a word: a dialog's action buttons sit at
+/// its bottom, below a title that may carry the same word; a toast's `Installed` is not `Install`.
+/// While a dialog is open, only its own lines count, the ones its `▌` edge runs down: the page
+/// under it may carry the same word further down.
+pub fn click_last<A: App>(h: &mut Harness<A>, label: &str) {
+    let screen = h.screen();
+    let found: Vec<(usize, &str, usize)> =
+        screen.lines().enumerate().filter_map(|(y, line)| word_at(line, label).map(|start| (y, line, start))).collect();
+    let in_dialog = |(_, line, start): &&(usize, &str, usize)| line[..*start].contains('▌');
+    let (y, line, start) = *found
+        .iter()
+        .rfind(in_dialog)
+        .or_else(|| found.last())
+        .unwrap_or_else(|| panic!("`{label}` is not on screen:\n{screen}"));
+    let x = line[..start].chars().count();
+    h.click(i32::try_from(x).expect("a screen column"), i32::try_from(y).expect("a screen row"));
 }

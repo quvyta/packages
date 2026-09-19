@@ -548,7 +548,7 @@ package() {
     fn addresses_and_hosts_are_read_from_sources() {
         assert_eq!(url_of("name::git+https://github.com/a/b.git#tag=v1"), Some("https://github.com/a/b.git"));
         assert_eq!(url_of("local.patch"), None);
-        assert_eq!(host_of("https://user@GitHub.com:443/a"), Some("github.com".to_owned()));
+        assert_eq!(host_of("https://user@Git.example.org:443/a"), Some("git.example.org".to_owned()));
         assert_eq!(host_of("https://$pkgname.org/x"), Some("$pkgname.org".to_owned()));
         assert_eq!(host_of("file:///x"), None);
     }

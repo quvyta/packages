@@ -10,7 +10,9 @@ use qpackages_core::catalog::appstream::Localized;
 use qpackages_core::catalog::aur::AurPackage;
 use qpackages_core::catalog::category::Category;
 use qpackages_core::catalog::featured::FeaturedApp;
+use qpackages_core::catalog::flatpak::{Installation, InstalledApp};
 use qpackages_core::catalog::merge::{App, Offer, TRUST_ORDER, id_key};
+use qpackages_core::catalog::popularity::FlathubUpdate;
 use qpackages_core::sources::Source;
 
 /// The kinds column: everything, one of the browsable kinds, or what none of them holds
@@ -46,12 +48,49 @@ impl Kind {
         }
     }
 
+    /// The language key of the kind's short name, for beside a count where the whole name does
+    /// not fit.
+    pub fn short_key(self) -> String {
+        format!("{}-short", self.key())
+    }
+
     /// The language key of the kind's name.
     pub fn key(self) -> String {
         match self {
             Self::All => String::from("store.kind.all"),
             Self::Of(category) => format!("store.kind.{}", category.key()),
             Self::Other => String::from("store.kind.other"),
+        }
+    }
+}
+
+/// What is installed on the machine, as far as the store knows: the pacman packages (the AUR's
+/// among them) and the Flatpak applications, the latter by id key with every installation that
+/// holds them.
+#[derive(Debug, Clone, Default)]
+pub struct Installed {
+    /// The names of the installed pacman packages.
+    pub packages: HashSet<String>,
+    /// The installed Flatpak applications, by [`id_key`] of their id.
+    pub flatpaks: HashMap<String, Vec<Installation>>,
+}
+
+impl Installed {
+    /// Takes `apps` as the installed Flatpak applications, replacing what was known.
+    pub fn set_flatpaks(&mut self, apps: &[InstalledApp]) {
+        self.flatpaks.clear();
+        for app in apps {
+            self.flatpaks.entry(id_key(&app.app_id)).or_default().push(app.installation.clone());
+        }
+    }
+
+    /// Whether `offer` is installed: its package for pacman and the AUR, its application id for
+    /// Flatpak. A Flatpak id is never taken for a package name, nor the other way round.
+    pub fn has(&self, offer: &Offer) -> bool {
+        match offer.source {
+            Source::Pacman | Source::Aur => self.packages.contains(&offer.package),
+            Source::Flatpak => self.flatpaks.contains_key(&id_key(&offer.package)),
+            Source::Snap => false,
         }
     }
 }
@@ -70,12 +109,9 @@ pub struct Card {
 }
 
 impl Card {
-    /// A card for `app`, installed when `installed` has one of its pacman or AUR packages.
-    pub fn new(app: App, installed: &HashSet<String>) -> Self {
-        let is_installed = app
-            .offers
-            .iter()
-            .any(|offer| matches!(offer.source, Source::Pacman | Source::Aur) && installed.contains(&offer.package));
+    /// A card for `app`, installed when `installed` has one of its offers.
+    pub fn new(app: App, installed: &Installed) -> Self {
+        let is_installed = app.offers.iter().any(|offer| installed.has(offer));
         Self { key: key(&app), app, votes: None, installed: is_installed }
     }
 
@@ -155,6 +191,30 @@ pub fn featured_app(entry: &FeaturedApp, catalog: &HashMap<String, usize>, apps:
     }
     app.sort_offers(&TRUST_ORDER);
     app
+}
+
+/// A Flathub update as an application: the catalog's record when it knows the id, otherwise
+/// what Flathub itself says, offered as a Flatpak.
+pub fn recent_app(update: &FlathubUpdate, catalog: &HashMap<String, usize>, apps: &[App]) -> App {
+    let offer = Offer { source: Source::Flatpak, package: update.app_id.clone() };
+    if let Some(&index) = catalog.get(&id_key(&update.app_id)) {
+        let mut app = apps[index].clone();
+        if !app.offered_by(Source::Flatpak) {
+            app.offers.push(offer);
+            app.sort_offers(&TRUST_ORDER);
+        }
+        return app;
+    }
+    App {
+        id: Some(update.app_id.clone()),
+        name: Localized { default: update.name.clone(), turkish: None },
+        summary: update.summary.clone().map(|default| Localized { default, turkish: None }),
+        category: update.main_category.as_deref().and_then(Category::from_flathub).unwrap_or(Category::Unknown),
+        icon: None,
+        keywords: Vec::new(),
+        keywords_turkish: Vec::new(),
+        offers: vec![offer],
+    }
 }
 
 /// Which home row a starter entry belongs to. The AUR row holds what only the AUR (and maybe
@@ -347,7 +407,7 @@ mod tests {
     }
 
     fn card(name: &str) -> Card {
-        Card::new(app(name, &[(Source::Pacman, name)]), &HashSet::new())
+        Card::new(app(name, &[(Source::Pacman, name)]), &Installed::default())
     }
 
     fn keys(cards: &[Card]) -> Vec<&str> {
@@ -370,12 +430,19 @@ mod tests {
     }
 
     #[test]
-    fn installed_is_about_pacman_and_aur_packages() {
-        let installed = HashSet::from([String::from("firefox")]);
+    fn installed_is_about_packages_and_flatpak_ids_apart() {
+        let mut installed = Installed { packages: HashSet::from([String::from("firefox")]), ..Installed::default() };
         let firefox = Card::new(app("Firefox", &[(Source::Pacman, "firefox")]), &installed);
         assert!(firefox.installed);
         let flatpak = Card::new(app("Firefox", &[(Source::Flatpak, "firefox")]), &installed);
         assert!(!flatpak.installed, "a Flatpak id is not a package name");
+        installed.set_flatpaks(&[InstalledApp {
+            app_id: String::from("org.videolan.VLC"),
+            installation: Installation::User,
+        }]);
+        let vlc = Card::new(app("VLC", &[(Source::Pacman, "vlc"), (Source::Flatpak, "org.videolan.vlc")]), &installed);
+        assert!(vlc.installed, "ids compare without case");
+        assert!(!installed.has(&Offer { source: Source::Pacman, package: String::from("org.videolan.VLC") }));
     }
 
     #[test]
@@ -414,7 +481,7 @@ mod tests {
     #[test]
     fn aur_cards_take_their_votes_and_the_most_popular_leads() {
         let mut cards = [("a", 1.0, 10), ("b", 5.0, 4_200)]
-            .map(|(name, _, _)| Card::new(app(name, &[(Source::Aur, name)]), &HashSet::new()))
+            .map(|(name, _, _)| Card::new(app(name, &[(Source::Aur, name)]), &Installed::default()))
             .to_vec();
         let stats = [("a", 1.0, 10), ("b", 5.0, 4_200)].map(|(name, popularity, votes)| AurPackage {
             name: name.to_owned(),
@@ -425,6 +492,30 @@ mod tests {
         apply_aur_stats(&mut cards, &stats);
         assert_eq!(keys(&cards), ["aur:b", "aur:a"]);
         assert_eq!(cards[0].votes, Some(4_200));
+    }
+
+    #[test]
+    fn a_flathub_update_takes_the_catalogs_record_or_stands_on_its_own() {
+        let update = |id: &str, category: Option<&str>| FlathubUpdate {
+            app_id: id.to_owned(),
+            name: String::from("Name from Flathub"),
+            summary: Some(String::from("Summary from Flathub")),
+            main_category: category.map(str::to_owned),
+            updated_at: Some(1),
+        };
+        let mut gimp = app("GIMP", &[(Source::Pacman, "gimp")]);
+        gimp.id = Some(String::from("org.gimp.GIMP"));
+        gimp.name.turkish = Some(String::from("GIMP tr"));
+        let catalog = HashMap::from([(id_key("org.gimp.GIMP"), 0)]);
+        let known = recent_app(&update("org.gimp.GIMP", Some("graphics")), &catalog, &[gimp]);
+        assert_eq!(known.name.turkish.as_deref(), Some("GIMP tr"), "the catalog's names and translations");
+        let sources: Vec<Source> = known.offers.iter().map(|offer| offer.source).collect();
+        assert_eq!(sources, [Source::Pacman, Source::Flatpak], "and Flathub joins its offers");
+        let unknown = recent_app(&update("io.example.New", Some("audiovideo")), &HashMap::new(), &[]);
+        assert_eq!(unknown.name.default, "Name from Flathub");
+        assert_eq!(unknown.category, Category::AudioVideo);
+        assert_eq!(unknown.offers, [Offer { source: Source::Flatpak, package: String::from("io.example.New") }]);
+        assert_eq!(recent_app(&update("x.y.Z", Some("education")), &HashMap::new(), &[]).category, Category::Unknown);
     }
 
     #[test]

@@ -13,7 +13,9 @@ use crate::testing::{Sample, Scratch, app_in};
 use crate::updates::check::Found;
 
 mod flow;
+mod orphans;
 mod polkit;
+mod upgrade;
 
 /// Built-in files plus the compiled-in locales and keymap, as the runtime loads them.
 fn env() -> Env {
@@ -61,17 +63,19 @@ fn app_on(
         app_catalog: &nowhere(),
         flatpak_catalogs: &[],
     };
-    Qpackages::new(machine, &settings)
+    // Nothing of the machine running the tests is looked at: no snapshot tool, no unit folder.
+    Qpackages::new(machine, &settings).with_places(Places { root: nowhere(), units: None, exe: None })
 }
 
 /// The calls a test's actions made, without those the application makes on its own when it
-/// starts: the question of which packages no repository offers, the AUR's update check, and
-/// Discover asking the network for its rankings.
+/// starts: the questions of which packages no repository offers and which are orphans, the
+/// AUR's update check, the download of Arch's news, and Discover asking the network for its
+/// rankings.
 fn after_reads(recorded: &Recorded) -> Vec<Call> {
     recorded
         .calls()
         .into_iter()
-        .filter(|call| !(call.args == ["-Qqm"] || call.args == ["-Qua"] || call.program == "curl"))
+        .filter(|call| !(["-Qqm", "-Qtdq", "-Qua"].contains(&call.args.join(" ").as_str()) || call.program == "curl"))
         .collect()
 }
 
@@ -257,7 +261,7 @@ fn the_settings_button_and_its_key_open_the_page_and_escape_and_back_close_it() 
     h.click(i32::try_from(x).unwrap(), 0);
     assert!(h.app().settings_open);
     let screen = h.screen();
-    for text in ["Settings", "Back", "Sources", "Permission", "Appearance"] {
+    for text in ["Settings", "Back", "Sources", "Updates", "Backup"] {
         assert!(screen.contains(text), "`{text}` is missing:\n{screen}");
     }
     h.press("esc");

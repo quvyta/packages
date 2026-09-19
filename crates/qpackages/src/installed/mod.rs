@@ -1,5 +1,6 @@
 //! The Installed tab: what is on this machine, as applications or as every package, with a
-//! search, the selected package's details and the check marks a removal starts from.
+//! search, the selected package's details and the check marks a removal starts from. Among every
+//! package the orphans stand faint with their mark, and a line offers to clean them up.
 //!
 //! The tab owns only what the user did here: the search, the view, the sort, the selection and
 //! the checks. The packages themselves belong to the application, which hands them in as a
@@ -43,6 +44,8 @@ pub struct Library<'a> {
     pub apps: &'a BTreeSet<String>,
     /// Which packages no repository offers.
     pub foreign: &'a Foreign,
+    /// Which packages are orphans.
+    pub orphans: &'a Foreign,
 }
 
 /// The tab's state.
@@ -89,6 +92,8 @@ pub enum Msg {
     Split(u16),
     /// The user asked to remove the checked packages.
     RemoveChecked,
+    /// The user asked to clean up the orphans.
+    CleanOrphans,
 }
 
 /// What the tab asks of the application.
@@ -96,6 +101,8 @@ pub enum Msg {
 pub enum Request {
     /// Remove these packages, through the transaction flow.
     Remove(Vec<String>),
+    /// Remove these orphans, through the transaction flow.
+    CleanOrphans(Vec<String>),
 }
 
 impl Default for Installed {
@@ -160,6 +167,13 @@ impl Installed {
             }
             Msg::Split(width) => self.split = Some(width),
             Msg::RemoveChecked => return self.remove_request(),
+            Msg::CleanOrphans => {
+                return library
+                    .orphans
+                    .as_ref()
+                    .filter(|orphans| !orphans.is_empty())
+                    .map(|orphans| Request::CleanOrphans(orphans.iter().cloned().collect()));
+            }
         }
         None
     }

@@ -9,7 +9,6 @@ use std::time::Duration;
 use qframe::event::{KeyEvent, KeyKind};
 use qframe::icons::GlyphMode;
 use qframe::runtime::{Task, TaskEvent, TaskOutcome};
-use qframe::widgets::LogBuffer;
 
 use super::*;
 use crate::helper::session::InProcess;
@@ -41,7 +40,7 @@ impl App for Pane {
 
     fn view(&self, ui: &mut View<'_, AppMsg>) {
         view::output(&self.0, ui);
-        view::modal(&self.0, ui);
+        view::modal(&self.0, &[], ui);
     }
 }
 
@@ -57,12 +56,8 @@ fn running() -> (Flow, TaskId) {
     let mut flow = idle();
     let task: Task<AppMsg> = Task::new("never started", |_| Ok(wrap(Msg::Cancel)));
     let id = task.id();
-    flow.state = State::Running {
-        action: Action::Install(vec!["paru".to_owned()]),
-        task: id,
-        output: LogBuffer::new(OUTPUT_LINES),
-        progress: None,
-    };
+    flow.state =
+        State::Running { job: Job::new(Action::Install(vec!["paru".to_owned()]), backup::Plan::Off), task: id };
     (flow, id)
 }
 
@@ -96,9 +91,9 @@ fn lines_stream_into_the_pane_and_the_step_counter_moves_the_bar() {
     h.send(line("(3/4) loading package files"));
     assert!(h.screen().contains("75%"), "{}", h.screen());
     match h.app().0.state() {
-        State::Running { progress, output, .. } => {
-            assert_eq!(*progress, Some(0.75));
-            assert_eq!(output.len(), 4, "every line with words is kept");
+        State::Running { job, .. } => {
+            assert_eq!(job.progress, Some(0.75));
+            assert_eq!(job.output.len(), 4, "every line with words is kept");
         }
         other => panic!("still running: {other:?}"),
     }
@@ -156,7 +151,7 @@ fn events_of_another_task_and_lines_after_the_end_are_ignored() {
     h.send(wrap(Msg::Ended(ProcessOutcome::Finished { code: Some(2) })));
     h.send(line("late"));
     match h.app().0.state() {
-        State::Finished { output, .. } => assert_eq!(output.len(), 0, "a line after the end is dropped"),
+        State::Finished(job) => assert_eq!(job.output.len(), 0, "a line after the end is dropped"),
         other => panic!("finished: {other:?}"),
     }
 }
@@ -182,7 +177,7 @@ fn confirming(action: Action, granted: bool) -> Flow {
     } else {
         qpackages_core::pacman::parse_install_plan("extra|paru|2.1.0-1|1258291\n")
     };
-    flow.state = State::Confirming { action, plan, granted };
+    flow.state = State::Confirming { action, plan, granted, backup: backup::Plan::Off, pending: 0 };
     flow
 }
 
@@ -214,4 +209,62 @@ fn a_removal_says_the_settings_files_go_too() {
     assert!(h.screen().contains("Their settings files are deleted too."), "{}", h.screen());
     h.set_locale("tr");
     assert!(h.screen().contains("Ayar dosyaları da silinir."), "{}", h.screen());
+}
+
+/// A flow in the middle of a system update wrapped in snapper snapshots, past the first one.
+fn updating() -> Flow {
+    let mut flow = idle();
+    let task: Task<AppMsg> = Task::new("never started", |_| Ok(wrap(Msg::Cancel)));
+    let update = qpackages_core::pacman::Update {
+        name: "linux".to_owned(),
+        from: "6.18.1-1".to_owned(),
+        to: "6.18.2-1".to_owned(),
+        ignored: false,
+    };
+    let mut job = Job::new(Action::Upgrade(vec![update]), backup::Plan::Take(backup::Tool::Snapper));
+    job.line("42");
+    assert!(job.took_before());
+    job.advance();
+    flow.state = State::Running { job, task: task.id() };
+    flow
+}
+
+#[test]
+fn the_heading_steps_through_an_update_in_every_glyph_mode_and_both_languages() {
+    let mut h = harness(updating(), 100, 10);
+    for mode in [GlyphMode::Unicode, GlyphMode::Ascii, GlyphMode::Nerd] {
+        h.set_glyph_mode(mode);
+        h.set_locale("en");
+        let screen = h.screen();
+        assert!(screen.contains("Updating the system · 2/3 · installing packages"), "{mode:?}:\n{screen}");
+        assert!(screen.contains("42"), "the first snapshot's output stays:\n{screen}");
+        h.set_locale("tr");
+        let screen = h.screen();
+        assert!(screen.contains("Sistem güncelleniyor · 2/3 · paketler kuruluyor"), "{mode:?}:\n{screen}");
+    }
+    h.set_locale("en");
+    h.send(line("(1/2) upgrading linux"));
+    assert!(h.screen().contains("50%"), "{}", h.screen());
+    h.resize(50, 8);
+    let screen = h.screen();
+    assert!(screen.contains("Updating the system"), "a narrow pane keeps the start:\n{screen}");
+}
+
+#[test]
+fn the_pacnew_list_waits_for_the_pane_and_closes_on_its_own() {
+    let mut flow = updating();
+    flow.state = State::Idle;
+    flow.pacnew = Some(vec!["/etc/pacman.conf.pacnew".to_owned(), "/etc/locale.gen.pacnew".to_owned()]);
+    let mut h = harness(flow, 80, 16);
+    for mode in [GlyphMode::Unicode, GlyphMode::Ascii, GlyphMode::Nerd] {
+        h.set_glyph_mode(mode);
+        let screen = h.screen();
+        for text in ["2 new configuration files", "/etc/pacman.conf.pacnew", "/etc/locale.gen.pacnew"] {
+            assert!(screen.contains(text), "`{text}` in {mode:?}:\n{screen}");
+        }
+    }
+    h.set_locale("tr");
+    assert!(h.screen().contains("2 yeni yapılandırma dosyası"), "{}", h.screen());
+    h.press("esc");
+    assert!(h.app().0.pacnew().is_none());
 }

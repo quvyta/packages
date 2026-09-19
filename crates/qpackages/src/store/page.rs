@@ -76,7 +76,7 @@ fn header(store: &Store, open: &OpenApp, turkish: bool, ui: &mut View<'_, Msg>) 
 /// Install, or Remove in the danger tone when the chosen source's package is installed.
 fn main_button(store: &Store, open: &OpenApp, ui: &mut View<'_, Msg>) {
     let Some(offer) = open.card.app.offers.get(open.offer) else { return };
-    let installed = matches!(offer.source, Source::Pacman | Source::Aur) && store.installed.contains(&offer.package);
+    let installed = store.installed.has(offer);
     let button = if installed {
         Button::new(t!("store.app.remove"))
             .variant("danger")

@@ -1,5 +1,5 @@
-//! The read that fills the screen: the installed packages, which of them are applications and
-//! which no repository offers, and which sources this machine has.
+//! The read that fills the screen: the installed packages, which of them are applications, which
+//! no repository offers and which are orphans, and which sources this machine has.
 //!
 //! It runs when the application starts and again after a transaction changed something, in the
 //! background both times, so the screen never waits for it. A local database of some thousand
@@ -21,6 +21,7 @@ use crate::app::Msg as AppMsg;
 use crate::installed::apps;
 use crate::installed::table::Foreign;
 use crate::runner::Runner;
+use crate::transaction::list_orphans;
 
 /// Finds a program on this machine, as `on_path` does. Shared with the background read, so it
 /// must be safe to call from another thread.
@@ -39,6 +40,8 @@ pub struct Snapshot {
     pub apps: BTreeSet<String>,
     /// The names of the packages no repository offers, when pacman could say.
     pub foreign: Foreign,
+    /// The orphans: installed as dependencies and needed by nothing now, when pacman could say.
+    pub orphans: Foreign,
 }
 
 /// Everything a read needs, kept so the read can be repeated after a transaction.
@@ -92,7 +95,8 @@ impl Reload {
         let sources = detect(self.preference, self.lookup.as_ref());
         let apps = apps::owners(&self.dbpath, &packages, &apps::launchers(&self.applications));
         let foreign = self.foreign();
-        Snapshot { packages, problems, sources, apps, foreign }
+        let orphans = list_orphans(self.runner.as_ref()).ok().map(|names| names.into_iter().collect());
+        Snapshot { packages, problems, sources, apps, foreign, orphans }
     }
 
     /// The packages no repository offers, from `pacman -Qqm`; `None` when pacman could not say,

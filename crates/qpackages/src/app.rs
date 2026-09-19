@@ -5,27 +5,33 @@
 //! Each page is its own module with its own messages and state; the frame owns what they share
 //! (the installed packages, the settings, the transaction flow) and does what they ask.
 
+mod backend;
 mod layout;
 mod tab;
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use qframe::icons::GlyphMode;
 use qframe::prelude::*;
 use qframe::storage::Settings;
 use qframe::widgets::{Badge, Splitter, Tabs, Toast, Tooltip};
+use qpackages_core::backup;
+use qpackages_core::catalog::net::{CURL, curl_args};
+use qpackages_core::news::{NEWS_URL, NewsItem, parse_news, recent};
 use qpackages_core::sources::{AurPreference, Source};
 
+use crate::backend_settings::{self, Orphans};
 use crate::helper::pkexec::Tool;
 use crate::helper::session::{Session, Start};
 use crate::installed::table::Foreign;
-use crate::installed::{self, Installed, Library};
+use crate::installed::{self, Installed, Library, Show};
 use crate::reload::{Lookup, Reload, Snapshot};
 use crate::runner::Runner;
 use crate::settings::{self, AUR_HELPERS, PRIVILEGE_TOOLS};
-use crate::settings_page::{self, Shared};
+use crate::settings_page::{self, Reflector, Shared};
 use crate::transaction::{self, Action, Flow};
 use crate::updates::check::Checker;
 use crate::updates::{self, Updates};
@@ -71,6 +77,33 @@ pub struct Machine<'a> {
     pub flatpak_catalogs: &'a [PathBuf],
 }
 
+/// Where the application reads the system's files and keeps the user's own, beside what the
+/// [`Machine`] gives: the real places when it runs, a scratch folder in a test.
+#[derive(Debug, Clone)]
+pub struct Places {
+    /// The root of the file system the snapshot tools and reflector's timer are looked for
+    /// under: `/` on a real machine.
+    pub root: PathBuf,
+    /// The user's systemd unit folder, where the background check's timer is written; `None`
+    /// without a home folder.
+    pub units: Option<PathBuf>,
+    /// qpac's own absolute path, which the background check's service runs; `None` when it
+    /// cannot be told.
+    pub exe: Option<PathBuf>,
+}
+
+impl Places {
+    /// The places of the machine qpac runs on.
+    #[must_use]
+    pub fn real() -> Self {
+        Self {
+            root: PathBuf::from("/"),
+            units: crate::autostart::unit_dir(|name| std::env::var(name).ok()),
+            exe: std::env::current_exe().ok(),
+        }
+    }
+}
+
 /// The application's state.
 pub struct Qpackages {
     /// What the last read found; `None` until the first read answers.
@@ -99,6 +132,14 @@ pub struct Qpackages {
     size: Size,
     /// The transaction flow.
     transaction: Flow,
+    /// Runs the programs qpac asks things of by itself, such as the news feed's download.
+    runner: Arc<dyn Runner>,
+    /// Where the system's files are.
+    places: Places,
+    /// Which snapshot tools this machine has, as last looked at.
+    detected: backup::Detected,
+    /// What the settings page knows about reflector.
+    reflector: Reflector,
 }
 
 impl std::fmt::Debug for Qpackages {
@@ -143,6 +184,8 @@ pub enum Msg {
     Saved(Result<(), String>),
     /// Something happened in the transaction flow.
     Transaction(transaction::Msg),
+    /// The orphans were asked to be shown: every package, where they are marked.
+    ShowOrphans,
 }
 
 /// What an application without its first read shows: nothing, not an empty machine.
@@ -179,7 +222,9 @@ impl Qpackages {
         };
         Self {
             library: None,
-            discover: store::Store::new(store_machine, store_sources(settings, root)),
+            // The rankings are kept beside the update check's copy of pacman's database.
+            discover: store::Store::new(store_machine, store_sources(settings, root))
+                .with_cache(machine.check_dir.and_then(Path::parent).map(Path::to_path_buf)),
             checker,
             checked_once: false,
             lookup: Arc::clone(&machine.lookup),
@@ -191,6 +236,10 @@ impl Qpackages {
             updates: Updates::default(),
             utc_offset: machine.utc_offset,
             size: Size::default(),
+            runner: Arc::clone(&machine.runner),
+            places: Places::real(),
+            detected: backup::Detected::default(),
+            reflector: Reflector::default(),
             transaction: Flow::new(
                 machine.runner,
                 Session::new(machine.helper),
@@ -221,6 +270,31 @@ impl Qpackages {
         self.settings_open
     }
 
+    /// The application with the system's files and the user's own at `places` instead of the
+    /// real ones.
+    #[must_use]
+    pub fn with_places(mut self, places: Places) -> Self {
+        self.places = places;
+        self
+    }
+
+    /// What happens around a system update: the snapshot setting on what this machine has.
+    fn backup_plan(&self) -> backup::Plan {
+        backup::Plan::new(backend_settings::backup_tool(&self.settings, &self.detected), &self.detected)
+    }
+
+    /// Looks for the snapshot tools again and tells the flow what happens around an update.
+    fn detect_backup(&mut self) {
+        self.detected = backup::detect(&self.places.root);
+        self.transaction.set_backup(self.backup_plan());
+    }
+
+    /// Reads Arch's news of the last two weeks in the background.
+    fn fetch_news(&self) -> Command<Msg> {
+        let runner = Arc::clone(&self.runner);
+        Command::perform(move || Msg::Updates(updates::Msg::News(read_news(runner.as_ref()))))
+    }
+
     /// The installed packages as the pages need them; empty before the first read.
     fn library(&self) -> Library<'_> {
         library_of(self.library.as_ref())
@@ -241,7 +315,60 @@ impl Qpackages {
             .filter(|_| self.aur_in_use())
             .map(qpackages_core::sources::AurHelper::program);
         let checker = self.checker.clone();
-        Command::perform(move || Msg::Updates(updates::Msg::Checked(checker.run(helper))))
+        let check = Command::perform(move || Msg::Updates(updates::Msg::Checked(checker.run(helper))));
+        Command::batch([check, self.fetch_news()])
+    }
+
+    /// Does what the Updates tab asked.
+    fn updates_message(&mut self, msg: updates::Msg) -> Command<Msg> {
+        let checked = matches!(msg, updates::Msg::Checked(_));
+        let request = self.updates.update(msg);
+        if checked {
+            self.transaction.set_pending_updates(self.updates.upgradable().len());
+        }
+        match request {
+            Some(updates::Request::Check) => self.check(),
+            Some(updates::Request::UpdateAll(list)) => {
+                self.update(Msg::Transaction(transaction::Msg::Begin(Action::Upgrade(list))))
+            }
+            None => Command::none(),
+        }
+    }
+
+    /// Does what the last transaction left to do once the packages were read again: an update
+    /// is followed by a new check, since what it installed is no longer waiting.
+    fn after_transaction(&mut self) -> Command<Msg> {
+        let Some(done) = self.transaction.take_done() else {
+            return Command::none();
+        };
+        let check = if done.upgraded && self.updates.start() == Some(updates::Request::Check) {
+            self.check()
+        } else {
+            Command::none()
+        };
+        let orphans: Vec<String> = match (&self.library, done.orphans) {
+            (Some(found), true) => found.orphans.iter().flatten().cloned().collect(),
+            _ => Vec::new(),
+        };
+        if orphans.is_empty() {
+            return check;
+        }
+        let orphans = match backend_settings::orphans(&self.settings) {
+            Orphans::Never => Command::none(),
+            Orphans::Ask => {
+                let clean = Msg::Transaction(transaction::Msg::Begin(Action::RemoveOrphans(orphans.clone())));
+                let notice = Toast::info(t!("orphans.remain", n = orphans.len()))
+                    .body(t!("orphans.remain-body"))
+                    .action(t!("installed.clean-up"), clean)
+                    .on_press(Msg::ShowOrphans)
+                    .key("orphans");
+                Command::toast(notice)
+            }
+            Orphans::Auto => {
+                self.update(Msg::Transaction(transaction::Msg::BeginConfirmed(Action::RemoveOrphans(orphans))))
+            }
+        };
+        Command::batch([check, orphans])
     }
 
     /// Does what Discover asked: an install or a removal goes to the transaction flow when the
@@ -262,6 +389,9 @@ impl Qpackages {
         match self.installed.update(msg, library_of(self.library.as_ref())) {
             Some(installed::Request::Remove(names)) => {
                 self.update(Msg::Transaction(transaction::Msg::Begin(Action::Remove(names))))
+            }
+            Some(installed::Request::CleanOrphans(names)) => {
+                self.update(Msg::Transaction(transaction::Msg::Begin(Action::RemoveOrphans(names))))
             }
             None => Command::none(),
         }
@@ -304,6 +434,7 @@ impl Qpackages {
                 }
                 None => Command::none(),
             },
+            settings_page::Msg::Backend(msg) => self.backend_setting(msg),
             settings_page::Msg::Shared(change) => {
                 let (changed, apply) = match change {
                     Shared::Language(code) => {
@@ -398,7 +529,7 @@ impl Qpackages {
             } else {
                 self.page(ui);
             }
-            flow_view::modal(&self.transaction, ui);
+            flow_view::modal(&self.transaction, self.updates.news(), ui);
         })
         .fill();
     }
@@ -413,6 +544,10 @@ impl Qpackages {
                 root: self.root,
                 planning: self.transaction.is_planning(),
                 tool: self.transaction.tool(),
+                detected: &self.detected,
+                background: self.places.units.is_some() && self.places.exe.is_some(),
+                reflector: &self.reflector,
+                busy: !self.transaction.is_idle(),
             };
             ui.page("settings", |ui| {
                 ui.map(Msg::Settings, |ui| settings_page::view(ui, cx)).fill();
@@ -437,6 +572,8 @@ impl Qpackages {
                     aur: self.aur_in_use(),
                     utc_offset: self.utc_offset,
                     can_check: self.library.is_some(),
+                    busy: !self.transaction.is_idle(),
+                    backup: self.backup_plan(),
                 };
                 ui.map(Msg::Updates, |ui| self.updates.view(ui, cx)).fill();
             }
@@ -480,9 +617,22 @@ fn store_sources(settings: &Settings, root: bool) -> Vec<Source> {
 /// The installed packages of `found` as the pages need them; empty before the first read.
 fn library_of(found: Option<&Snapshot>) -> Library<'_> {
     match found {
-        Some(found) => Library { packages: &found.packages, apps: &found.apps, foreign: &found.foreign },
-        None => Library { packages: &[], apps: &NO_PACKAGES, foreign: &NO_FOREIGN },
+        Some(found) => {
+            Library { packages: &found.packages, apps: &found.apps, foreign: &found.foreign, orphans: &found.orphans }
+        }
+        None => Library { packages: &[], apps: &NO_PACKAGES, foreign: &NO_FOREIGN, orphans: &NO_FOREIGN },
     }
+}
+
+/// Arch's news of the last two weeks, read with curl; what curl said when it could not.
+fn read_news(runner: &dyn Runner) -> Result<Vec<NewsItem>, String> {
+    let output = runner.output(CURL, &curl_args(NEWS_URL), &[]).map_err(|error| error.to_string())?;
+    if !output.succeeded() {
+        return Err(output.stderr.trim().to_owned());
+    }
+    let items = parse_news(&output.stdout).map_err(|problem| problem.to_string())?;
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs());
+    Ok(recent(&items, i64::try_from(now).unwrap_or(i64::MAX)))
 }
 
 /// The mark before the word that says the helper is up: a lock where the font has one.
@@ -511,7 +661,16 @@ impl App for Qpackages {
                     return self.update(Msg::Tab(index));
                 }
             }
-            Msg::OpenSettings => self.settings_open = true,
+            Msg::OpenSettings => {
+                self.settings_open = true;
+                return self.look_at_reflector();
+            }
+            Msg::ShowOrphans => {
+                self.settings_open = false;
+                self.tab = Tab::Installed;
+                let all = Show::ALL.iter().position(|show| *show == Show::All).unwrap_or(0);
+                return self.installed_message(installed::Msg::Show(all));
+            }
             Msg::FocusSearch => {
                 if !self.settings_open && self.tab == Tab::Installed {
                     return Command::focus("search");
@@ -519,23 +678,26 @@ impl App for Qpackages {
             }
             Msg::Discover(msg) => return self.discover_message(msg),
             Msg::Installed(msg) => return self.installed_message(msg),
-            Msg::Updates(msg) => {
-                if self.updates.update(msg) == Some(updates::Request::Check) {
-                    return self.check();
-                }
-            }
+            Msg::Updates(msg) => return self.updates_message(msg),
             Msg::Settings(msg) => return self.settings_message(msg),
             Msg::Resized(size) => self.size = size,
             Msg::Reloaded(snapshot) => {
-                self.discover.machine_read(&snapshot.sources, snapshot.packages.iter().map(|p| p.name.clone()));
+                let flatpaks = self
+                    .discover
+                    .machine_read(&snapshot.sources, snapshot.packages.iter().map(|p| p.name.clone()))
+                    .map(Msg::Discover);
                 self.library = Some(snapshot);
                 self.installed.reloaded(library_of(self.library.as_ref()));
+                self.detect_backup();
+                // An installation may have brought reflector.
+                let reflector = if self.settings_open { self.look_at_reflector() } else { Command::none() };
                 if !self.checked_once {
                     self.checked_once = true;
                     if self.updates.start() == Some(updates::Request::Check) {
-                        return self.check();
+                        return Command::batch([flatpaks, reflector, self.check()]);
                     }
                 }
+                return Command::batch([flatpaks, reflector, self.after_transaction()]);
             }
             Msg::Saved(Ok(())) => {}
             Msg::Saved(Err(reason)) => {
@@ -545,7 +707,13 @@ impl App for Qpackages {
                 // pacman gets a terminal the size of the pane its output fills; the same rule
                 // lays that pane out in `body`.
                 let pty = output_layout(self.size, self.transaction.output_height()).pty;
-                return self.transaction.update(msg, pty);
+                let command = self.transaction.update(msg, pty);
+                // Switching reflector's timer changes no package, so no read follows it; its
+                // state is looked at again whenever the flow comes to rest.
+                if self.transaction.is_idle() {
+                    self.reflector.timer_on = backend::timer_enabled(&self.places.root);
+                }
+                return command;
             }
         }
         Command::none()

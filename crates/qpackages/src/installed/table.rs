@@ -15,6 +15,7 @@ use qframe::prelude::*;
 use qframe::widgets::{Column, ColumnWidth, SortDirection, TableCell, TableRow};
 use qpackages_core::pacman::Package;
 
+use super::Library;
 use super::query::Query;
 use crate::icons;
 
@@ -131,8 +132,8 @@ pub struct RowsKey {
     pub mode: usize,
     /// Whether the source column is left out.
     pub narrow: bool,
-    /// The words for the two origins, in the active language.
-    pub labels: [String; 2],
+    /// The words for the two origins and the orphans' mark, in the active language.
+    pub labels: [String; 3],
 }
 
 impl RowsKey {
@@ -142,7 +143,7 @@ impl RowsKey {
         Self {
             mode: icons::mode_index(mode),
             narrow,
-            labels: [t!("installed.origin-repo"), t!("installed.origin-aur")],
+            labels: [t!("installed.origin-repo"), t!("installed.origin-aur"), t!("installed.orphan")],
         }
     }
 }
@@ -172,19 +173,24 @@ impl Rows {
     }
 }
 
-/// The table rows for `shown`, in that order, as `key` asks.
+/// The table rows for `shown` of `library`, in that order, as `key` asks.
 ///
 /// The name starts with the package's icon and a space. The icon is written into the text, not
 /// given as an icon key: the table draws keys only from the theme's icon set, and most of these
 /// glyphs come from the package table instead. It therefore takes the row's text colour.
+///
+/// An orphan's row is faint and says so where a package asked for would have its check: an
+/// orphan is never asked for, so the column is free.
 #[must_use]
-pub fn rows(packages: &[Package], shown: &[usize], foreign: &Foreign, key: &RowsKey) -> Arc<[TableRow]> {
+pub fn rows(library: Library<'_>, shown: &[usize], key: &RowsKey) -> Arc<[TableRow]> {
     let mode = icons::MODES[key.mode];
     let cols = visible(key.narrow);
+    let (packages, foreign) = (library.packages, library.foreign);
     shown
         .iter()
         .map(|&i| {
             let package = &packages[i];
+            let orphan = library.orphans.as_ref().is_some_and(|orphans| orphans.contains(&package.name));
             TableRow::new(cols.iter().map(|col| match col {
                 Col::Name => TableCell::new(format!("{} {}", icons::installed(package, mode), package.name)),
                 Col::Version => TableCell::new(package.version.clone()),
@@ -195,8 +201,10 @@ pub fn rows(packages: &[Package], shown: &[usize], foreign: &Foreign, key: &Rows
                 }),
                 Col::Size => TableCell::new(package.size.map(size_text).unwrap_or_default()),
                 Col::Explicit if package.explicit => TableCell::new("").icon("check", None),
+                Col::Explicit if orphan => TableCell::new(key.labels[2].clone()),
                 Col::Explicit => TableCell::new(""),
             }))
+            .faint(orphan)
         })
         .collect()
 }
@@ -303,7 +311,8 @@ mod tests {
     #[test]
     fn rows_are_kept_until_what_they_were_built_for_changes() {
         let mut rows = Rows::default();
-        let key = |mode| RowsKey { mode, narrow: false, labels: ["Repo".to_owned(), "AUR".to_owned()] };
+        let key =
+            |mode| RowsKey { mode, narrow: false, labels: ["Repo".to_owned(), "AUR".to_owned(), "orphan".to_owned()] };
         let built = std::cell::Cell::new(0);
         let build = |_: &RowsKey| {
             built.set(built.get() + 1);
@@ -333,7 +342,9 @@ mod tests {
             let narrow = ui.size().width < 40;
             let key = RowsKey::new(ui.env().icons().mode(), narrow);
             let shown: Vec<usize> = (0..self.0.len()).collect();
-            let rows = rows(&self.0, &shown, &self.1, &key);
+            let apps = BTreeSet::new();
+            let library = Library { packages: &self.0, apps: &apps, foreign: &self.1, orphans: &None };
+            let rows = rows(library, &shown, &key);
             ui.add(Table::new(columns(visible(narrow)), rows)).fill();
         }
     }

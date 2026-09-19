@@ -247,6 +247,30 @@ impl Mirrors {
             .ok()
     }
 
+    /// The country codes; empty for every country.
+    #[must_use]
+    pub fn countries(&self) -> &[String] {
+        &self.countries
+    }
+
+    /// How many of the most recently synchronized mirrors are kept.
+    #[must_use]
+    pub fn count(&self) -> u8 {
+        self.count
+    }
+
+    /// How recently, in hours, a mirror must have synchronized.
+    #[must_use]
+    pub fn age(&self) -> u16 {
+        self.age
+    }
+
+    /// How the mirrors are ordered.
+    #[must_use]
+    pub fn sort(&self) -> Sort {
+        self.sort
+    }
+
     /// The request's values, in the order [`Mirrors::from_values`] reads them.
     #[must_use]
     pub fn values(&self) -> Vec<String> {
