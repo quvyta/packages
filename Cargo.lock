@@ -3,6 +3,12 @@
 version = 4
 
 [[package]]
+name = "adler2"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
+
+[[package]]
 name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -383,6 +389,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
+name = "miniz_oxide"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b63fbc4a50860e98e7b2aa7804ded1db5cbc3aff9193adaff57a6931bf7c4b4c"
+dependencies = [
+ "adler2",
+]
+
+[[package]]
 name = "mio"
 version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -504,6 +519,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "quick-xml"
+version = "0.42.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41b1177fdf999d2321d3fb46ff47159d9c1fb9ad66a4879f8c50a0b504615e9b"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -514,9 +538,9 @@ dependencies = [
 
 [[package]]
 name = "quvyta-framework"
-version = "0.1.4"
+version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc0056b1f1a878918c4eb41ec8cddf5181ee14d563698444c106a8b1584142dc"
+checksum = "68eb3aef83bee82e952331e2e7f44bb226d638dcb4bf5071b11170b8f2c57aa3"
 dependencies = [
  "crossterm",
  "dirs",
@@ -534,7 +558,7 @@ dependencies = [
 
 [[package]]
 name = "quvyta-packages"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "quvyta-framework",
  "quvyta-packages-core",
@@ -542,7 +566,13 @@ dependencies = [
 
 [[package]]
 name = "quvyta-packages-core"
-version = "0.1.0"
+version = "0.1.1"
+dependencies = [
+ "miniz_oxide",
+ "quick-xml",
+ "tinyjson",
+ "toml",
+]
 
 [[package]]
 name = "ratatui-core"
@@ -801,6 +831,12 @@ dependencies = [
  "quote",
  "syn 3.0.6",
 ]
+
+[[package]]
+name = "tinyjson"
+version = "2.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ab95735ea2c8fd51154d01e39cf13912a78071c2d89abc49a7ef102a7dd725a"
 
 [[package]]
 name = "toml"

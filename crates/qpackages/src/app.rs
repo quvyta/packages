@@ -6,12 +6,14 @@ use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::Arc;
 
+use qframe::icons::GlyphMode;
 use qframe::prelude::*;
 use qframe::storage::Settings;
-use qframe::widgets::{Badge, EmptyState, SortDirection, Splitter, Table, TableRow, TextInput};
+use qframe::widgets::{Badge, EmptyState, SortDirection, Splitter, Table, TableRow, TextInput, Tooltip};
 use qpackages_core::pacman::{Package, Problem};
 use qpackages_core::sources::{Availability, Source, Sources};
 
+use crate::helper::session::{Session, Start};
 use crate::reload::{Lookup, Reload, Snapshot};
 use crate::runner::Runner;
 use crate::transaction::{self, Action, Flow};
@@ -35,6 +37,8 @@ pub struct Machine<'a> {
     pub lookup: Arc<Lookup>,
     /// Runs programs.
     pub runner: Arc<dyn Runner>,
+    /// Starts the root helper that carries out transactions.
+    pub helper: Arc<Start>,
     /// The user id the application runs as, or `None` when it could not be read.
     pub uid: Option<u32>,
 }
@@ -129,7 +133,7 @@ impl Qpackages {
             marks: Vec::new(),
             split: 48,
             size: Size::default(),
-            transaction: Flow::new(machine.runner, reload.clone(), machine.lock_dir),
+            transaction: Flow::new(machine.runner, Session::new(machine.helper), reload.clone(), machine.lock_dir),
             reload,
         };
         app.rebuild();
@@ -189,6 +193,15 @@ impl Qpackages {
             ui.add(TextInput::new(self.search.clone()).placeholder(t!("search.placeholder")).on_change(Msg::Search))
                 .fill_width()
                 .id("search");
+            if self.transaction.has_helper() {
+                let glyph = privilege_glyph(ui.env().icons().mode());
+                let end = Button::new(format!("{glyph} {}", t!("helper.badge")))
+                    .variant("warning")
+                    .on_press(Msg::Transaction(transaction::Msg::EndHelper));
+                ui.add_with(Tooltip::new(t!("helper.badge-tip")), |ui| {
+                    ui.add(end).id("helper");
+                });
+            }
         })
         .gap(2)
         .padding(Padding::symmetric(0, 2))
@@ -323,6 +336,15 @@ impl Qpackages {
             ui.add(table).fill().id("packages");
         })
         .fill();
+    }
+}
+
+/// The mark before the word that says the helper is up: a lock where the font has one.
+fn privilege_glyph(mode: GlyphMode) -> &'static str {
+    match mode {
+        GlyphMode::Nerd => "\u{f033e}",
+        GlyphMode::Unicode => "◆",
+        GlyphMode::Ascii => "*",
     }
 }
 

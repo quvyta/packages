@@ -1,0 +1,277 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<components version="0.8" origin="flatpak">
+  <component type="desktop">
+    <id>org.mozilla.firefox</id>
+    <name>Firefox</name>
+    <summary>Fast, Private &amp; Safe Web Browser</summary>
+    <developer_name>Mozilla</developer_name>
+    <icon height="64" type="cached" width="64">org.mozilla.firefox.png</icon>
+    <icon height="128" type="cached" width="128">org.mozilla.firefox.png</icon>
+    <categories>
+      <category>Network</category>
+      <category>WebBrowser</category>
+    </categories>
+    <keywords>
+      <keyword>Browser</keyword>
+      <keyword>Explorer</keyword>
+      <keyword>Internet</keyword>
+      <keyword>WWW</keyword>
+      <keyword>Web</keyword>
+      <keyword>internet</keyword>
+      <keyword>mozilla</keyword>
+      <keyword>web</keyword>
+      <keyword xml:lang="fr">Navigateur</keyword>
+      <keyword xml:lang="tr">Tarayıcı</keyword>
+      <keyword xml:lang="tr">İnternet</keyword>
+    </keywords>
+    <project_license>MPL-2.0</project_license>
+    <url type="homepage">https://www.mozilla.org/firefox/</url>
+    <launchable type="desktop-id">org.mozilla.firefox.desktop</launchable>
+    <bundle type="flatpak" runtime="org.freedesktop.Platform/x86_64/25.08" sdk="org.freedesktop.Sdk/x86_64/25.08">app/org.mozilla.firefox/x86_64/stable</bundle>
+  </component>
+  <component type="desktop-application">
+    <id>com.obsproject.Studio</id>
+    <name>OBS Studio</name>
+    <summary>Live stream and record videos</summary>
+    <project_license>GPL-2.0-or-later</project_license>
+    <developer id="com.obsproject">
+      <name>OBS Project</name>
+    </developer>
+    <developer_name>OBS Project</developer_name>
+    <launchable type="desktop-id">com.obsproject.Studio.desktop</launchable>
+    <icon height="64" type="cached" width="64">com.obsproject.Studio.png</icon>
+    <icon height="64" scale="2" type="cached" width="64">com.obsproject.Studio.png</icon>
+    <icon height="128" type="cached" width="128">com.obsproject.Studio.png</icon>
+    <icon height="128" scale="2" type="cached" width="128">com.obsproject.Studio.png</icon>
+    <icon type="stock">com.obsproject.Studio</icon>
+    <icon height="128" type="remote" width="128">https://dl.flathub.org/media/com/obsproject/Studio/b24d8f7f7f9672e48342e70759b01e5e/icons/128x128/com.obsproject.Studio.png</icon>
+    <icon height="128" scale="2" type="remote" width="128">https://dl.flathub.org/media/com/obsproject/Studio/b24d8f7f7f9672e48342e70759b01e5e/icons/128x128@2/com.obsproject.Studio.png</icon>
+    <url type="homepage">https://obsproject.com</url>
+    <categories>
+      <category>AudioVideo</category>
+      <category>Recorder</category>
+    </categories>
+    <bundle type="flatpak" runtime="org.freedesktop.Platform/x86_64/25.08" sdk="org.freedesktop.Sdk/x86_64/25.08">app/com.obsproject.Studio/x86_64/stable</bundle>
+  </component>
+  <component type="desktop-application">
+    <id>org.gimp.GIMP</id>
+    <name>GNU Image Manipulation Program</name>
+    <name xml:lang="fr">Éditeur d’image GIMP</name>
+    <name xml:lang="tr">GNU Görüntü İşleme Programı</name>
+    <summary>High-end image creation and manipulation</summary>
+    <summary xml:lang="tr">Yüksek nitelikli görüntü oluşturma ve işleme</summary>
+    <project_license>GPL-3.0+ AND LGPL-3.0+</project_license>
+    <developer>
+      <name>The GIMP team</name>
+      <name xml:lang="tr">GIMP takımı</name>
+    </developer>
+    <developer_name>The GIMP team</developer_name>
+    <launchable type="desktop-id">org.gimp.GIMP.desktop</launchable>
+    <icon height="48" type="cached" width="48">org.gimp.GIMP.png</icon>
+    <icon height="64" type="cached" width="64">org.gimp.GIMP.png</icon>
+    <icon height="64" scale="2" type="cached" width="64">org.gimp.GIMP.png</icon>
+    <icon height="128" type="cached" width="128">org.gimp.GIMP.png</icon>
+    <icon height="128" scale="2" type="cached" width="128">org.gimp.GIMP.png</icon>
+    <icon type="stock">org.gimp.GIMP</icon>
+    <icon height="128" type="remote" width="128">https://dl.flathub.org/media/org/gimp/GIMP/4135d7fcf94290507c24bd93761fd4d5/icons/128x128/org.gimp.GIMP.png</icon>
+    <icon height="128" scale="2" type="remote" width="128">https://dl.flathub.org/media/org/gimp/GIMP/4135d7fcf94290507c24bd93761fd4d5/icons/128x128@2/org.gimp.GIMP.png</icon>
+    <url type="homepage">https://www.gimp.org/</url>
+    <categories>
+      <category>Graphics</category>
+      <category>2DGraphics</category>
+      <category>RasterGraphics</category>
+    </categories>
+    <keywords>
+      <keyword>GIMP</keyword>
+      <keyword>Photoshop</keyword>
+    </keywords>
+    <keywords xml:lang="tr">
+      <keyword>GIMP</keyword>
+    </keywords>
+    <bundle type="flatpak" runtime="org.gnome.Platform/x86_64/50" sdk="org.gnome.Sdk/x86_64/50">app/org.gimp.GIMP/x86_64/stable</bundle>
+    <metadata>
+       <value key="X-Flatpak-Tags">GTK+3,stable</value>
+    </metadata>
+  </component>
+  <component type="desktop-application">
+    <id>org.videolan.VLC</id>
+    <name>VLC</name>
+    <name xml:lang="fr">VLC</name>
+    <name xml:lang="tr">VLC</name>
+    <summary>VLC media player, the open-source multimedia player</summary>
+    <project_license>GPL-2.0+</project_license>
+    <project_group>VideoLAN</project_group>
+    <developer>
+      <name>VideoLAN et al.</name>
+    </developer>
+    <developer_name>VideoLAN et al.</developer_name>
+    <launchable type="desktop-id">org.videolan.VLC.desktop</launchable>
+    <icon height="48" type="cached" width="48">org.videolan.VLC.png</icon>
+    <icon height="64" type="cached" width="64">org.videolan.VLC.png</icon>
+    <icon height="128" type="cached" width="128">org.videolan.VLC.png</icon>
+    <icon type="stock">org.videolan.VLC</icon>
+    <icon height="128" type="remote" width="128">https://dl.flathub.org/media/org/videolan/VLC/34e7c2b6a026c5c290606225a84582d3/icons/128x128/org.videolan.VLC.png</icon>
+    <icon height="128" scale="2" type="remote" width="128">https://dl.flathub.org/media/org/videolan/VLC/34e7c2b6a026c5c290606225a84582d3/icons/128x128@2/org.videolan.VLC.png</icon>
+    <url type="homepage">https://www.videolan.org/vlc/</url>
+    <categories>
+      <category>AudioVideo</category>
+      <category>Player</category>
+      <category>Recorder</category>
+    </categories>
+    <keywords>
+      <keyword>Player</keyword>
+      <keyword>Capture</keyword>
+      <keyword>DVD</keyword>
+      <keyword>Audio</keyword>
+      <keyword>Video</keyword>
+      <keyword>Server</keyword>
+      <keyword>Broadcast</keyword>
+    </keywords>
+    <bundle type="flatpak" runtime="org.kde.Platform/x86_64/5.15-25.08" sdk="org.kde.Sdk/x86_64/5.15-25.08">app/org.videolan.VLC/x86_64/stable</bundle>
+  </component>
+  <component type="desktop-application">
+    <id>com.valvesoftware.Steam</id>
+    <name>Steam</name>
+    <summary>Launcher for the Steam software distribution service</summary>
+    <project_license>LicenseRef-proprietary</project_license>
+    <developer>
+      <name>Valve Corporation</name>
+    </developer>
+    <developer_name>Valve Corporation</developer_name>
+    <launchable type="desktop-id">com.valvesoftware.Steam.desktop</launchable>
+    <icon height="48" type="cached" width="48">com.valvesoftware.Steam.png</icon>
+    <icon height="64" type="cached" width="64">com.valvesoftware.Steam.png</icon>
+    <icon height="128" type="cached" width="128">com.valvesoftware.Steam.png</icon>
+    <icon type="stock">com.valvesoftware.Steam</icon>
+    <icon height="128" type="remote" width="128">https://dl.flathub.org/media/com/valvesoftware/Steam/f0343a4b277e822cce53b904454d3a7d/icons/128x128/com.valvesoftware.Steam.png</icon>
+    <icon height="128" scale="2" type="remote" width="128">https://dl.flathub.org/media/com/valvesoftware/Steam/f0343a4b277e822cce53b904454d3a7d/icons/128x128@2/com.valvesoftware.Steam.png</icon>
+    <url type="homepage">https://store.steampowered.com/</url>
+    <categories>
+      <category>Game</category>
+      <category>PackageManager</category>
+    </categories>
+    <bundle type="flatpak" runtime="org.freedesktop.Platform/x86_64/25.08" sdk="org.freedesktop.Sdk/x86_64/25.08">app/com.valvesoftware.Steam/x86_64/stable</bundle>
+    <metadata>
+       <value key="X-Flatpak-Tags">proprietary</value>
+    </metadata>
+  </component>
+  <component type="desktop-application">
+    <id>com.visualstudio.code</id>
+    <name>Visual Studio Code</name>
+    <summary>Code editing. Redefined.</summary>
+    <project_license>LicenseRef-proprietary=https://code.visualstudio.com/license</project_license>
+    <developer>
+      <name>Microsoft Corporation</name>
+    </developer>
+    <developer_name>Microsoft Corporation</developer_name>
+    <launchable type="desktop-id">com.visualstudio.code.desktop</launchable>
+    <icon height="64" type="cached" width="64">com.visualstudio.code.png</icon>
+    <icon height="128" type="cached" width="128">com.visualstudio.code.png</icon>
+    <icon type="stock">com.visualstudio.code</icon>
+    <icon height="128" type="remote" width="128">https://dl.flathub.org/media/com/visualstudio/code/654c0d747c53bd455cce9eea7cf2d36c/icons/128x128/com.visualstudio.code.png</icon>
+    <icon height="128" scale="2" type="remote" width="128">https://dl.flathub.org/media/com/visualstudio/code/654c0d747c53bd455cce9eea7cf2d36c/icons/128x128@2/com.visualstudio.code.png</icon>
+    <url type="homepage">https://code.visualstudio.com</url>
+    <categories>
+      <category>TextEditor</category>
+      <category>Development</category>
+      <category>IDE</category>
+    </categories>
+    <keywords>
+      <keyword>vscode</keyword>
+    </keywords>
+    <bundle type="flatpak" runtime="org.freedesktop.Sdk/x86_64/25.08" sdk="org.freedesktop.Sdk/x86_64/25.08">app/com.visualstudio.code/x86_64/stable</bundle>
+    <metadata>
+       <value key="X-Flatpak-Tags">proprietary</value>
+    </metadata>
+  </component>
+  <component type="desktop-application">
+    <id>md.obsidian.Obsidian</id>
+    <name>Obsidian</name>
+    <summary>Markdown-based knowledge base</summary>
+    <project_license>LicenseRef-proprietary=https://obsidian.md/eula</project_license>
+    <developer>
+      <name>Obsidian</name>
+    </developer>
+    <developer_name>Obsidian</developer_name>
+    <launchable type="desktop-id">md.obsidian.Obsidian.desktop</launchable>
+    <icon height="64" type="cached" width="64">md.obsidian.Obsidian.png</icon>
+    <icon height="128" type="cached" width="128">md.obsidian.Obsidian.png</icon>
+    <icon type="stock">md.obsidian.Obsidian</icon>
+    <icon height="128" type="remote" width="128">https://dl.flathub.org/media/md/obsidian/Obsidian/56e379aaf3973395285fb351884e0fb9/icons/128x128/md.obsidian.Obsidian.png</icon>
+    <icon height="128" scale="2" type="remote" width="128">https://dl.flathub.org/media/md/obsidian/Obsidian/56e379aaf3973395285fb351884e0fb9/icons/128x128@2/md.obsidian.Obsidian.png</icon>
+    <url type="homepage">https://obsidian.md/</url>
+    <categories>
+      <category>Office</category>
+    </categories>
+    <bundle type="flatpak" runtime="org.freedesktop.Platform/x86_64/26.08" sdk="org.freedesktop.Sdk/x86_64/26.08">app/md.obsidian.Obsidian/x86_64/stable</bundle>
+    <metadata>
+       <value key="X-Flatpak-Tags">proprietary</value>
+    </metadata>
+  </component>
+  <component type="desktop-application">
+    <id>com.spotify.Client</id>
+    <name>Spotify</name>
+    <summary>Online music streaming service</summary>
+    <project_license>LicenseRef-proprietary=https://www.spotify.com/us/legal/end-user-agreement/</project_license>
+    <developer id="com.spotify">
+      <name>Spotify</name>
+    </developer>
+    <developer_name>Spotify</developer_name>
+    <launchable type="desktop-id">com.spotify.Client.desktop</launchable>
+    <icon height="48" type="cached" width="48">com.spotify.Client.png</icon>
+    <icon height="64" type="cached" width="64">com.spotify.Client.png</icon>
+    <icon height="64" scale="2" type="cached" width="64">com.spotify.Client.png</icon>
+    <icon height="128" type="cached" width="128">com.spotify.Client.png</icon>
+    <icon height="128" scale="2" type="cached" width="128">com.spotify.Client.png</icon>
+    <icon type="stock">com.spotify.Client</icon>
+    <icon height="128" type="remote" width="128">https://dl.flathub.org/media/com/spotify/Client/2be38d678bbcc0e04cec0c19c60a80fe/icons/128x128/com.spotify.Client.png</icon>
+    <icon height="128" scale="2" type="remote" width="128">https://dl.flathub.org/media/com/spotify/Client/2be38d678bbcc0e04cec0c19c60a80fe/icons/128x128@2/com.spotify.Client.png</icon>
+    <url type="homepage">https://www.spotify.com</url>
+    <categories>
+      <category>Audio</category>
+      <category>Music</category>
+      <category>Player</category>
+      <category>AudioVideo</category>
+    </categories>
+    <bundle type="flatpak" runtime="org.freedesktop.Platform/x86_64/25.08" sdk="org.freedesktop.Sdk/x86_64/25.08">app/com.spotify.Client/x86_64/stable</bundle>
+    <metadata>
+       <value key="X-Flatpak-Tags">proprietary</value>
+    </metadata>
+  </component>
+  <component type="desktop-application">
+    <id>org.libreoffice.LibreOffice</id>
+    <name>LibreOffice</name>
+    <summary>The LibreOffice productivity suite</summary>
+    <project_license>MPL-2.0</project_license>
+    <developer>
+      <name>The Document Foundation</name>
+    </developer>
+    <developer_name>The Document Foundation</developer_name>
+    <launchable type="desktop-id">org.libreoffice.LibreOffice.desktop</launchable>
+    <icon height="48" type="cached" width="48">org.libreoffice.LibreOffice.png</icon>
+    <icon height="64" type="cached" width="64">org.libreoffice.LibreOffice.png</icon>
+    <icon height="64" scale="2" type="cached" width="64">org.libreoffice.LibreOffice.png</icon>
+    <icon height="128" type="cached" width="128">org.libreoffice.LibreOffice.png</icon>
+    <icon height="128" scale="2" type="cached" width="128">org.libreoffice.LibreOffice.png</icon>
+    <icon type="stock">org.libreoffice.LibreOffice.startcenter</icon>
+    <icon height="128" type="remote" width="128">https://dl.flathub.org/media/org/libreoffice/LibreOffice/ee84545178b4c57cc4f2c29e838c6fb8/icons/128x128/org.libreoffice.LibreOffice.png</icon>
+    <icon height="128" scale="2" type="remote" width="128">https://dl.flathub.org/media/org/libreoffice/LibreOffice/ee84545178b4c57cc4f2c29e838c6fb8/icons/128x128@2/org.libreoffice.LibreOffice.png</icon>
+    <url type="homepage">http://www.libreoffice.org/discover/libreoffice/</url>
+    <categories>
+      <category>Office</category>
+    </categories>
+    <bundle type="flatpak" runtime="org.freedesktop.Platform/x86_64/25.08" sdk="org.freedesktop.Sdk/x86_64/25.08">app/org.libreoffice.LibreOffice/x86_64/stable</bundle>
+  </component>
+  <component type="runtime">
+    <id>org.freedesktop.Platform</id>
+    <name>Freedesktop Platform</name>
+    <summary>Runtime platform for applications</summary>
+    <project_license>MIT</project_license>
+    <developer id="io.freedesktop_sdk">
+      <name>Freedesktop SDK</name>
+    </developer>
+    <developer_name>Freedesktop SDK</developer_name>
+    <url type="homepage">https://freedesktop-sdk.gitlab.io/</url>
+    <bundle type="flatpak" runtime="org.freedesktop.Platform/x86_64/26.08" sdk="org.freedesktop.Sdk/x86_64/26.08">runtime/org.freedesktop.Platform/x86_64/26.08</bundle>
+  </component>
+</components>

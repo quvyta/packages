@@ -1,9 +1,10 @@
 //! The exact argument lists qpackages hands to pacman and to the programs around it.
 //!
 //! Every function returns the arguments after the program name and nothing else, so one place
-//! decides the flags and the caller decides how the program is reached: `sudo pacman …` for a
-//! transaction, plain `pacman …` for a query that needs no privileges, `fakeroot -- pacman …`
-//! for the private refresh. Pinning the lists here keeps them testable without running anything.
+//! decides the flags and the caller decides how the program is reached: the root helper's
+//! `/usr/bin/pacman …` for a transaction, plain `pacman …` for a query that needs no privileges,
+//! `fakeroot -- pacman …` for the private refresh. Pinning the lists here keeps them testable
+//! without running anything.
 
 use std::path::Path;
 
@@ -19,25 +20,26 @@ pub const SUDO: &str = "sudo";
 /// `|` separates the fields only inside this format; it is never drawn on screen.
 const INSTALL_FORMAT: &str = "%r|%n|%v|%s";
 
-/// The machine format asked of `pacman -Rs --print`: name and version.
+/// The machine format asked of `pacman -Rns --print`: name and version.
 ///
 /// `|` separates the fields only inside this format; it is never drawn on screen.
 const REMOVE_FORMAT: &str = "%n|%v";
 
-/// The arguments that install `names`: `-S --noconfirm --needed`.
+/// The arguments that install `names`: `-S --needed --noconfirm`.
 ///
 /// `--noconfirm` because the user has already confirmed on our screen and pacman's own
 /// question would be asked on a pseudo-terminal nobody types into. `--needed` so a package
 /// that is already at the requested version is left alone instead of reinstalled.
 #[must_use]
 pub fn install(names: &[impl AsRef<str>]) -> Vec<String> {
-    with_names(["-S", "--noconfirm", "--needed"], names)
+    with_names(["-S", "--needed", "--noconfirm"], names)
 }
 
-/// The arguments that remove `names` with the dependencies only they needed: `-Rs --noconfirm`.
+/// The arguments that remove `names` with the dependencies only they needed and the
+/// configuration files pacman would otherwise keep as `.pacsave`: `-Rns --noconfirm`.
 #[must_use]
 pub fn remove(names: &[impl AsRef<str>]) -> Vec<String> {
-    with_names(["-Rs", "--noconfirm"], names)
+    with_names(["-Rns", "--noconfirm"], names)
 }
 
 /// The arguments that print what installing `names` would do, without doing it.
@@ -55,7 +57,7 @@ pub fn print_install(names: &[impl AsRef<str>]) -> Vec<String> {
 /// [`parse_remove_plan`](super::parse_remove_plan).
 #[must_use]
 pub fn print_remove(names: &[impl AsRef<str>]) -> Vec<String> {
-    with_names(["-Rs", "--print", "--print-format", REMOVE_FORMAT], names)
+    with_names(["-Rns", "--print", "--print-format", REMOVE_FORMAT], names)
 }
 
 /// The arguments that list pending updates against the database under `dbpath`.
@@ -88,16 +90,8 @@ pub fn refresh(dbpath: &Path) -> Vec<String> {
     ]
 }
 
-/// The arguments for [`SUDO`] that tell whether its ticket is still warm, without prompting.
-///
-/// Exit 0 means a transaction can start without a password; anything else means the user will
-/// be asked on the real terminal first.
-#[must_use]
-pub fn ticket_check() -> Vec<String> {
-    vec!["-n".to_owned(), "true".to_owned()]
-}
-
-/// The arguments for [`SUDO`] that warm its ticket by asking for the password and nothing more.
+/// The arguments for [`SUDO`] that warm its ticket by asking for the password and nothing more,
+/// so the root helper can be started right after without a prompt.
 #[must_use]
 pub fn warm_ticket() -> Vec<String> {
     vec!["-v".to_owned()]
@@ -112,9 +106,15 @@ pub fn parsed_env() -> [(&'static str, &'static str); 2] {
     [("LC_ALL", "C"), ("LANG", "C")]
 }
 
-/// The fixed flags followed by the package names.
+/// The fixed flags, `--`, then the package names: after `--` pacman reads nothing as a flag, so
+/// no name can ever turn into one.
 fn with_names<const N: usize>(flags: [&str; N], names: &[impl AsRef<str>]) -> Vec<String> {
-    flags.iter().map(|flag| (*flag).to_owned()).chain(names.iter().map(|name| name.as_ref().to_owned())).collect()
+    flags
+        .iter()
+        .chain(std::iter::once(&"--"))
+        .map(|flag| (*flag).to_owned())
+        .chain(names.iter().map(|name| name.as_ref().to_owned()))
+        .collect()
 }
 
 #[cfg(test)]
@@ -123,37 +123,37 @@ mod tests {
 
     #[test]
     fn install_confirms_nothing_and_skips_what_is_already_there() {
-        assert_eq!(install(&["gimp", "bash"]), ["-S", "--noconfirm", "--needed", "gimp", "bash"]);
+        assert_eq!(install(&["gimp", "bash"]), ["-S", "--needed", "--noconfirm", "--", "gimp", "bash"]);
     }
 
     #[test]
-    fn remove_takes_the_dependencies_only_the_package_needed() {
-        assert_eq!(remove(&["yay"]), ["-Rs", "--noconfirm", "yay"]);
+    fn remove_takes_the_dependencies_only_the_package_needed_and_its_saved_settings() {
+        assert_eq!(remove(&["yay"]), ["-Rns", "--noconfirm", "--", "yay"]);
     }
 
     #[test]
     fn print_install_asks_for_the_machine_format_the_plan_reader_expects() {
-        assert_eq!(print_install(&["gimp"]), ["-S", "--print", "--print-format", "%r|%n|%v|%s", "gimp"]);
+        assert_eq!(print_install(&["gimp"]), ["-S", "--print", "--print-format", "%r|%n|%v|%s", "--", "gimp"]);
     }
 
     #[test]
-    fn print_remove_asks_for_name_and_version() {
-        assert_eq!(print_remove(&["yay"]), ["-Rs", "--print", "--print-format", "%n|%v", "yay"]);
+    fn print_remove_plans_with_the_same_flags_as_the_removal() {
+        assert_eq!(print_remove(&["yay"]), ["-Rns", "--print", "--print-format", "%n|%v", "--", "yay"]);
     }
 
     #[test]
     fn an_empty_name_list_still_carries_the_fixed_flags() {
         let none: [&str; 0] = [];
-        assert_eq!(install(&none), ["-S", "--noconfirm", "--needed"]);
-        assert_eq!(remove(&none), ["-Rs", "--noconfirm"]);
-        assert_eq!(print_install(&none), ["-S", "--print", "--print-format", "%r|%n|%v|%s"]);
-        assert_eq!(print_remove(&none), ["-Rs", "--print", "--print-format", "%n|%v"]);
+        assert_eq!(install(&none), ["-S", "--needed", "--noconfirm", "--"]);
+        assert_eq!(remove(&none), ["-Rns", "--noconfirm", "--"]);
+        assert_eq!(print_install(&none), ["-S", "--print", "--print-format", "%r|%n|%v|%s", "--"]);
+        assert_eq!(print_remove(&none), ["-Rns", "--print", "--print-format", "%n|%v", "--"]);
     }
 
     #[test]
     fn owned_strings_are_accepted_as_names() {
         let names = vec!["gimp".to_owned()];
-        assert_eq!(install(&names), ["-S", "--noconfirm", "--needed", "gimp"]);
+        assert_eq!(install(&names), ["-S", "--needed", "--noconfirm", "--", "gimp"]);
     }
 
     #[test]
@@ -170,8 +170,7 @@ mod tests {
     }
 
     #[test]
-    fn the_ticket_is_checked_without_prompting_and_warmed_without_running_anything() {
-        assert_eq!(ticket_check(), ["-n", "true"]);
+    fn the_ticket_is_warmed_without_running_anything() {
         assert_eq!(warm_ticket(), ["-v"]);
     }
 

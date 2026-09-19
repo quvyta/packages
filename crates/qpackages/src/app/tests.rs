@@ -5,6 +5,7 @@ use qframe::env::Env;
 use qframe::icons::GlyphMode;
 
 use super::*;
+use crate::helper::session::InProcess;
 use crate::runner::Recorded;
 
 mod flow;
@@ -24,21 +25,30 @@ fn machine(program: &str) -> Option<PathBuf> {
     ["pacman", "paru", "fakeroot"].contains(&program).then(|| Path::new("/usr/bin").join(program))
 }
 
-/// The application on the pretend machine, running programs from `recorded` as user `uid`.
-fn app_on(settings: &str, recorded: &Arc<Recorded>, uid: Option<u32>, lock_dir: &Path) -> Qpackages {
+/// The application on the pretend machine, running programs from `recorded` as user `uid`, with
+/// transactions carried out by helpers from `helper`.
+fn app_on(
+    settings: &str,
+    recorded: &Arc<Recorded>,
+    helper: &Arc<InProcess>,
+    uid: Option<u32>,
+    lock_dir: &Path,
+) -> Qpackages {
     let settings = Settings::parse_str("settings.toml", settings).schema(settings::schema());
     let machine = Machine {
         dbpath: &fixture(),
         lock_dir,
         lookup: Arc::new(machine),
         runner: Arc::clone(recorded) as Arc<dyn crate::runner::Runner>,
+        helper: helper.start_fn(),
         uid: Some(1000),
     };
     Qpackages::new(Machine { uid, ..machine }, &settings)
 }
 
 fn app(settings: &str) -> Qpackages {
-    app_on(settings, &Arc::new(Recorded::default()), Some(1000), &fixture())
+    let recorded = Arc::new(Recorded::default());
+    app_on(settings, &recorded, &InProcess::new(&recorded, 0), Some(1000), &fixture())
 }
 
 fn harness(width: u16, height: u16) -> Harness<Qpackages> {

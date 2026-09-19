@@ -57,7 +57,7 @@ pub fn parse_install_plan(text: &str) -> Plan {
     Plan { steps }
 }
 
-/// Reads `pacman -Rs --print-format '%n|%v'`, one `name|version` line per package, the
+/// Reads `pacman -Rns --print-format '%n|%v'`, one `name|version` line per package, the
 /// dependencies that go with it included.
 ///
 /// A line with a different number of fields is not a step and is skipped.

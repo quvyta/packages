@@ -1,5 +1,7 @@
 # qpac
 
+![qpac: the installed packages with neovim selected and its details beside the list, neovim and tmux checked for removal](https://raw.githubusercontent.com/quvyta/packages/main/docs/screenshots/installed.png)
+
 **quvyta-packages**, or **qpac** for short, is a package manager for Arch Linux that runs in the
 terminal. It is meant to bring pacman, the AUR, Flatpak and Snap together in one simple interface,
 and shows exactly what will change before anything does. It is part of the Quvyta family of
@@ -11,6 +13,14 @@ open source under the MIT licence.
 > releases. Please report anything that looks wrong at
 > <https://github.com/quvyta/packages/issues>.
 
+<p>
+  <img src="https://raw.githubusercontent.com/quvyta/packages/main/docs/screenshots/confirm.png" alt="The removal confirmation: neovim and tmux with the libraries only they needed, eight packages in all" width="49%">
+  <img src="https://raw.githubusercontent.com/quvyta/packages/main/docs/screenshots/running.png" alt="The removal running: pacman's output in a pane below the list, the progress at half way and the admin badge in the header" width="49%">
+</p>
+<p>
+  <img src="https://raw.githubusercontent.com/quvyta/packages/main/docs/screenshots/flatpak.png" alt="A source this machine lacks: Flatpak is not installed, with a button to install it" width="49%">
+</p>
+
 ## What it does
 
 - **Installed packages.** Every package pacman has installed, in a table you can search and sort,
@@ -20,9 +30,10 @@ open source under the MIT licence.
 - **Removal you can see.** Check one or more packages and remove them. Before anything runs,
   pacman is asked what the removal would do, and the full list, dependencies included, is shown
   for you to confirm. Cancel has the focus, so the safe answer is the default.
-- **Your password stays with sudo.** When a password is needed, sudo asks for it on the terminal
-  itself; qpac never sees it. pacman then runs with its output and progress in a pane below
-  the list, which stays where it is. A long transaction can be stopped.
+- **Your password stays with sudo.** The first change you confirm has sudo ask for it once, on
+  the terminal itself; qpac never sees it. A small helper then carries out every change as root
+  until qpac closes, and does nothing else. pacman runs with its output and progress in a pane
+  below the list, which stays where it is. A long transaction can be stopped.
 - **A locked database is explained, never forced.** If another transaction holds pacman's lock,
   qpac says so, and by which process when it can tell. It never removes the lock.
 - **Sources.** The sidebar shows which sources this machine has. A missing one is shown faint

@@ -12,6 +12,7 @@ use qframe::runtime::{Task, TaskEvent, TaskOutcome};
 use qframe::widgets::LogBuffer;
 
 use super::*;
+use crate::helper::session::InProcess;
 use crate::runner::Recorded;
 
 /// A read of nowhere, for a flow that never gets to reread.
@@ -38,9 +39,16 @@ impl App for Pane {
     }
 }
 
+/// An idle flow whose helpers would run as root and play nothing.
+fn idle() -> Flow {
+    let recorded = Arc::new(Recorded::default());
+    let session = Session::new(InProcess::new(&recorded, 0).start_fn());
+    Flow::new(recorded, session, no_reload(), Path::new("/nowhere"))
+}
+
 /// A flow in the middle of installing paru, as `execute` leaves it, without a process behind it.
 fn running() -> (Flow, TaskId) {
-    let mut flow = Flow::new(Arc::new(Recorded::default()), no_reload(), Path::new("/nowhere"));
+    let mut flow = idle();
     let task: Task<AppMsg> = Task::new("never started", |_| Ok(wrap(Msg::Cancel)));
     let id = task.id();
     flow.state = State::Running {
@@ -158,4 +166,46 @@ fn the_pane_is_drawn_on_a_narrow_screen_in_ascii_without_decoration() {
     for forbidden in ['[', ']', '{', '}', '|'] {
         assert!(!screen.contains(forbidden), "`{forbidden}`:\n{screen}");
     }
+}
+
+/// A flow showing the confirmation of `action` with a one-package plan, the helper up or not.
+fn confirming(action: Action, granted: bool) -> Flow {
+    let mut flow = idle();
+    let plan = if action.is_removal() {
+        qpackages_core::pacman::parse_remove_plan("yay|12.5.0-1\n")
+    } else {
+        qpackages_core::pacman::parse_install_plan("extra|paru|2.1.0-1|1258291\n")
+    };
+    flow.state = State::Confirming { action, plan, granted };
+    flow
+}
+
+#[test]
+fn the_confirmation_says_whether_permission_will_be_asked_in_both_languages() {
+    let install = || Action::Install(vec!["paru".to_owned()]);
+    for (granted, en, tr) in [
+        (
+            false,
+            ["Administrator permission will be asked;", "qpac closes."],
+            ["Yönetici izni istenecek;", "kadar geçerli."],
+        ),
+        (true, ["Administrator permission was given", "session."], ["Yönetici izni bu oturumda verildi.", ""]),
+    ] {
+        // The dialog is narrow and the sentence wraps; each part lands on a line of its own.
+        let mut h = harness(confirming(install(), granted), 100, 16);
+        let screen = h.screen();
+        assert!(en.iter().all(|part| screen.contains(part)), "{screen}");
+        h.set_locale("tr");
+        let screen = h.screen();
+        assert!(tr.iter().all(|part| screen.contains(part)), "{screen}");
+        assert!(!h.screen().contains("Ayar dosyaları"), "an installation deletes nothing:\n{}", h.screen());
+    }
+}
+
+#[test]
+fn a_removal_says_the_settings_files_go_too() {
+    let mut h = harness(confirming(Action::Remove(vec!["yay".to_owned()]), false), 100, 16);
+    assert!(h.screen().contains("Their settings files are deleted too."), "{}", h.screen());
+    h.set_locale("tr");
+    assert!(h.screen().contains("Ayar dosyaları da silinir."), "{}", h.screen());
 }

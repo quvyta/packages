@@ -1,10 +1,10 @@
 //! A pacman transaction from the user's decision to its result: plan without privileges, confirm
-//! on our screen, warm sudo's ticket on the real terminal, run pacman on a pseudo-terminal while
-//! the list stays where it is, then say how it went.
+//! on our screen, have the root helper run pacman on a pseudo-terminal while the list stays where
+//! it is, then say how it went.
 //!
-//! No password ever passes through this code. sudo asks for it itself while it owns the
-//! terminal, and the ticket it keeps per terminal is what lets pacman run afterwards without
-//! asking again.
+//! The first transaction of a run starts the helper: sudo asks for the password on the real
+//! terminal, then `sudo -n` starts the helper, which stays up until qpac quits. Later
+//! transactions go straight to it. No password ever passes through this code.
 
 pub mod filter;
 #[cfg(test)]
@@ -19,11 +19,13 @@ use std::time::SystemTime;
 use qframe::prelude::*;
 use qframe::runtime::{Handoff, HandoffOutcome, ProcessOutcome, Task, TaskEvent, TaskId, TaskOutcome};
 use qframe::widgets::{LogBuffer, LogLevel, LogLine, Toast};
+use qpackages_core::helper::{Refusal, Request};
 use qpackages_core::lock::{LockStatus, Owner, lock_status};
 use qpackages_core::pacman::command::{self, PACMAN, SUDO};
 use qpackages_core::pacman::{Plan, parse_install_plan, parse_remove_plan};
 
 use crate::app::Msg as AppMsg;
+use crate::helper::session::{Outcome, Session, StartFailure};
 use crate::reload::Reload;
 use crate::runner::Runner;
 
@@ -38,7 +40,7 @@ const TOAST_KEY: &str = "transaction";
 pub enum Action {
     /// Install these packages from the repositories.
     Install(Vec<String>),
-    /// Remove these packages with the dependencies only they needed.
+    /// Remove these packages with the dependencies only they needed and their saved settings.
     Remove(Vec<String>),
 }
 
@@ -71,13 +73,12 @@ impl Action {
         }
     }
 
-    /// The arguments for [`SUDO`] that carry the action out: `pacman` followed by its flags.
-    fn run_args(&self) -> Vec<String> {
-        let args = match self {
-            Self::Install(names) => command::install(names),
-            Self::Remove(names) => command::remove(names),
-        };
-        std::iter::once(PACMAN.to_owned()).chain(args).collect()
+    /// The request that has the helper carry the action out.
+    fn request(&self) -> Request {
+        match self {
+            Self::Install(names) => Request::Install(names.clone()),
+            Self::Remove(names) => Request::Remove(names.clone()),
+        }
     }
 
     /// Reads the plan pacman printed for this action.
@@ -95,8 +96,8 @@ pub struct Planned {
     action: Action,
     /// The plan, or what pacman said when it could not make one.
     plan: Result<Plan, String>,
-    /// Whether sudo's ticket is warm, so no password will be asked.
-    warm: bool,
+    /// Whether the helper is up, so no password will be asked.
+    granted: bool,
     lock: LockStatus,
 }
 
@@ -113,10 +114,18 @@ pub enum Msg {
     Apply,
     /// sudo's ticket was warmed on the real terminal, or not.
     Warmed(HandoffOutcome),
+    /// The helper is up, or why it is not.
+    Started(Result<(), StartFailure>),
     /// pacman printed a line.
     Line(String),
     /// pacman ended.
     Ended(ProcessOutcome),
+    /// The helper refused the request; nothing ran.
+    Refused(Refusal),
+    /// The helper went away before pacman's end was known; what was known about it.
+    Lost(String),
+    /// The user let the helper go.
+    EndHelper,
     /// The task running pacman started, progressed or ended.
     Event(TaskEvent),
     /// The user held the stop control.
@@ -140,8 +149,8 @@ pub enum State {
         action: Action,
         /// What pacman would do.
         plan: Plan,
-        /// Whether no password will be asked.
-        warm: bool,
+        /// Whether the helper is up, so no password will be asked.
+        granted: bool,
     },
     /// Another transaction holds pacman's database; nothing can start.
     Locked {
@@ -152,6 +161,8 @@ pub enum State {
     },
     /// sudo has the terminal and is asking for the password.
     Authorizing(Action),
+    /// The helper is starting.
+    Starting(Action),
     /// pacman is running.
     Running {
         /// The action being carried out.
@@ -175,6 +186,10 @@ pub enum State {
 /// The flow's state and what it needs to run programs.
 pub struct Flow {
     runner: Arc<dyn Runner>,
+    /// The root helper of this run.
+    session: Session,
+    /// Whether the helper is up, as last seen; the header shows it without waiting on the helper.
+    granted: bool,
     /// The read of the packages and the sources, repeated after a successful transaction.
     reload: Reload,
     /// The directory pacman's lock file lives in.
@@ -201,11 +216,25 @@ fn wrap(msg: Msg) -> AppMsg {
 }
 
 impl Flow {
-    /// An idle flow that runs programs with `runner`, checks the lock under `lock_dir` and
-    /// repeats `reload` after a change.
+    /// An idle flow that plans with `runner`, carries out through `session`, checks the lock
+    /// under `lock_dir` and repeats `reload` after a change.
     #[must_use]
-    pub fn new(runner: Arc<dyn Runner>, reload: Reload, lock_dir: &Path) -> Self {
-        Self { runner, reload, lock_dir: lock_dir.to_path_buf(), state: State::Idle, output_height: 10 }
+    pub fn new(runner: Arc<dyn Runner>, session: Session, reload: Reload, lock_dir: &Path) -> Self {
+        Self {
+            runner,
+            session,
+            granted: false,
+            reload,
+            lock_dir: lock_dir.to_path_buf(),
+            state: State::Idle,
+            output_height: 10,
+        }
+    }
+
+    /// Whether the helper is up, so a transaction runs without asking for the password.
+    #[must_use]
+    pub fn has_helper(&self) -> bool {
+        self.granted
     }
 
     /// Where the flow is.
@@ -245,10 +274,20 @@ impl Flow {
                 }
             }
             Msg::Apply => return self.apply(pty),
-            Msg::Warmed(outcome) => return self.warmed(outcome, pty),
+            Msg::Warmed(outcome) => return self.warmed(outcome),
+            Msg::Started(result) => return self.started(result, pty),
             Msg::Line(text) => self.line(&text),
             Msg::Ended(outcome) => return self.ended(&outcome),
+            Msg::Refused(refusal) => return self.refused(refusal),
+            Msg::Lost(reason) => return self.lost(&reason),
             Msg::Event(event) => return self.event(event),
+            Msg::EndHelper => {
+                // A running transaction holds the helper; it is let go only between them.
+                if !matches!(self.state, State::Running { .. } | State::Starting(_)) {
+                    self.session.end();
+                    self.granted = false;
+                }
+            }
             Msg::Stop => {
                 if let State::Running { task, .. } = &self.state {
                     return Command::cancel_task(*task);
@@ -271,8 +310,9 @@ impl Flow {
         }
         self.state = State::Planning(action.clone());
         let runner = Arc::clone(&self.runner);
+        let session = self.session.clone();
         let lock_dir = self.lock_dir.clone();
-        Command::perform(move || wrap(Msg::Planned(plan(runner.as_ref(), &lock_dir, action))))
+        Command::perform(move || wrap(Msg::Planned(plan(runner.as_ref(), &session, &lock_dir, action))))
     }
 
     /// Shows the plan, the lock notice, or why there is no plan.
@@ -280,13 +320,14 @@ impl Flow {
         if !matches!(&self.state, State::Planning(action) if *action == planned.action) {
             return Command::none();
         }
+        self.granted = planned.granted;
         if let LockStatus::Held { since, owner } = planned.lock {
             self.state = State::Locked { since, owner };
             return Command::none();
         }
         match planned.plan {
             Ok(plan) => {
-                self.state = State::Confirming { action: planned.action, plan, warm: planned.warm };
+                self.state = State::Confirming { action: planned.action, plan, granted: planned.granted };
                 Command::none()
             }
             Err(reason) => {
@@ -296,12 +337,13 @@ impl Flow {
         }
     }
 
-    /// Runs the confirmed plan, after warming sudo's ticket on the real terminal when it is cold.
+    /// Runs the confirmed plan through the helper, starting the helper first when there is none.
     fn apply(&mut self, pty: (u16, u16)) -> Command<AppMsg> {
-        let State::Confirming { action, warm, .. } = std::mem::replace(&mut self.state, State::Idle) else {
+        let State::Confirming { action, .. } = std::mem::replace(&mut self.state, State::Idle) else {
             return Command::none();
         };
-        if warm {
+        self.granted = self.session.is_alive();
+        if self.granted {
             return self.execute(action, pty);
         }
         self.state = State::Authorizing(action);
@@ -311,40 +353,64 @@ impl Flow {
         Command::handoff(handoff)
     }
 
-    /// Runs the action once sudo said yes; otherwise nothing runs and the list stays.
-    fn warmed(&mut self, outcome: HandoffOutcome, pty: (u16, u16)) -> Command<AppMsg> {
+    /// Starts the helper once sudo said yes; otherwise nothing runs and the list stays.
+    fn warmed(&mut self, outcome: HandoffOutcome) -> Command<AppMsg> {
         let State::Authorizing(action) = std::mem::replace(&mut self.state, State::Idle) else {
             return Command::none();
         };
         match outcome {
-            HandoffOutcome::Finished { code: Some(0) } => self.execute(action, pty),
-            HandoffOutcome::Finished { .. } => {
-                self.toast(Toast::danger(t!("transaction.not-authorized")).body(t!("transaction.not-authorized-body")))
+            HandoffOutcome::Finished { code: Some(0) } => {
+                self.state = State::Starting(action);
+                let session = self.session.clone();
+                Command::perform(move || wrap(Msg::Started(session.start())))
             }
-            HandoffOutcome::Failed(reason) => self.toast(Toast::danger(t!("transaction.not-authorized")).body(reason)),
+            HandoffOutcome::Finished { .. } => self.not_authorized(t!("transaction.not-authorized-body")),
+            HandoffOutcome::Failed(reason) => self.not_authorized(reason),
         }
     }
 
-    /// Runs pacman under sudo on a `pty`-sized pseudo-terminal and streams its output into the
-    /// pane.
+    /// Runs the action once the helper is up; otherwise says why and runs nothing.
+    fn started(&mut self, result: Result<(), StartFailure>, pty: (u16, u16)) -> Command<AppMsg> {
+        let State::Starting(action) = std::mem::replace(&mut self.state, State::Idle) else {
+            return Command::none();
+        };
+        self.granted = result.is_ok();
+        let reason = match result {
+            Ok(()) => return self.execute(action, pty),
+            Err(StartFailure::Refused(refusal)) => refusal_text(refusal),
+            Err(StartFailure::Silent) => t!("helper.silent"),
+            Err(StartFailure::Failed(text)) if text.is_empty() => t!("helper.ended"),
+            Err(StartFailure::Failed(text)) => text,
+        };
+        self.not_authorized(t!("transaction.not-authorized-reason", reason = reason))
+    }
+
+    /// Says the helper could not be had and why; nothing was changed.
+    fn not_authorized(&self, body: String) -> Command<AppMsg> {
+        self.toast(Toast::danger(t!("transaction.not-authorized")).body(body))
+    }
+
+    /// Has the helper run the action on a `pty`-sized pseudo-terminal and streams its output
+    /// into the pane.
     ///
-    /// The command runs in the user's own language: this output is shown, never parsed, so no
-    /// locale is pinned. The pseudo-terminal keeps pacman's progress bars, fitted to the pane;
-    /// sudo's ticket is shared because the child stays on the application's controlling
-    /// terminal.
+    /// pacman's output is in the user's own language: it is shown, never parsed. The
+    /// pseudo-terminal keeps pacman's progress bars, fitted to the pane.
     ///
-    /// Stopping kills only the child the application started, which is `sudo`: a `pacman` it
-    /// had already started may run on to its end. The stop toast says so to the user, and the
-    /// lock check before the next transaction catches a pacman still at work.
+    /// Stopping stops the wait and lets the helper go: pacman runs on to its end, because
+    /// stopping it halfway can break its database, and the helper exits after it. The stop
+    /// toast says so to the user, and the lock check before the next transaction catches a
+    /// pacman still at work.
     fn execute(&mut self, action: Action, pty: (u16, u16)) -> Command<AppMsg> {
-        let runner = Arc::clone(&self.runner);
-        let args = action.run_args();
+        let session = self.session.clone();
+        let request = action.request();
         let label = running_label(&action);
         let task = Task::new(label, move |cx| {
-            let outcome = runner
-                .stream(SUDO, &args, &[], Some(pty), &|| cx.is_cancelled(), &mut |line| cx.send(wrap(Msg::Line(line))))
-                .map_err(|error| error.to_string())?;
-            Ok(wrap(Msg::Ended(outcome)))
+            let outcome = session.run(&request, pty, &|| cx.is_cancelled(), &mut |line| cx.send(wrap(Msg::Line(line))));
+            Ok(wrap(match outcome {
+                Outcome::Finished(outcome) => Msg::Ended(outcome),
+                Outcome::Refused(refusal) => Msg::Refused(refusal),
+                Outcome::Lost(reason) => Msg::Lost(reason),
+            }))
         })
         .on_event(|event| wrap(Msg::Event(event)));
         self.state = State::Running { action, task: task.id(), output: LogBuffer::new(OUTPUT_LINES), progress: None };
@@ -371,6 +437,7 @@ impl Flow {
         let State::Running { action, output, .. } = std::mem::replace(&mut self.state, State::Idle) else {
             return Command::none();
         };
+        self.granted = self.session.is_alive();
         let names = action.names_text();
         match outcome {
             ProcessOutcome::Finished { code: Some(0) } => {
@@ -396,6 +463,26 @@ impl Flow {
         }
     }
 
+    /// Says the helper refused the request. Nothing ran, so there is no output to keep.
+    fn refused(&mut self, refusal: Refusal) -> Command<AppMsg> {
+        if !matches!(self.state, State::Running { .. }) {
+            return Command::none();
+        }
+        self.state = State::Idle;
+        self.toast(Toast::danger(t!("transaction.refused")).body(refusal_text(refusal)))
+    }
+
+    /// Says the helper went away mid-run; what pacman said so far stays on screen.
+    fn lost(&mut self, reason: &str) -> Command<AppMsg> {
+        let State::Running { action, output, .. } = std::mem::replace(&mut self.state, State::Idle) else {
+            return Command::none();
+        };
+        self.granted = false;
+        self.state = State::Finished { action, output };
+        let body = if reason.is_empty() { t!("helper.ended") } else { reason.to_owned() };
+        self.toast(Toast::danger(t!("transaction.lost")).body(body))
+    }
+
     /// Notices a task that ended without delivering pacman's outcome: one that was stopped, whose
     /// result the runtime drops, or one that could not start pacman at all.
     fn event(&mut self, event: TaskEvent) -> Command<AppMsg> {
@@ -412,6 +499,7 @@ impl Flow {
                 let State::Running { action, output, .. } = std::mem::replace(&mut self.state, State::Idle) else {
                     return Command::none();
                 };
+                self.granted = self.session.is_alive();
                 self.state = State::Finished { action, output };
                 self.toast(Toast::danger(t!("transaction.could-not-start")).body(reason))
             }
@@ -434,17 +522,21 @@ fn running_label(action: &Action) -> String {
     }
 }
 
-/// Finds out, without privileges, what `action` would do, whether sudo will ask for the password
-/// and whether the database is free. Runs in the background.
-fn plan(runner: &dyn Runner, lock_dir: &Path, action: Action) -> Planned {
+/// What the helper's refusal means, in the user's words.
+fn refusal_text(refusal: Refusal) -> String {
+    t!(&format!("helper.refused.{}", refusal.key()))
+}
+
+/// Finds out, without privileges, what `action` would do, whether the helper is up so no
+/// password will be asked, and whether the database is free. Runs in the background.
+fn plan(runner: &dyn Runner, session: &Session, lock_dir: &Path, action: Action) -> Planned {
     let env = command::parsed_env();
     let plan = match runner.output(PACMAN, &action.print_args(), &env) {
         Ok(output) if output.succeeded() => Ok(action.parse_plan(&output.stdout)),
         Ok(output) => Err(failure_text(&output.stderr, &output.stdout)),
         Err(error) => Err(error.to_string()),
     };
-    let warm = runner.output(SUDO, &command::ticket_check(), &[]).is_ok_and(|output| output.succeeded());
-    Planned { action, plan, warm, lock: lock_status(lock_dir) }
+    Planned { action, plan, granted: session.is_alive(), lock: lock_status(lock_dir) }
 }
 
 /// What pacman said when it refused: its error stream, or its output when the error stream is
@@ -459,13 +551,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn install_and_remove_build_their_pacman_lines() {
+    fn install_and_remove_build_their_plans_and_requests() {
         let install = Action::Install(vec!["paru".to_owned()]);
-        assert_eq!(install.print_args(), ["-S", "--print", "--print-format", "%r|%n|%v|%s", "paru"]);
-        assert_eq!(install.run_args(), ["pacman", "-S", "--noconfirm", "--needed", "paru"]);
+        assert_eq!(install.print_args(), ["-S", "--print", "--print-format", "%r|%n|%v|%s", "--", "paru"]);
+        assert_eq!(install.request(), Request::Install(vec!["paru".to_owned()]));
         let remove = Action::Remove(vec!["yay".to_owned(), "bash".to_owned()]);
-        assert_eq!(remove.print_args(), ["-Rs", "--print", "--print-format", "%n|%v", "yay", "bash"]);
-        assert_eq!(remove.run_args(), ["pacman", "-Rs", "--noconfirm", "yay", "bash"]);
+        assert_eq!(remove.print_args(), ["-Rns", "--print", "--print-format", "%n|%v", "--", "yay", "bash"]);
+        assert_eq!(remove.request().to_string(), "remove yay bash");
         assert!(remove.is_removal());
         assert_eq!(remove.names_text(), "yay, bash");
     }

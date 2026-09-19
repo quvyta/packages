@@ -1,0 +1,171 @@
+{
+  "hits": [
+    {
+      "app_id": "org.vinegarhq.Sober",
+      "name": "Sober",
+      "summary": "Play, chat & explore on Roblox",
+      "type": "desktop-application",
+      "main_categories": "game",
+      "sub_categories": [
+        "GNOME",
+        "GTK"
+      ],
+      "installs_last_month": 201337,
+      "favorites_count": 355,
+      "trending": -0.7013755656437772,
+      "updated_at": 1788638086,
+      "added_at": 1743316841
+    },
+    {
+      "app_id": "org.mozilla.firefox",
+      "name": "Firefox",
+      "summary": "Fast, Private & Safe Web Browser",
+      "type": "desktop-application",
+      "main_categories": "network",
+      "sub_categories": [
+        "WebBrowser"
+      ],
+      "installs_last_month": 186403,
+      "favorites_count": 472,
+      "trending": -1.6443476013686291,
+      "updated_at": 1789491708,
+      "added_at": 1689081703
+    },
+    {
+      "app_id": "com.discordapp.Discord",
+      "name": "Discord",
+      "summary": "Talk, play, hang out",
+      "type": "desktop-application",
+      "main_categories": "network",
+      "sub_categories": [
+        "InstantMessaging"
+      ],
+      "installs_last_month": 181842,
+      "favorites_count": 696,
+      "trending": -0.16813810418143002,
+      "updated_at": 1789444493,
+      "added_at": 1497772963
+    },
+    {
+      "app_id": "com.brave.Browser",
+      "name": "Brave",
+      "summary": "Fast Internet, Adblock",
+      "type": "desktop-application",
+      "main_categories": "network",
+      "sub_categories": [
+        "WebBrowser"
+      ],
+      "installs_last_month": 173281,
+      "favorites_count": 424,
+      "trending": -0.5512594179777688,
+      "updated_at": 1789577241,
+      "added_at": 1602485316
+    },
+    {
+      "app_id": "com.google.Chrome",
+      "name": "Google Chrome",
+      "summary": "The browser built to be yours",
+      "type": "desktop-application",
+      "main_categories": "network",
+      "sub_categories": [
+        "WebBrowser"
+      ],
+      "installs_last_month": 170148,
+      "favorites_count": 265,
+      "trending": -1.0136463447479285,
+      "updated_at": 1789522608,
+      "added_at": 1596138378
+    },
+    {
+      "app_id": "com.usebottles.bottles",
+      "name": "Bottles",
+      "summary": "Run Windows software",
+      "type": "desktop-application",
+      "main_categories": "utility",
+      "sub_categories": [
+        "3DGraphics",
+        "Emulator",
+        "GNOME",
+        "GTK",
+        "Game",
+        "Graphics"
+      ],
+      "installs_last_month": 145197,
+      "favorites_count": 697,
+      "trending": -1.1246856686257038,
+      "updated_at": 1788758220,
+      "added_at": 1610005023
+    },
+    {
+      "app_id": "com.spotify.Client",
+      "name": "Spotify",
+      "summary": "Online music streaming service",
+      "type": "desktop-application",
+      "main_categories": "audiovideo",
+      "sub_categories": [
+        "Audio",
+        "Music",
+        "Player"
+      ],
+      "installs_last_month": 119795,
+      "favorites_count": 488,
+      "trending": -0.7333983138125286,
+      "updated_at": 1786557109,
+      "added_at": 1497775340
+    },
+    {
+      "app_id": "org.videolan.VLC",
+      "name": "VLC",
+      "summary": "VLC media player, the open-source multimedia player",
+      "type": "desktop-application",
+      "main_categories": "audiovideo",
+      "sub_categories": [
+        "Player",
+        "Recorder"
+      ],
+      "installs_last_month": 111163,
+      "favorites_count": 619,
+      "trending": -1.3026358196862442,
+      "updated_at": 1784336350,
+      "added_at": 1504907525
+    },
+    {
+      "app_id": "com.valvesoftware.Steam",
+      "name": "Steam",
+      "summary": "Launcher for the Steam software distribution service",
+      "type": "desktop-application",
+      "main_categories": "game",
+      "sub_categories": [
+        "PackageManager"
+      ],
+      "installs_last_month": 99454,
+      "favorites_count": 502,
+      "trending": -0.8526571753638851,
+      "updated_at": 1774586327,
+      "added_at": 1497742883
+    },
+    {
+      "app_id": "com.heroicgameslauncher.hgl",
+      "name": "Heroic",
+      "summary": "Play Epic, GOG and Amazon Games",
+      "type": "desktop-application",
+      "main_categories": "game",
+      "sub_categories": [
+        "PackageManager"
+      ],
+      "installs_last_month": 98114,
+      "favorites_count": 566,
+      "trending": -0.8713235889783462,
+      "updated_at": 1789574267,
+      "added_at": 1646944179
+    }
+  ],
+  "query": "",
+  "processingTimeMs": 1,
+  "hitsPerPage": 10,
+  "page": 1,
+  "totalPages": 330,
+  "totalHits": 3295,
+  "facetDistribution": null,
+  "facetStats": null
+}

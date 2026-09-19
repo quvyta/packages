@@ -19,7 +19,7 @@ const MAX_STEP_ROWS: u16 = 10;
 /// added; the framework draws it over everything.
 pub fn modal(flow: &Flow, ui: &mut View<'_, AppMsg>) {
     match flow.state() {
-        State::Confirming { action, plan, warm } => confirmation(action, plan, *warm, ui),
+        State::Confirming { action, plan, granted } => confirmation(action, plan, *granted, ui),
         State::Locked { since, owner } => locked(*since, owner.as_ref(), ui),
         _ => {}
     }
@@ -27,7 +27,7 @@ pub fn modal(flow: &Flow, ui: &mut View<'_, AppMsg>) {
 
 /// The plan as pacman printed it, the download it needs and whether a password will be asked,
 /// with Cancel first so the safe answer has focus.
-fn confirmation(action: &Action, plan: &Plan, warm: bool, ui: &mut View<'_, AppMsg>) {
+fn confirmation(action: &Action, plan: &Plan, granted: bool, ui: &mut View<'_, AppMsg>) {
     let n = plan.steps.len();
     let (title, apply, variant) = if action.is_removal() {
         (t!("transaction.remove-title", n = n), t!("transaction.remove"), "danger")
@@ -52,16 +52,13 @@ fn confirmation(action: &Action, plan: &Plan, warm: bool, ui: &mut View<'_, AppM
         .fill_width()
         .height(Length::Cells(rows.clamp(1, MAX_STEP_ROWS)))
         .id("steps");
-        if !action.is_removal() {
+        if action.is_removal() {
+            ui.add(Text::new(t!("transaction.remove-settings")).color("warning")).fill_width();
+        } else {
             ui.add(Text::new(t!("transaction.download", size = size_text(plan.download()))).no_wrap());
         }
-        // The colour says how it will go and the marker says it again, for screens without colour.
-        let ticket = if warm {
-            Badge::new(t!("transaction.ticket-warm")).variant("success")
-        } else {
-            Badge::new(t!("transaction.ticket-cold")).variant("info")
-        };
-        ui.add(ticket);
+        let privilege = if granted { t!("transaction.privilege-granted") } else { t!("transaction.privilege-asked") };
+        ui.add(Text::new(privilege).role("secondary")).fill_width();
     });
 }
 

@@ -5,7 +5,7 @@ repository = "https://github.com/quvyta/packages"
 readme = "../../README.md"
 keywords = ["pacman", "arch", "packages", "quvyta"]
 categories = ["os::linux-apis", "parser-implementations"]
-version = "0.1.0"
+version = "0.1.1"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -17,6 +17,17 @@ include = ["src/**", "Cargo.toml", "README.md", "LICENSE"]
 # Published as quvyta-packages-core, used in code as `qpackages_core`, the way the framework is
 # published as quvyta-framework and used as `qframe`.
 name = "qpackages_core"
+
+[dependencies]
+# The catalog's parsers, each chosen for how little `unsafe` it carries and how little it pulls in;
+# all four forbid `unsafe` and none brings another crate. `miniz_oxide` is used directly rather
+# than through `flate2`, which adds its own `unsafe` and two SIMD crates, since the gzip framing
+# around a deflate stream is small. `tinyjson` rather than `serde_json`: the latter's
+# `PartialEq<Value>` impls for every number type break type inference in code that only links it.
+miniz_oxide = "0.9.1"
+quick-xml = "0.42.0"
+tinyjson = "2.5.1"
+toml = { version = "1.1.6", default-features = false, features = ["std", "parse"] }
 
 [lints]
 workspace = true
