@@ -1,0 +1,105 @@
+{
+ "total": 34451,
+ "count": 12,
+ "limit": 5000,
+ "offset": 0,
+ "query": null,
+ "packagePopularities": [
+  {
+   "name": "bash",
+   "popularity": 100.0,
+   "samples": 1000,
+   "count": 1000,
+   "startMonth": 202608,
+   "endMonth": 202608
+  },
+  {
+   "name": "glibc",
+   "popularity": 100.0,
+   "samples": 1000,
+   "count": 1000,
+   "startMonth": 202608,
+   "endMonth": 202608
+  },
+  {
+   "name": "firefox",
+   "popularity": 69.22,
+   "samples": 1000,
+   "count": 692,
+   "startMonth": 202608,
+   "endMonth": 202608
+  },
+  {
+   "name": "vlc",
+   "popularity": 47.1,
+   "samples": 1000,
+   "count": 471,
+   "startMonth": 202608,
+   "endMonth": 202608
+  },
+  {
+   "name": "libreoffice-fresh",
+   "popularity": 39.5,
+   "samples": 1000,
+   "count": 395,
+   "startMonth": 202608,
+   "endMonth": 202608
+  },
+  {
+   "name": "gimp",
+   "popularity": 31.8,
+   "samples": 1000,
+   "count": 318,
+   "startMonth": 202608,
+   "endMonth": 202608
+  },
+  {
+   "name": "steam",
+   "popularity": 27.4,
+   "samples": 1000,
+   "count": 274,
+   "startMonth": 202608,
+   "endMonth": 202608
+  },
+  {
+   "name": "obs-studio",
+   "popularity": 21.3,
+   "samples": 1000,
+   "count": 213,
+   "startMonth": 202608,
+   "endMonth": 202608
+  },
+  {
+   "name": "keepassxc",
+   "popularity": 15.2,
+   "samples": 1000,
+   "count": 152,
+   "startMonth": 202608,
+   "endMonth": 202608
+  },
+  {
+   "name": "telegram-desktop",
+   "popularity": 12.9,
+   "samples": 1000,
+   "count": 129,
+   "startMonth": 202608,
+   "endMonth": 202608
+  },
+  {
+   "name": "qbittorrent",
+   "popularity": 11.7,
+   "samples": 1000,
+   "count": 117,
+   "startMonth": 202608,
+   "endMonth": 202608
+  },
+  {
+   "name": "kate",
+   "popularity": 10.1,
+   "samples": 1000,
+   "count": 101,
+   "startMonth": 202608,
+   "endMonth": 202608
+  }
+ ]
+}

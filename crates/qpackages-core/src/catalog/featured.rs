@@ -8,10 +8,13 @@
 //! id = "org.mozilla.firefox"
 //! category = "internet"
 //! sources = ["pacman:firefox", "flatpak:org.mozilla.firefox"]
+//! summary = "Web browser"
+//! summary-tr = "Web tarayıcısı"
 //! ```
 //!
 //! `name` is shown on the card. `id`, the AppStream id, is optional; with it the entry is matched
-//! to the catalog's record for its summary and icon. `category` is a [`Category::key`]. Each of
+//! to the catalog's record for its summary and icon. `summary` and its Turkish `summary-tr` are
+//! optional too: they fill the card while no catalog is there to give one. `category` is a [`Category::key`]. Each of
 //! `sources` is `<source>:<package>`, the source one of `pacman`, `flatpak`, `snap` and `aur`.
 //! An entry with a problem is skipped and reported; the rest of the list survives.
 
@@ -19,12 +22,13 @@ use toml::Spanned;
 use toml::de::{DeTable, DeValue};
 
 use super::Problem;
+use super::appstream::Localized;
 use super::category::Category;
 use super::merge::{Offer, TRUST_ORDER};
 use crate::sources::Source;
 
 /// The keys an `[[app]]` table may have.
-const KEYS: [&str; 4] = ["name", "id", "category", "sources"];
+const KEYS: [&str; 6] = ["name", "id", "category", "sources", "summary", "summary-tr"];
 
 /// One application of the starter list.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,6 +41,8 @@ pub struct FeaturedApp {
     pub category: Category,
     /// Where it can be installed from, most trusted first.
     pub offers: Vec<Offer>,
+    /// The line under the name, when the list gives one.
+    pub summary: Option<Localized>,
 }
 
 /// Reads a starter list. Returns the entries that could be read, in file order, and every
@@ -103,7 +109,18 @@ fn read_app(entry: &Spanned<DeValue<'_>>) -> Result<FeaturedApp, (usize, String)
     };
     let mut offers = items.iter().map(read_offer).collect::<Result<Vec<_>, _>>()?;
     offers.sort_by_key(|offer| TRUST_ORDER.iter().position(|&source| source == offer.source));
-    Ok(FeaturedApp { name: name.to_owned(), id: string(table, "id")?.map(|(id, _)| id.to_owned()), category, offers })
+    let summary = string(table, "summary")?.map(|(default, _)| default.to_owned());
+    let turkish = string(table, "summary-tr")?.map(|(turkish, _)| turkish.to_owned());
+    if summary.is_none() && turkish.is_some() {
+        return Err((at(entry), format!("`{name}` has a `summary-tr` without a `summary`")));
+    }
+    Ok(FeaturedApp {
+        name: name.to_owned(),
+        id: string(table, "id")?.map(|(id, _)| id.to_owned()),
+        category,
+        offers,
+        summary: summary.map(|default| Localized { default, turkish }),
+    })
 }
 
 /// The string under `key` and where it is; `None` when the table lacks the key.
@@ -150,6 +167,8 @@ sources = ["flatpak:org.mozilla.firefox", "pacman:firefox"]
 name = "Visual Studio Code"
 category = "development"
 sources = ["aur:visual-studio-code-bin", "flatpak:com.visualstudio.code"]
+summary = "Code editor"
+summary-tr = "Kod düzenleyici"
 "#;
 
     #[test]
@@ -163,6 +182,11 @@ sources = ["aur:visual-studio-code-bin", "flatpak:com.visualstudio.code"]
         let sources: Vec<Source> = apps[0].offers.iter().map(|offer| offer.source).collect();
         assert_eq!(sources, [Source::Pacman, Source::Flatpak], "most trusted first, whatever the file's order");
         assert_eq!(apps[1].id, None);
+        assert_eq!(apps[0].summary, None);
+        assert_eq!(
+            apps[1].summary,
+            Some(Localized { default: String::from("Code editor"), turkish: Some(String::from("Kod düzenleyici")) })
+        );
         assert_eq!(
             apps[1].offers[0],
             Offer { source: Source::Flatpak, package: String::from("com.visualstudio.code") }
@@ -201,11 +225,18 @@ sources = ["pacman:nameless"]
 name = "No sources"
 category = "game"
 sources = []
+
+[[app]]
+name = "Only Turkish"
+category = "game"
+sources = ["pacman:x"]
+summary-tr = "Yalnızca"
 "#;
         let (apps, problems) = parse(text);
         assert_eq!(apps.iter().map(|app| app.name.as_str()).collect::<Vec<_>>(), ["Good"]);
         let lines: Vec<usize> = problems.iter().map(|problem| problem.line).collect();
-        assert_eq!(lines, [9, 15, 21, 23, 30], "{problems:?}");
+        assert_eq!(lines, [9, 15, 21, 23, 30, 32], "{problems:?}");
+        assert!(problems[5].message.contains("`summary-tr` without a `summary`"));
         assert!(problems[0].message.contains("unknown category `games`"));
         assert!(problems[1].message.contains("unknown source `apt`"));
         assert!(problems[2].message.contains("unknown key `colour`"));

@@ -1,0 +1,80 @@
+Country              Code Count
+-------------------- ---- -----
+Albania                AL     1
+Argentina              AR     1
+Armenia                AM     3
+Australia              AU    20
+Austria                AT    12
+Azerbaijan             AZ     6
+Bangladesh             BD     4
+Belarus                BY     4
+Belgium                BE     9
+Brazil                 BR    11
+Bulgaria               BG     7
+Cambodia               KH     2
+Canada                 CA    45
+Chile                  CL    11
+China                  CN    43
+Colombia               CO     7
+Croatia                HR     1
+Czechia                CZ    20
+Denmark                DK     8
+Ecuador                EC     3
+Estonia                EE     6
+Finland                FI    21
+France                 FR    62
+Georgia                GE     2
+Germany                DE   152
+Greece                 GR     3
+Hong Kong              HK    11
+Hungary                HU     4
+Iceland                IS     3
+India                  IN    24
+Indonesia              ID    14
+Iran                   IR     9
+Israel                 IL     5
+Italy                  IT     8
+Japan                  JP    21
+Kazakhstan             KZ     4
+Kenya                  KE     3
+Latvia                 LV     6
+Lithuania              LT     5
+Luxembourg             LU     5
+Malaysia               MY     1
+Mauritius              MU     2
+Mexico                 MX     4
+Moldova                MD    11
+Morocco                MA     3
+Nepal                  NP     2
+Netherlands            NL    52
+New Caledonia          NC     5
+New Zealand            NZ     8
+North Macedonia        MK     7
+Norway                 NO    11
+Paraguay               PY     1
+Philippines            PH     2
+Poland                 PL    15
+Portugal               PT    14
+Romania                RO    23
+Russia                 RU    33
+Réunion                RE     1
+Saudi Arabia           SA     5
+Serbia                 RS     4
+Singapore              SG    24
+Slovakia               SK     7
+Slovenia               SI     5
+South Africa           ZA    13
+South Korea            KR    35
+Spain                  ES     9
+Sweden                 SE    29
+Switzerland            CH    24
+Taiwan                 TW    19
+Thailand               TH     5
+Tunisia                TN     1
+Türkiye                TR     5
+Ukraine                UA    17
+United Arab Emirates   AE     2
+United Kingdom         GB    33
+United States          US   196
+Uzbekistan             UZ     3
+Vietnam                VN     6

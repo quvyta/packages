@@ -1,59 +1,84 @@
 # qpac
 
-![qpac: the installed packages with neovim selected and its details beside the list, neovim and tmux checked for removal](https://raw.githubusercontent.com/quvyta/packages/main/docs/screenshots/installed.png)
+![qpac: Discover, the store page, with popular apps and popular AUR packages as cards, the kinds of software on the left and the sources below them](https://raw.githubusercontent.com/quvyta/packages/main/docs/screenshots/discover.png)
 
 **quvyta-packages**, or **qpac** for short, is a package manager for Arch Linux that runs in the
-terminal. It is meant to bring pacman, the AUR, Flatpak and Snap together in one simple interface,
-and shows exactly what will change before anything does. It is part of the Quvyta family of
-terminal applications, is built on [quvyta-framework](https://github.com/quvyta/framework) and is
-open source under the MIT licence.
+terminal. It is meant to bring pacman, the AUR, Flatpak and Snap together in one simple interface
+that feels like an app store, and shows exactly what will change before anything does. It is part
+of the Quvyta family of terminal applications, is built on
+[quvyta-framework](https://github.com/quvyta/framework) and is open source under the MIT licence.
 
-> **Beta.** qpac is new, and this first release manages pacman's packages only: the AUR,
-> Flatpak and Snap are recognised but not yet managed. The interface may still change between
-> releases. Please report anything that looks wrong at
-> <https://github.com/quvyta/packages/issues>.
+> **Beta.** qpac is new. It finds software in the repositories, the AUR and Flatpak, and installs
+> and removes packages from the repositories; building from the AUR, Flatpak installs and Snap
+> come in later releases. The interface may still change between releases. Please report anything
+> that looks wrong at <https://github.com/quvyta/packages/issues>.
 
 <p>
-  <img src="https://raw.githubusercontent.com/quvyta/packages/main/docs/screenshots/confirm.png" alt="The removal confirmation: neovim and tmux with the libraries only they needed, eight packages in all" width="49%">
-  <img src="https://raw.githubusercontent.com/quvyta/packages/main/docs/screenshots/running.png" alt="The removal running: pacman's output in a pane below the list, the progress at half way and the admin badge in the header" width="49%">
+  <img src="https://raw.githubusercontent.com/quvyta/packages/main/docs/screenshots/discover-search.png" alt="A search for obs: one card per application across the repositories, Flatpak and the AUR, with counts per kind on the left" width="49%">
+  <img src="https://raw.githubusercontent.com/quvyta/packages/main/docs/screenshots/discover-app.png" alt="OBS Studio's page: description, version, licence, download and installed sizes, repository, website, dependencies and an Install button" width="49%">
 </p>
 <p>
-  <img src="https://raw.githubusercontent.com/quvyta/packages/main/docs/screenshots/flatpak.png" alt="A source this machine lacks: Flatpak is not installed, with a button to install it" width="49%">
+  <img src="https://raw.githubusercontent.com/quvyta/packages/main/docs/screenshots/installed.png" alt="The Installed tab: every package with its source, version and size, neovim selected with its details beside the list, neovim and tmux checked for removal" width="49%">
+  <img src="https://raw.githubusercontent.com/quvyta/packages/main/docs/screenshots/confirm.png" alt="The removal confirmation: neovim and tmux with the libraries only they needed, eight packages in all" width="49%">
+</p>
+<p>
+  <img src="https://raw.githubusercontent.com/quvyta/packages/main/docs/screenshots/running.png" alt="The removal running: pacman's output in a pane below the list, the progress at half way and the admin badge in the header" width="49%">
+  <img src="https://raw.githubusercontent.com/quvyta/packages/main/docs/screenshots/flatpak.png" alt="The settings page: sources with Flatpak missing and a button to install it, the AUR helper, who asks for permission, and the appearance" width="49%">
 </p>
 
 ## What it does
 
-- **Installed packages.** Every package pacman has installed, in a table you can search and sort,
-  with a detail panel: version, installed size, whether you asked for it or it came as a
-  dependency, install date, licences, dependencies and website. The list is read straight from
-  pacman's local database, so it opens at once and needs no privileges.
-- **Removal you can see.** Check one or more packages and remove them. Before anything runs,
-  pacman is asked what the removal would do, and the full list, dependencies included, is shown
-  for you to confirm. Cancel has the focus, so the safe answer is the default.
-- **Your password stays with sudo.** The first change you confirm has sudo ask for it once, on
-  the terminal itself; qpac never sees it. A small helper then carries out every change as root
-  until qpac closes, and does nothing else. pacman runs with its output and progress in a pane
-  below the list, which stays where it is. A long transaction can be stopped.
+- **Discover.** A store page: popular apps and what is popular in the AUR as cards, the kinds of
+  software on the left (Internet, Audio & video, Graphics, Office, Games, Development and more).
+  Typing searches the repositories, the AUR and Flatpak at once; results arrive as each source
+  answers, without the cards jumping around, and one application found in several sources is one
+  card. Opening a card shows the application's page with its description, sizes, licence,
+  website and dependencies, and an Install or Remove button. Categories and descriptions come
+  from AppStream, the data GNOME Software and KDE Discover use; without it (the
+  `archlinux-appstream-data` package) qpac offers to install it and works with a built-in list
+  meanwhile. Popularity comes from pkgstats and the AUR's votes.
+- **Installed.** Your applications, or every package, in a table you can search and sort, with
+  the source of each (`source:aur` in the search keeps only the AUR's), and a detail panel:
+  version, installed size, whether you asked for it or it came as a dependency, install date,
+  licences, dependencies and website. The list is read straight from pacman's local database, so
+  it opens at once and needs no privileges.
+- **Updates.** The waiting updates, grouped by source, with a note on those that need a restart.
+  The check refreshes a private copy of pacman's database and never runs `pacman -Sy` on the real
+  one, so it can never leave the system half upgraded.
+- **Changes you can see.** Install from the store, or check packages and remove them. Before
+  anything runs, pacman is asked what the change would do, and the full list, dependencies
+  included, is shown for you to confirm. Cancel has the focus, so the safe answer is the default.
+- **Your password stays with polkit or sudo.** The first change you confirm asks for it once:
+  polkit (`pkexec`) where it is installed, in your desktop's own window or on the terminal, and
+  sudo on the terminal otherwise. qpac never sees it. A small helper then carries out every
+  change as root until qpac closes, and does nothing else; the `admin` badge in the header shows
+  it is up, and clicking it lets the permission go. pacman runs with its output and progress in a
+  pane below the list, which stays where it is. A long transaction can be stopped.
 - **A locked database is explained, never forced.** If another transaction holds pacman's lock,
   qpac says so, and by which process when it can tell. It never removes the lock.
-- **Sources.** The sidebar shows which sources this machine has. A missing one is shown faint
+- **Settings.** The gear at the top right (or `ctrl+,`) opens them: which sources are on, the AUR
+  helper, who asks for permission, and the language, theme and icons. A missing source is shown
   with the reason, and where its program is in the official repositories (`paru` for the AUR,
   `flatpak` for Flatpak) it can be installed from there, through the same confirmation. The AUR
   is refused when qpac runs as root, because packages are never built as root.
+- **A check in the background, if you want one.** `qpac --check` looks for updates without
+  opening the screen and without privileges, and writes what it found to
+  `~/.local/state/quvyta-packages/state.json`. It never checks more often than once an hour.
 
 The interface follows your system language (English and Turkish are included) and uses the
 family's themes, icons, keys and mouse behaviour.
 
 ### Not yet
 
-- Installing and upgrading packages from the repositories, and checking for updates.
-- Managing AUR, Flatpak and Snap packages. The AUR works through `paru` or `yay`; Snap's own
-  package lives in the AUR, so it waits for AUR support.
+- Upgrading the whole system, with a snapshot before and after, and cleaning up orphaned
+  packages, from the screen.
+- Building from the AUR (through `paru` or `yay`, with a look at the recipe first), Flatpak
+  installs and Snap.
 
 ## Requirements
 
 - Arch Linux, or a distribution built on it, with `pacman`.
-- `sudo`, for anything that changes the system.
+- polkit (`pkexec`) or `sudo`, for anything that changes the system.
 - Rust 1.95 or later to build it.
 
 ## Install
@@ -81,9 +106,13 @@ Run `qpac` without `sudo`: it asks for privileges only when a change is confirme
 
 | Key | What it does |
 |---|---|
-| `/` | Search the packages |
-| `space` | Check or uncheck the selected package |
+| `ctrl+1`, `ctrl+2`, `ctrl+3` | Discover, Installed, Updates; `alt+left` and `alt+right` step through them |
+| `/` | Search on the page you are on |
+| `space` | Check or uncheck the selected package or card |
+| `ctrl+enter` | Install the checked cards, after a confirmation |
 | `delete` | Remove the checked packages, after a confirmation |
+| `ctrl+,` | Settings |
+| `esc` | Back |
 | `tab` | Move to the next part of the screen |
 | `ctrl+q` | Quit |
 
@@ -92,17 +121,20 @@ dragged.
 
 ### Settings
 
-The settings are in `~/.config/quvyta/packages.conf` (or under `$XDG_CONFIG_HOME`), next to
+The settings page saves every change at once. The settings are in `~/.config/quvyta/packages.conf` (or under `$XDG_CONFIG_HOME`), next to
 the other Quvyta applications' settings. Releases up to 0.1.1 kept them in
 `~/.config/quvyta-packages/settings.toml`; the first start of 0.1.2 moves that folder over, and
 a file already in the new place is never overwritten.
 
 ```toml
 [sources]
-flatpak = false   # hide a source from the sidebar; every source is shown by default
+flatpak = false   # turn a source off; every source is on by default
 
 [aur]
 helper = "auto"   # "auto", "paru" or "yay"; auto takes paru when both are installed
+
+[privilege]
+tool = "auto"     # "auto", "pkexec" or "sudo"; auto takes pkexec when polkit is installed
 ```
 
 ## Trying it in a container

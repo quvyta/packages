@@ -1,27 +1,38 @@
-//! The screen: the sources on the left, the installed packages with a search in the middle and
-//! the selected package's details on the right; a transaction's confirmation over it and its
-//! output below it.
+//! The frame: the application's name, the tabs and the settings button on top, the open tab's
+//! page (or the settings page) below, the key hints at the bottom; a transaction's confirmation
+//! over it all and its output under the page.
+//!
+//! Each page is its own module with its own messages and state; the frame owns what they share
+//! (the installed packages, the settings, the transaction flow) and does what they ask.
+
+mod layout;
+mod tab;
 
 use std::collections::BTreeSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use qframe::icons::GlyphMode;
 use qframe::prelude::*;
 use qframe::storage::Settings;
-use qframe::widgets::{Badge, EmptyState, SortDirection, Splitter, Table, TableRow, TextInput, Tooltip};
-use qpackages_core::pacman::{Package, Problem};
-use qpackages_core::sources::{Availability, Source, Sources};
+use qframe::widgets::{Badge, Splitter, Tabs, Toast, Tooltip};
+use qpackages_core::sources::{AurPreference, Source};
 
+use crate::helper::pkexec::Tool;
 use crate::helper::session::{Session, Start};
+use crate::installed::table::Foreign;
+use crate::installed::{self, Installed, Library};
 use crate::reload::{Lookup, Reload, Snapshot};
 use crate::runner::Runner;
+use crate::settings::{self, AUR_HELPERS, PRIVILEGE_TOOLS};
+use crate::settings_page::{self, Shared};
 use crate::transaction::{self, Action, Flow};
-use crate::{detail, packages, settings, sources};
+use crate::updates::check::Checker;
+use crate::updates::{self, Updates};
+use crate::{sources, store, transaction::view as flow_view};
 
-mod layout;
-
-use layout::{COLLAPSE, MIN_DETAIL, MIN_PACKAGES, MIN_TABLE, SIDEBAR, output_layout};
+use layout::{MIN_PACKAGES, output_layout};
+pub use tab::{TABS, Tab};
 
 /// The user id of root, for whom the AUR is off limits.
 const ROOT: u32 = 0;
@@ -31,168 +42,328 @@ const ROOT: u32 = 0;
 pub struct Machine<'a> {
     /// Where pacman keeps the records of installed packages.
     pub dbpath: &'a Path,
+    /// Where pacman keeps the repository databases; only ever read, to copy them for a check.
+    pub sync_dir: &'a Path,
+    /// Where the application menu's launchers are, which tell the applications among the
+    /// packages.
+    pub applications: &'a Path,
+    /// The folder qpac keeps its private copy of the repository databases in, when the account
+    /// has one.
+    pub check_dir: Option<&'a Path>,
     /// The directory pacman's lock file lives in.
     pub lock_dir: &'a Path,
-    /// Finds a program on this machine, as `on_path` does.
+    /// Finds a program on this machine, as `on_path` does: the sources' programs, fakeroot for
+    /// the update check, and pkexec for the permission tool.
     pub lookup: Arc<Lookup>,
     /// Runs programs.
     pub runner: Arc<dyn Runner>,
-    /// Starts the root helper that carries out transactions.
+    /// Starts the root helper that carries out transactions when sudo asks for permission;
+    /// pkexec starts it through the runtime instead.
     pub helper: Arc<Start>,
     /// The user id the application runs as, or `None` when it could not be read.
     pub uid: Option<u32>,
+    /// The machine's distance from UTC in minutes, for the times shown.
+    pub utc_offset: i16,
+    /// The folder of the repositories' AppStream catalogs, which Discover reads its kinds,
+    /// summaries and descriptions from.
+    pub app_catalog: &'a Path,
+    /// The folders Flatpak keeps its remotes' AppStream catalogs in.
+    pub flatpak_catalogs: &'a [PathBuf],
 }
 
 /// The application's state.
-#[derive(Debug)]
 pub struct Qpackages {
-    /// Every installed package, in name order.
-    packages: Vec<Package>,
-    /// Records the database read could not use.
-    problems: Vec<Problem>,
-    /// Which sources this machine has; `None` until the first read answers.
-    sources: Option<Sources>,
+    /// What the last read found; `None` until the first read answers.
+    library: Option<Snapshot>,
     /// The read that fills the screen, repeated after every change.
     reload: Reload,
-    /// The sources the user keeps in the sidebar, in sidebar order.
-    shown_sources: Vec<Source>,
-    /// The source chosen in the sidebar.
-    source: Source,
+    /// The update check, run once the sources are known and whenever the user asks.
+    checker: Checker,
+    /// Whether the first check was started.
+    checked_once: bool,
+    /// Finds programs, for choosing the permission tool again when its setting changes.
+    lookup: Arc<Lookup>,
     /// Whether the application runs as root, which makes the AUR unusable.
     root: bool,
-    search: String,
-    sort: (usize, SortDirection),
-    /// Indices into `packages` of the rows shown, in table order.
-    shown: Vec<usize>,
-    /// The rows of `shown`, rebuilt only when the search or the sort changes.
-    rows: Arc<[TableRow]>,
-    /// The name of the selected package: a selection outlives a search that hides its row.
-    selected: Option<String>,
-    /// Names of the checked packages: a check survives a search that hides its row.
-    checked: BTreeSet<String>,
-    /// `checked` as the table wants it, one flag per shown row.
-    marks: Vec<bool>,
-    /// Width of the table pane, as the user dragged it.
-    split: u16,
+    /// The settings, changed and saved by the settings page.
+    settings: Settings,
+    /// The open tab.
+    tab: Tab,
+    /// Whether the settings page stands in place of the open tab.
+    settings_open: bool,
+    discover: store::Store,
+    installed: Installed,
+    updates: Updates,
+    utc_offset: i16,
     /// The screen, as the runtime last reported it.
     size: Size,
     /// The transaction flow.
     transaction: Flow,
 }
 
+impl std::fmt::Debug for Qpackages {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Qpackages")
+            .field("tab", &self.tab)
+            .field("settings_open", &self.settings_open)
+            .field("installed", &self.installed)
+            .field("updates", &self.updates)
+            .field("transaction", &self.transaction)
+            .finish_non_exhaustive()
+    }
+}
+
 /// Everything that can happen.
 #[derive(Debug, Clone)]
 pub enum Msg {
-    /// The search text changed.
-    Search(String),
-    /// Puts the keyboard in the search field.
+    /// A tab was chosen, by its place in [`TABS`].
+    Tab(usize),
+    /// The next tab to the right, if any.
+    NextTab,
+    /// The next tab to the left, if any.
+    PrevTab,
+    /// The settings page was asked for.
+    OpenSettings,
+    /// Puts the keyboard in the open page's search field.
     FocusSearch,
-    /// A source was chosen in the sidebar, by its index there.
-    Source(usize),
-    /// A row was selected.
-    Select(usize),
-    /// A row's check mark was toggled.
-    Toggle(usize),
-    /// The table was asked to sort by a column.
-    Sort(usize, SortDirection),
-    /// The boundary between the table and the details was dragged.
-    Split(u16),
+    /// Something happened in the Discover tab.
+    Discover(store::Msg),
+    /// Something happened in the Installed tab.
+    Installed(installed::Msg),
+    /// Something happened in the Updates tab.
+    Updates(updates::Msg),
+    /// Something happened on the settings page.
+    Settings(settings_page::Msg),
     /// The screen has this size now.
     Resized(Size),
-    /// The user asked to remove the checked packages.
-    RemoveChecked,
     /// The local database was read and the sources were looked for: when the application
     /// starts, and again after a transaction.
     Reloaded(Snapshot),
+    /// The settings were written, or why not.
+    Saved(Result<(), String>),
     /// Something happened in the transaction flow.
     Transaction(transaction::Msg),
 }
 
+/// What an application without its first read shows: nothing, not an empty machine.
+static NO_PACKAGES: BTreeSet<String> = BTreeSet::new();
+static NO_FOREIGN: Foreign = None;
+
 impl Qpackages {
-    /// The application on `machine`, following `settings` for which sources to show and which
-    /// AUR helper to prefer. Nothing is read yet: the packages and the sources arrive through
-    /// [`App::init`], so the first frame is drawn before the database is opened.
+    /// The application on `machine`, following `settings` for which sources to use, which AUR
+    /// helper to prefer and which program asks for administrator permission. Nothing is read
+    /// yet: the packages and the sources arrive through [`App::init`], so the first frame is
+    /// drawn before the database is opened.
     #[must_use]
     pub fn new(machine: Machine<'_>, settings: &Settings) -> Self {
-        let reload = Reload::new(machine.dbpath, settings::aur_preference(settings), machine.lookup);
-        let shown_sources: Vec<Source> =
-            sources::ALL.into_iter().filter(|source| settings::source_enabled(settings, *source)).collect();
-        let mut app = Self {
-            packages: Vec::new(),
-            problems: Vec::new(),
-            sources: None,
-            source: shown_sources.first().copied().unwrap_or(Source::Pacman),
-            shown_sources,
-            root: machine.uid == Some(ROOT),
-            search: String::new(),
-            sort: (packages::NAME, SortDirection::Ascending),
-            shown: Vec::new(),
-            rows: Arc::from([]),
-            selected: None,
-            checked: BTreeSet::new(),
-            marks: Vec::new(),
-            split: 48,
-            size: Size::default(),
-            transaction: Flow::new(machine.runner, Session::new(machine.helper), reload.clone(), machine.lock_dir),
-            reload,
+        let tool = Tool::choose(settings::privilege_tool(settings), machine.lookup.as_ref());
+        let reload = Reload::new(
+            machine.dbpath,
+            machine.applications,
+            settings::aur_preference(settings),
+            Arc::clone(&machine.lookup),
+            Arc::clone(&machine.runner),
+        );
+        let checker = Checker::new(
+            Arc::clone(&machine.runner),
+            Arc::clone(&machine.lookup),
+            machine.dbpath,
+            machine.sync_dir,
+            machine.check_dir,
+        );
+        let root = machine.uid == Some(ROOT);
+        let store_machine = store::Machine {
+            runner: Arc::clone(&machine.runner),
+            swcatalog: machine.app_catalog.to_path_buf(),
+            flatpak: machine.flatpak_catalogs.to_vec(),
         };
-        app.rebuild();
-        app
-    }
-
-    /// Rebuilds the shown rows after the search or the sort changed.
-    fn rebuild(&mut self) {
-        let (column, direction) = self.sort;
-        self.shown = packages::shown(&self.packages, &self.search, column, direction);
-        self.rows = packages::rows(&self.packages, &self.shown);
-        self.marks = self.shown.iter().map(|&i| self.checked.contains(&self.packages[i].name)).collect();
-    }
-
-    /// The row of the selected package, while the search shows it.
-    fn selected_row(&self) -> Option<usize> {
-        let name = self.selected.as_deref()?;
-        self.shown.iter().position(|&i| self.packages[i].name == name)
-    }
-
-    /// The selected package, while the search shows it.
-    fn selected_package(&self) -> Option<&Package> {
-        self.selected_row().map(|row| &self.packages[self.shown[row]])
-    }
-
-    /// Whether `source` can be used from this account: the AUR cannot when running as root,
-    /// because building packages as root is refused.
-    fn usable(&self, source: Source) -> bool {
-        !(self.root && source == Source::Aur)
-    }
-
-    /// Whether this machine has `source`, once the first read has said.
-    fn availability(&self, source: Source) -> Option<&Availability> {
-        self.sources.as_ref().map(|sources| sources.get(source))
-    }
-
-    /// Whether the first read is still on its way.
-    fn is_loading(&self) -> bool {
-        self.sources.is_none()
-    }
-
-    /// Starts removing the checked packages, when there are any.
-    fn remove_checked(&self) -> Option<Msg> {
-        if self.checked.is_empty() {
-            return None;
+        Self {
+            library: None,
+            discover: store::Store::new(store_machine, store_sources(settings, root)),
+            checker,
+            checked_once: false,
+            lookup: Arc::clone(&machine.lookup),
+            root,
+            settings: settings.clone(),
+            tab: TABS[0],
+            settings_open: false,
+            installed: Installed::default(),
+            updates: Updates::default(),
+            utc_offset: machine.utc_offset,
+            size: Size::default(),
+            transaction: Flow::new(
+                machine.runner,
+                Session::new(machine.helper),
+                tool,
+                reload.clone(),
+                machine.lock_dir,
+            ),
+            reload,
         }
-        let names = self.checked.iter().cloned().collect();
-        Some(Msg::Transaction(transaction::Msg::Begin(Action::Remove(names))))
     }
 
+    /// The same application with `tab` open, for tests that start from another tab.
+    #[cfg(test)]
+    pub(crate) fn on_tab(mut self, tab: Tab) -> Self {
+        self.tab = tab;
+        self
+    }
+
+    /// The open tab.
+    #[cfg(test)]
+    pub(crate) fn tab(&self) -> Tab {
+        self.tab
+    }
+
+    /// Whether the settings page is shown.
+    #[cfg(test)]
+    pub(crate) fn settings_open(&self) -> bool {
+        self.settings_open
+    }
+
+    /// The installed packages as the pages need them; empty before the first read.
+    fn library(&self) -> Library<'_> {
+        library_of(self.library.as_ref())
+    }
+
+    /// Whether the AUR is turned on and usable from this account.
+    fn aur_in_use(&self) -> bool {
+        !self.root && settings::source_enabled(&self.settings, Source::Aur)
+    }
+
+    /// Starts an update check in the background: the repositories always, the AUR through its
+    /// helper when it is in use and this machine has one.
+    fn check(&self) -> Command<Msg> {
+        let helper = self
+            .library
+            .as_ref()
+            .and_then(|found| found.sources.aur_helper)
+            .filter(|_| self.aur_in_use())
+            .map(qpackages_core::sources::AurHelper::program);
+        let checker = self.checker.clone();
+        Command::perform(move || Msg::Updates(updates::Msg::Checked(checker.run(helper))))
+    }
+
+    /// Does what Discover asked: an install or a removal goes to the transaction flow when the
+    /// flow can run it, the sources to the settings page.
+    fn discover_message(&mut self, msg: store::Msg) -> Command<Msg> {
+        match msg {
+            store::Msg::Request(store::Request::OpenSettings(_)) => self.update(Msg::OpenSettings),
+            store::Msg::Request(request) => match store::transaction(&request) {
+                Some(action) => self.update(Msg::Transaction(transaction::Msg::Begin(action))),
+                None => Command::none(),
+            },
+            msg => self.discover.update(msg).map(Msg::Discover),
+        }
+    }
+
+    /// Does what the Installed tab asked.
+    fn installed_message(&mut self, msg: installed::Msg) -> Command<Msg> {
+        match self.installed.update(msg, library_of(self.library.as_ref())) {
+            Some(installed::Request::Remove(names)) => {
+                self.update(Msg::Transaction(transaction::Msg::Begin(Action::Remove(names))))
+            }
+            None => Command::none(),
+        }
+    }
+
+    /// Does what the settings page asked, saving the settings whenever one changed.
+    fn settings_message(&mut self, msg: settings_page::Msg) -> Command<Msg> {
+        match msg {
+            settings_page::Msg::Back => {
+                self.settings_open = false;
+                Command::none()
+            }
+            settings_page::Msg::Source(source, on) => {
+                let changed = settings::set_source_enabled(&mut self.settings, source, on);
+                self.discover.set_enabled(store_sources(&self.settings, self.root));
+                self.saved_if(changed)
+            }
+            settings_page::Msg::AurHelper(index) => {
+                let Some(&(preference, _)) = AUR_HELPERS.get(index) else {
+                    return Command::none();
+                };
+                if !settings::set_aur_preference(&mut self.settings, preference) {
+                    return Command::none();
+                }
+                self.prefer(preference);
+                Command::batch([self.save(), self.reload.command()])
+            }
+            settings_page::Msg::PrivilegeTool(index) => {
+                let Some(&(tool, _)) = PRIVILEGE_TOOLS.get(index) else {
+                    return Command::none();
+                };
+                let changed = settings::set_privilege_tool(&mut self.settings, tool);
+                self.transaction.set_tool(Tool::choose(tool, self.lookup.as_ref()));
+                self.saved_if(changed)
+            }
+            settings_page::Msg::Install(source) => match sources::package(source) {
+                Some(package) => {
+                    let install = Action::Install(vec![package.to_owned()]);
+                    self.update(Msg::Transaction(transaction::Msg::Begin(install)))
+                }
+                None => Command::none(),
+            },
+            settings_page::Msg::Shared(change) => {
+                let (changed, apply) = match change {
+                    Shared::Language(code) => {
+                        (self.settings.set(Settings::LANGUAGE, code.clone()), Command::set_locale(code))
+                    }
+                    Shared::Theme(id) => (self.settings.set(Settings::THEME, id.clone()), Command::set_theme(id)),
+                    Shared::Icons(mode) => {
+                        (self.settings.set(Settings::ICONS, mode.name().to_owned()), Command::set_icon_mode(mode))
+                    }
+                    Shared::ReducedMotion(on) => {
+                        (self.settings.set(Settings::REDUCED_MOTION, on), Command::set_reduced_motion(on))
+                    }
+                    Shared::Pillar(style) => {
+                        (self.settings.set(Settings::PILLAR, style.name().to_owned()), Command::set_pillar(style))
+                    }
+                };
+                Command::batch([apply, self.saved_if(changed)])
+            }
+        }
+    }
+
+    /// Uses `preference` for the AUR helper from the next read on, in the flow's reads as well.
+    fn prefer(&mut self, preference: AurPreference) {
+        self.reload.set_preference(preference);
+        self.transaction.set_reload(self.reload.clone());
+    }
+
+    /// Writes the settings in the background.
+    fn save(&self) -> Command<Msg> {
+        self.settings.save_command(Msg::Saved)
+    }
+
+    /// Writes the settings when `changed`; nothing to write otherwise.
+    fn saved_if(&self, changed: bool) -> Command<Msg> {
+        if changed { self.save() } else { Command::none() }
+    }
+
+    /// The header: the name, the tabs with the number of waiting updates, and on the right the
+    /// root warning, the administrator badge and the settings button.
     fn header(&self, ui: &mut View<'_, Msg>) {
+        let pending = self.updates.pending(self.aur_in_use());
         ui.row(|ui| {
-            ui.add(Text::new("qpac").color("accent").bold().no_wrap());
+            // The name, the tabs and the count fill what the controls on the right leave: those
+            // are measured first, so a narrow screen scrolls the tabs rather than losing the
+            // settings button.
+            ui.row(|ui| {
+                ui.add(Text::new("qpac").color("accent").bold().no_wrap());
+                let labels = TABS.map(Tab::label);
+                ui.add(Tabs::new(labels).active(self.tab.index()).on_select(Msg::Tab)).id("tabs");
+                // The Updates tab is the last one, so the count stands right after its label.
+                if pending > 0 {
+                    let count = u32::try_from(pending).unwrap_or(u32::MAX);
+                    ui.add(Badge::new("").variant("accent").count(count)).id("pending");
+                }
+            })
+            .gap(2)
+            .fill_width();
             if self.root {
                 ui.add(Badge::new(t!("root.warning")).variant("warning"));
             }
-            ui.add(TextInput::new(self.search.clone()).placeholder(t!("search.placeholder")).on_change(Msg::Search))
-                .fill_width()
-                .id("search");
             if self.transaction.has_helper() {
                 let glyph = privilege_glyph(ui.env().icons().mode());
                 let end = Button::new(format!("{glyph} {}", t!("helper.badge")))
@@ -202,27 +373,15 @@ impl Qpackages {
                     ui.add(end).id("helper");
                 });
             }
+            let gear = ui.env().icons().glyph("settings").into_owned();
+            let open = Button::new(gear).selected(self.settings_open).on_press(Msg::OpenSettings);
+            ui.add_with(Tooltip::new(t!("tabs.settings-tip")), |ui| {
+                ui.add(open).id("open-settings");
+            });
         })
         .gap(2)
         .padding(Padding::symmetric(0, 2))
         .fill_width();
-    }
-
-    fn sidebar(&self, ui: &mut View<'_, Msg>) {
-        let items = self.shown_sources.iter().map(|&source| {
-            let item = ListItem::new(t!(&format!("source.{}", sources::name(source))));
-            // The word beside a faint row says why it is faint; colour alone never does.
-            if !self.usable(source) {
-                return item.faint(true).detail(t!("source.not-as-root"));
-            }
-            match self.availability(source) {
-                // Nothing is said about a source before the read has looked for it.
-                None | Some(Availability::Ready { .. }) => item,
-                Some(Availability::Missing) => item.faint(true).detail(t!("source.missing")),
-            }
-        });
-        let selected = self.shown_sources.iter().position(|&source| source == self.source);
-        ui.add(List::new(items).selected(selected).on_select(Msg::Source)).fill().id("sources");
     }
 
     fn body(&self, ui: &mut View<'_, Msg>) {
@@ -232,110 +391,97 @@ impl Qpackages {
                 Splitter::rows(layout.packages)
                     .limits(MIN_PACKAGES, layout.widest)
                     .on_resize(move |rows| Msg::Transaction(transaction::Msg::OutputHeight(layout.pane_rows_for(rows))))
-                    .first(|ui| self.source_body(ui))
-                    .second(|ui| transaction::view::output(&self.transaction, ui))
+                    .first(|ui| self.page(ui))
+                    .second(|ui| flow_view::output(&self.transaction, ui))
                     .show(ui)
                     .id("output-split");
             } else {
-                self.source_body(ui);
+                self.page(ui);
             }
-            transaction::view::modal(&self.transaction, ui);
+            flow_view::modal(&self.transaction, ui);
         })
         .fill();
     }
 
-    fn source_body(&self, ui: &mut View<'_, Msg>) {
-        let name = t!(&format!("source.{}", sources::name(self.source)));
-        match (self.source, self.availability(self.source)) {
-            (Source::Aur, _) if self.root => {
-                let empty = EmptyState::new(t!("source.root-title", name = name))
-                    .icon("warning")
-                    .message(t!("source.root-message"));
-                ui.add(empty).fill();
+    /// The settings page when it is open, the open tab's page otherwise. Every tab's page keeps
+    /// its widgets' state (scroll, the keyboard's place) while another is shown.
+    fn page(&self, ui: &mut View<'_, Msg>) {
+        if self.settings_open {
+            let cx = settings_page::Cx {
+                settings: &self.settings,
+                sources: self.library.as_ref().map(|found| &found.sources),
+                root: self.root,
+                planning: self.transaction.is_planning(),
+                tool: self.transaction.tool(),
+            };
+            ui.page("settings", |ui| {
+                ui.map(Msg::Settings, |ui| settings_page::view(ui, cx)).fill();
+            });
+            return;
+        }
+        ui.page(self.tab.key(), |ui| match self.tab {
+            Tab::Discover => {
+                ui.map(Msg::Discover, |ui| self.discover.view(ui)).fill();
             }
-            (source, Some(Availability::Missing)) => self.missing(source, &name, ui),
-            // Before the read answers, the table stands with its loading line; it will fill.
-            (Source::Pacman, _) => self.pacman(ui),
-            (_, None) => {
-                ui.add(EmptyState::new(t!("source.detecting", name = name)).icon("info")).fill();
+            Tab::Installed => {
+                let cx = installed::Cx {
+                    library: self.library(),
+                    problems: self.library.as_ref().map_or(0, |found| found.problems.len()),
+                    loading: self.library.is_none(),
+                    planning: self.transaction.is_planning(),
+                };
+                ui.map(Msg::Installed, |ui| self.installed.view(ui, cx)).fill();
             }
-            (_, Some(Availability::Ready { .. })) => {
-                let empty = EmptyState::new(t!("source.waiting-title", name = name))
-                    .icon("info")
-                    .message(t!("source.waiting-message"));
-                ui.add(empty).fill();
+            Tab::Updates => {
+                let cx = updates::Cx {
+                    aur: self.aur_in_use(),
+                    utc_offset: self.utc_offset,
+                    can_check: self.library.is_some(),
+                };
+                ui.map(Msg::Updates, |ui| self.updates.view(ui, cx)).fill();
+            }
+        });
+    }
+
+    /// The key hints of what is on screen; the remove key is named only while there is something
+    /// checked to remove.
+    fn footer(&self, ui: &mut View<'_, Msg>) {
+        let mut hints = KeyHints::new();
+        if self.settings_open {
+            hints = hints.action(Scope::App, "back");
+        } else if self.tab == Tab::Discover {
+            hints = hints.action(Scope::App, "search").hint("space", t!("hints.check"));
+            if self.discover.has_checks() {
+                hints = hints.action(Scope::App, "install-checked");
+            }
+            if self.discover.can_go_back() {
+                hints = hints.action(Scope::App, "back");
+            }
+        } else if self.tab == Tab::Installed {
+            hints = hints.action(Scope::App, "search").hint("space", t!("hints.check"));
+            if self.installed.has_checks() {
+                hints = hints.action(Scope::App, "remove");
             }
         }
+        let hints = hints.action(Scope::App, "tab-next").action(Scope::App, "settings");
+        ui.add(hints.action(Scope::Global, "focus-next").action_right(Scope::Global, "quit")).fill_width();
     }
+}
 
-    /// A source this machine does not have: an offer to install it where its package is in the
-    /// repositories, and the reason where it is not.
-    fn missing(&self, source: Source, name: &str, ui: &mut View<'_, Msg>) {
-        let empty = EmptyState::new(t!("source.missing-title", name = name)).icon("inbox");
-        let empty = match sources::package(source) {
-            Some(package) => {
-                let install = Action::Install(vec![package.to_owned()]);
-                let button = Button::new(t!("source.install", package = package))
-                    .variant("primary")
-                    .loading(self.transaction.is_planning())
-                    .on_press(Msg::Transaction(transaction::Msg::Begin(install)));
-                empty.message(t!("source.missing-message", package = package)).action(button)
-            }
-            None => empty.message(t!("source.missing-later")),
-        };
-        ui.add(empty).fill();
-    }
+/// The sources Discover offers: the ones the settings keep on, without the AUR for root, who
+/// cannot build its packages.
+fn store_sources(settings: &Settings, root: bool) -> Vec<Source> {
+    sources::ALL
+        .into_iter()
+        .filter(|&source| settings::source_enabled(settings, source) && !(root && source == Source::Aur))
+        .collect()
+}
 
-    fn pacman(&self, ui: &mut View<'_, Msg>) {
-        let width = ui.size().width;
-        let body = if width < COLLAPSE { width } else { width.saturating_sub(SIDEBAR) };
-        let widest = body.saturating_sub(MIN_DETAIL).max(MIN_TABLE);
-        Splitter::columns(self.split.clamp(MIN_TABLE, widest))
-            .limits(MIN_TABLE, widest)
-            .on_resize(Msg::Split)
-            .first(|ui| self.table(ui))
-            .second(|ui| detail::view(self.selected_package(), ui))
-            .show(ui);
-    }
-
-    fn table(&self, ui: &mut View<'_, Msg>) {
-        ui.column(|ui| {
-            if !self.problems.is_empty() {
-                ui.add(Text::new(t!("packages.unreadable", n = self.problems.len())).role("faint").no_wrap())
-                    .fill_width();
-            }
-            if !self.checked.is_empty() {
-                ui.row(|ui| {
-                    ui.add(Text::new(t!("transaction.checked", n = self.checked.len())).role("faint").no_wrap())
-                        .fill_width();
-                    let remove = Button::new(t!("transaction.remove"))
-                        .variant("danger")
-                        .loading(self.transaction.is_planning())
-                        .on_press(Msg::RemoveChecked);
-                    ui.add(remove).id("remove");
-                })
-                .gap(2)
-                .fill_width();
-            }
-            let empty = if self.is_loading() {
-                t!("packages.loading")
-            } else if self.search.is_empty() {
-                t!("packages.none-installed")
-            } else {
-                t!("packages.none-match")
-            };
-            let (column, direction) = self.sort;
-            let table = Table::new(packages::columns(), Arc::clone(&self.rows))
-                .selected(self.selected_row())
-                .checked(self.marks.clone())
-                .sort(column, direction)
-                .empty_text(empty)
-                .on_select(Msg::Select)
-                .on_toggle(Msg::Toggle)
-                .on_sort(Msg::Sort);
-            ui.add(table).fill().id("packages");
-        })
-        .fill();
+/// The installed packages of `found` as the pages need them; empty before the first read.
+fn library_of(found: Option<&Snapshot>) -> Library<'_> {
+    match found {
+        Some(found) => Library { packages: &found.packages, apps: &found.apps, foreign: &found.foreign },
+        None => Library { packages: &[], apps: &NO_PACKAGES, foreign: &NO_FOREIGN },
     }
 }
 
@@ -353,52 +499,47 @@ impl App for Qpackages {
 
     fn update(&mut self, msg: Msg) -> Command<Msg> {
         match msg {
-            Msg::Search(text) => {
-                self.search = text;
-                self.rebuild();
-            }
-            Msg::FocusSearch => return Command::focus("search"),
-            Msg::Source(index) => {
-                if let Some(&source) = self.shown_sources.get(index) {
-                    self.source = source;
+            Msg::Tab(index) => {
+                if let Some(&tab) = TABS.get(index) {
+                    self.tab = tab;
+                    self.settings_open = false;
                 }
             }
-            Msg::Select(row) => {
-                if let Some(&i) = self.shown.get(row) {
-                    self.selected = Some(self.packages[i].name.clone());
+            Msg::NextTab => return self.update(Msg::Tab(self.tab.index() + 1)),
+            Msg::PrevTab => {
+                if let Some(index) = self.tab.index().checked_sub(1) {
+                    return self.update(Msg::Tab(index));
                 }
             }
-            Msg::Toggle(row) => {
-                if let Some(&i) = self.shown.get(row) {
-                    let name = &self.packages[i].name;
-                    if !self.checked.remove(name) {
-                        self.checked.insert(name.clone());
-                    }
-                    self.marks[row] = self.checked.contains(name);
+            Msg::OpenSettings => self.settings_open = true,
+            Msg::FocusSearch => {
+                if !self.settings_open && self.tab == Tab::Installed {
+                    return Command::focus("search");
                 }
             }
-            Msg::Sort(column, direction) => {
-                self.sort = (column, direction);
-                self.rebuild();
+            Msg::Discover(msg) => return self.discover_message(msg),
+            Msg::Installed(msg) => return self.installed_message(msg),
+            Msg::Updates(msg) => {
+                if self.updates.update(msg) == Some(updates::Request::Check) {
+                    return self.check();
+                }
             }
-            Msg::Split(width) => self.split = width,
+            Msg::Settings(msg) => return self.settings_message(msg),
             Msg::Resized(size) => self.size = size,
-            Msg::RemoveChecked => {
-                if let Some(msg) = self.remove_checked() {
-                    return self.update(msg);
+            Msg::Reloaded(snapshot) => {
+                self.discover.machine_read(&snapshot.sources, snapshot.packages.iter().map(|p| p.name.clone()));
+                self.library = Some(snapshot);
+                self.installed.reloaded(library_of(self.library.as_ref()));
+                if !self.checked_once {
+                    self.checked_once = true;
+                    if self.updates.start() == Some(updates::Request::Check) {
+                        return self.check();
+                    }
                 }
             }
-            Msg::Reloaded(snapshot) => {
-                self.packages = snapshot.packages;
-                self.problems = snapshot.problems;
-                self.sources = Some(snapshot.sources);
-                // A package that is gone cannot stay checked or selected.
-                let installed: BTreeSet<&str> = self.packages.iter().map(|package| package.name.as_str()).collect();
-                self.checked.retain(|name| installed.contains(name.as_str()));
-                if self.selected.as_deref().is_some_and(|name| !installed.contains(name)) {
-                    self.selected = None;
-                }
-                self.rebuild();
+            Msg::Saved(Ok(())) => {}
+            Msg::Saved(Err(reason)) => {
+                return Command::toast(Toast::warning(t!("settings-page.not-saved")).body(reason));
             }
             Msg::Transaction(msg) => {
                 // pacman gets a terminal the size of the pane its output fills; the same rule
@@ -411,21 +552,32 @@ impl App for Qpackages {
     }
 
     fn view(&self, ui: &mut View<'_, Msg>) {
-        AppShell::new()
-            .sidebar_width(SIDEBAR)
-            .collapse_below(COLLAPSE)
-            .header(|ui| self.header(ui))
-            .sidebar(|ui| self.sidebar(ui))
-            .body(|ui| self.body(ui))
-            .footer(|ui| self.footer(ui))
-            .show(ui);
+        AppShell::new().header(|ui| self.header(ui)).body(|ui| self.body(ui)).footer(|ui| self.footer(ui)).show(ui);
     }
 
     fn action(&self, name: &str) -> Option<Msg> {
+        if !self.settings_open
+            && self.tab == Tab::Discover
+            && let Some(msg) = self.discover.action(name)
+        {
+            return Some(Msg::Discover(msg));
+        }
         match name {
             "search" => Some(Msg::FocusSearch),
-            "remove" => self.remove_checked(),
-            _ => None,
+            "remove" if !self.settings_open && self.tab == Tab::Installed => {
+                self.installed.remove_request().map(|_| Msg::Installed(installed::Msg::RemoveChecked))
+            }
+            "settings" => Some(Msg::OpenSettings),
+            "tab-next" => Some(Msg::NextTab),
+            "tab-prev" => Some(Msg::PrevTab),
+            "back" if self.settings_open => Some(Msg::Settings(settings_page::Msg::Back)),
+            "back" if self.tab == Tab::Installed && self.installed.detail_open() => {
+                Some(Msg::Installed(installed::Msg::CloseDetail))
+            }
+            _ => name.strip_prefix("tab-").and_then(|n| n.parse::<usize>().ok()).and_then(|n| {
+                // `tab-1` is the first tab; a number past the last tab does nothing.
+                n.checked_sub(1).filter(|index| *index < TABS.len()).map(Msg::Tab)
+            }),
         }
     }
 
@@ -434,18 +586,7 @@ impl App for Qpackages {
     }
 
     fn init(&mut self) -> Command<Msg> {
-        self.reload.command()
-    }
-}
-
-impl Qpackages {
-    /// The key hints; the remove key is named only while there is something checked to remove.
-    fn footer(&self, ui: &mut View<'_, Msg>) {
-        let mut hints = KeyHints::new().action(Scope::App, "search").hint("space", t!("hints.check"));
-        if !self.checked.is_empty() {
-            hints = hints.action(Scope::App, "remove");
-        }
-        ui.add(hints.action(Scope::Global, "focus-next").action_right(Scope::Global, "quit")).fill_width();
+        Command::batch([self.reload.command(), self.discover.init().map(Msg::Discover)])
     }
 }
 

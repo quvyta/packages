@@ -10,7 +10,7 @@ use qpackages_core::pacman::{Plan, Step};
 use super::{Action, Flow, Msg, State};
 use crate::app::Msg as AppMsg;
 use crate::detail::date_time_text;
-use crate::packages::size_text;
+use crate::installed::table::size_text;
 
 /// Rows the step list takes before it scrolls inside the dialog.
 const MAX_STEP_ROWS: u16 = 10;

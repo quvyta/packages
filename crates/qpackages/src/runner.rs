@@ -106,7 +106,7 @@ impl Runner for Real {
 /// A runner that answers from a table and records what it was asked, for tests that must never
 /// reach the real package manager.
 #[cfg(test)]
-pub use recorded::Recorded;
+pub use recorded::{Call, Recorded};
 
 #[cfg(test)]
 mod recorded {

@@ -5,9 +5,14 @@
 //! translated: `pacman -Qi` in a Turkish locale renders `None` as `Hiçbiri` and widens its
 //! label column, which no parser can follow.
 
+pub mod backup;
 pub mod catalog;
+pub mod check;
 pub mod helper;
 pub mod lock;
+pub mod news;
 pub mod pacman;
+pub mod reflector;
+pub mod review;
 
 pub mod sources;

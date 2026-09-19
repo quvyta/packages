@@ -7,12 +7,17 @@ code = "en"
 [keys]
 search = "search"
 remove = "remove"
+settings = "settings"
+tab-next = "next tab"
+tab-prev = "previous tab"
+tab-1 = "first tab"
+tab-2 = "second tab"
+tab-3 = "third tab"
+back = "back"
+install-checked = "install checked"
 
 [hints]
 check = "check"
-
-[search]
-placeholder = "Search packages"
 
 [root]
 warning = "Running as root"
@@ -23,16 +28,10 @@ aur = "AUR"
 flatpak = "Flatpak"
 snap = "Snap"
 missing = "not installed"
-missing-title = "{name} is not installed"
 missing-message = "Packages from this source appear once {package} is installed on this machine."
 missing-later = "Snap's package comes from the AUR, which a later version manages."
 install = "Install {package}"
 not-as-root = "not as root"
-root-title = "{name} cannot be used as root"
-root-message = "Packages are built as an ordinary user; building them as root is refused. Start qpac without sudo."
-waiting-title = "{name} comes in a later version"
-waiting-message = "This version manages pacman packages only."
-detecting = "Looking for {name}"
 
 [packages]
 name = "Name"
@@ -76,6 +75,11 @@ authorizing = "qpac asks for administrator permission. sudo asks for your passwo
 not-authorized = "Permission was not given"
 not-authorized-body = "Nothing was changed."
 not-authorized-reason = "{reason} Nothing was changed."
+polkit-asks-install = { one = "qpac asks for administrator permission: {n} package will be installed.", other = "qpac asks for administrator permission: {n} packages will be installed." }
+polkit-asks-remove = { one = "qpac asks for administrator permission: {n} package will be removed.", other = "qpac asks for administrator permission: {n} packages will be removed." }
+polkit-password = "polkit asks for your password; qpac never sees or keeps it."
+polkit-lasts = "The permission lasts until qpac closes."
+helper-failed = "The administrator helper could not be started"
 plan-failed = "pacman could not plan this"
 running-install = "Installing {names}"
 running-remove = "Removing {names}"
@@ -105,6 +109,9 @@ refused.unknown = "The helper does not know this request."
 refused.values = "The request carried values the helper does not accept."
 refused.name = "A package name breaks pacman's naming rule."
 refused.start = "pacman could not be started."
+refused.changed = "The list of orphans changed in the meantime; nothing was removed. Look at the new list."
+refused.no-mirrors = "reflector found no mirror for these choices; the mirror list was left as it was."
+refused.file = "A file could not be written; nothing was replaced."
 
 [lock]
 title = "The package database is locked"
@@ -115,3 +122,181 @@ owner-unknown = "Held by a process this account cannot see"
 since = "Since {time}"
 message = "pacman locks its database while a transaction runs. Wait for it to end. The lock is never removed from here: a pacman that stopped halfway may have left the database in a state a second writer would damage."
 close = "Close"
+
+[tabs]
+discover = "Discover"
+installed = "Installed"
+updates = "Updates"
+settings-tip = "Settings"
+
+[installed]
+search = "Search installed packages, or source:aur"
+apps = "Apps"
+all = "All packages"
+source = "Source"
+origin-repo = "Repo"
+origin-aur = "AUR"
+no-apps = "No installed application has a launcher; All packages lists everything"
+count-apps = { one = "{n} app", other = "{n} apps" }
+count-packages = { one = "{n} package", other = "{n} packages" }
+count-matching = { one = "{n} match", other = "{n} matches" }
+remove-checked = "Remove checked"
+back = "Back"
+
+[updates]
+check-now = "Check now"
+checking = "Looking for updates"
+checking-message = "The repositories are asked through a private copy of pacman's database; nothing on the system changes."
+checking-short = "checking"
+up-to-date = "Everything is up to date"
+last-checked = "Last checked {time}."
+last-checked-short = "last checked {time}"
+count = { one = "{n} update", other = "{n} updates" }
+none = "No updates"
+repo = "Repositories"
+restart = "restart needed"
+held-back = "held back by IgnorePkg"
+failed = "Could not check for updates"
+stale = "The last check did not finish: {reason}"
+aur-failed = "The AUR could not be asked: {reason}"
+no-place = "There is no cache folder to keep the copy of pacman's database in."
+no-fakeroot = "Checking needs fakeroot, which is not installed; it comes with base-devel."
+no-reason = "The program ended without saying why."
+
+[settings-page]
+title = "Settings"
+back = "Back"
+not-saved = "The settings could not be saved"
+sources = "Sources"
+installed = "installed"
+looking = "looking for it"
+through = "through {helper}"
+aur-helper = "AUR helper"
+aur-helper-text = "Used when both are installed."
+helper-auto = "Automatic"
+helper-paru = "paru"
+helper-yay = "yay"
+privilege = "Permission"
+tool = "Asked by"
+tool-auto = "Automatic"
+tool-pkexec = "polkit (pkexec)"
+tool-sudo = "sudo"
+tool-uses-pkexec = "polkit asks, in a window or on the terminal."
+tool-uses-sudo = "sudo asks on the terminal."
+appearance = "Appearance"
+language = "Language"
+theme = "Theme"
+icons = "Icons"
+icons-auto = "Detect"
+icons-nerd = "Nerd Font"
+icons-unicode = "Unicode"
+icons-ascii = "ASCII"
+reduce-motion = "Reduce motion"
+reduce-motion-text = "Layers appear at once; nothing breathes or spins."
+forced-on = "Reduced by the shell (QUVYTA_REDUCED_MOTION); the setting cannot change it here."
+forced-off = "Kept by the shell (QUVYTA_REDUCED_MOTION); the setting cannot change it here."
+pillar = "Pillar"
+pillar-thick = "Thick"
+pillar-thin = "Thin"
+[review]
+disclaimer = "This check looks for known dangerous patterns. A clean result does not mean the package is safe."
+rule.network-in-build = "Downloads code while building, without a checksum."
+rule.runs-hidden-code = "Runs code that was downloaded or hidden."
+rule.asks-privilege = "Asks for administrator rights; a recipe never needs them."
+rule.install-script = "The install script reaches the network or enables a service, as the administrator."
+rule.plain-http = "Downloads a source over unencrypted http."
+rule.skipped-checksum = "A downloaded source skips its checksum."
+rule.new-domain = "Downloads from {host}, which it did not when you last approved it."
+rule.new-maintainer = "The package changed hands since you last approved it."
+rule.writes-outside = "Writes to your home folder or /etc outside package()."
+
+[check]
+recent = "Checked for updates less than an hour ago; the mirrors are left alone until then."
+locked = "pacman is changing its database; the check waits for its next turn."
+done = "Updates waiting: {pacman} from the repositories, {aur} from the AUR."
+failed = "The update check did not finish: {reason}"
+no-home = "The update check needs a home folder to keep its findings in."
+
+[store]
+back = "Back"
+
+[store.kind]
+label = "Kind"
+all = "All"
+internet = "Internet"
+audio-video = "Audio & video"
+graphics = "Graphics"
+office = "Office"
+game = "Games"
+development = "Development"
+system = "System"
+utility = "Utilities"
+fonts = "Fonts"
+other = "Other"
+
+[store.source]
+pacman = "Repo"
+aur = "AUR"
+flatpak = "Flatpak"
+snap = "Snap"
+
+[store.sources]
+title = "Sources"
+install = "Install"
+
+[store.card]
+installed = "Installed"
+votes = { one = "{count} vote", other = "{count} votes" }
+
+[store.home]
+popular = "Popular apps"
+aur = "Popular in the AUR"
+kind-popular = "{kind}: popular"
+kind-aur = "{kind}: popular in the AUR"
+see-all = "See all ›"
+empty-kind = "Nothing of this kind here yet. The app catalog lists every kind."
+
+[store.catalog]
+missing = "Kinds and descriptions need the app catalog."
+install = "Install"
+
+[store.search]
+placeholder = "Search apps and packages"
+count = { one = "{n} result for “{query}”", other = "{n} results for “{query}”" }
+none-title = "Nothing found for “{query}”"
+none-message = "Check the spelling or try another word."
+more = "Showing the first {shown} of {n}. Type more to narrow it down."
+searching = "Searching: {sources}"
+too-many = "{source} found too many packages. Type more to narrow it down."
+unreachable = "{source} could not be reached."
+unreadable = "{source} answered with something unreadable."
+retry = "Try again"
+
+[store.sort]
+label = "Sort"
+relevance = "Relevance"
+name = "Name"
+popularity = "Popularity"
+
+[store.app]
+source = "Source"
+install = "Install"
+remove = "Remove"
+reading = "Reading the details"
+unreachable = "{source} could not be reached for the details."
+out-of-date = "Flagged out of date since {date}"
+version = "Version"
+license = "License"
+download = "Download"
+on-disk = "On disk"
+repository = "Repository"
+website = "Website"
+depends = "Depends on"
+depends-none = "nothing"
+depends-more = { one = "{names} and {n} more", other = "{names} and {n} more" }
+votes = "Votes"
+popularity = "Popularity"
+maintainer = "Maintainer"
+orphaned = "none, orphaned"
+updated = "Last updated"
+flatpak-id = "Flatpak id"

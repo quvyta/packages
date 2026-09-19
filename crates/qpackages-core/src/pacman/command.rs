@@ -42,6 +42,51 @@ pub fn remove(names: &[impl AsRef<str>]) -> Vec<String> {
     with_names(["-Rns", "--noconfirm"], names)
 }
 
+/// The arguments that bring the whole system up to date: `-Syu --noconfirm`.
+///
+/// The repositories are refreshed and everything is upgraded in the same transaction, the only
+/// way a refresh never leaves a partial upgrade behind.
+#[must_use]
+pub fn upgrade() -> Vec<String> {
+    ["-Syu", "--noconfirm"].map(str::to_owned).to_vec()
+}
+
+/// The arguments that bring the system up to date and install `names` in the same transaction:
+/// `-Syu --needed --noconfirm`. Installing against a system with pending updates would pull in
+/// libraries newer than the rest of it was built against.
+#[must_use]
+pub fn upgrade_install(names: &[impl AsRef<str>]) -> Vec<String> {
+    with_names(["-Syu", "--needed", "--noconfirm"], names)
+}
+
+/// The arguments that mark `names` as installed only as dependencies: `-D --asdeps`. Once no
+/// package needs them they count as orphans.
+#[must_use]
+pub fn mark_deps(names: &[impl AsRef<str>]) -> Vec<String> {
+    with_names(["-D", "--asdeps"], names)
+}
+
+/// The arguments that mark `names` as installed on purpose: `-D --asexplicit`, so an orphan the
+/// user chose to keep is never offered for removal again.
+#[must_use]
+pub fn mark_explicit(names: &[impl AsRef<str>]) -> Vec<String> {
+    with_names(["-D", "--asexplicit"], names)
+}
+
+/// The arguments that list the orphans, one name per line: installed as dependencies and needed
+/// by nothing any more (`-Qtdq`). Read by [`read_orphans`](super::read_orphans).
+#[must_use]
+pub fn orphans() -> Vec<String> {
+    vec!["-Qtdq".to_owned()]
+}
+
+/// The arguments that list the packages no repository knows, `name version` per line (`-Qm`):
+/// on Arch these came from the AUR or were built by hand.
+#[must_use]
+pub fn foreign_versions() -> Vec<String> {
+    vec!["-Qm".to_owned()]
+}
+
 /// The arguments that print what installing `names` would do, without doing it.
 ///
 /// The output is one `repo|name|version|size` line per package, read by
@@ -68,6 +113,22 @@ pub fn print_remove(names: &[impl AsRef<str>]) -> Vec<String> {
 #[must_use]
 pub fn update_check(dbpath: &Path) -> Vec<String> {
     vec!["-Qu".to_owned(), "--dbpath".to_owned(), dbpath.to_string_lossy().into_owned()]
+}
+
+/// The arguments that list the installed packages no repository offers, one name per line:
+/// `-Qqm`. On Arch these are the ones built from the AUR (or by hand); the check reads the system
+/// database without changing it, so it needs no privileges.
+#[must_use]
+pub fn foreign() -> Vec<String> {
+    vec!["-Qqm".to_owned()]
+}
+
+/// The arguments for an AUR helper (`paru` or `yay`) that list the AUR packages with a newer
+/// version: `-Qua`. The output has the shape of `pacman -Qu` and is read by
+/// [`read_update_check`](super::read_update_check).
+#[must_use]
+pub fn aur_update_check() -> Vec<String> {
+    vec!["-Qua".to_owned()]
 }
 
 /// The arguments for [`FAKEROOT`] that refresh the private database copy under `dbpath`.
@@ -132,6 +193,20 @@ mod tests {
     }
 
     #[test]
+    fn upgrades_refresh_and_upgrade_in_one_transaction() {
+        assert_eq!(upgrade(), ["-Syu", "--noconfirm"]);
+        assert_eq!(upgrade_install(&["gimp"]), ["-Syu", "--needed", "--noconfirm", "--", "gimp"]);
+    }
+
+    #[test]
+    fn marks_and_orphan_queries_carry_their_fixed_flags() {
+        assert_eq!(mark_deps(&["gimp"]), ["-D", "--asdeps", "--", "gimp"]);
+        assert_eq!(mark_explicit(&["gimp", "vlc"]), ["-D", "--asexplicit", "--", "gimp", "vlc"]);
+        assert_eq!(orphans(), ["-Qtdq"]);
+        assert_eq!(foreign_versions(), ["-Qm"]);
+    }
+
+    #[test]
     fn print_install_asks_for_the_machine_format_the_plan_reader_expects() {
         assert_eq!(print_install(&["gimp"]), ["-S", "--print", "--print-format", "%r|%n|%v|%s", "--", "gimp"]);
     }
@@ -159,6 +234,12 @@ mod tests {
     #[test]
     fn the_update_check_points_at_the_private_database() {
         assert_eq!(update_check(Path::new("/tmp/qpackages/db")), ["-Qu", "--dbpath", "/tmp/qpackages/db"]);
+    }
+
+    #[test]
+    fn the_read_only_queries_carry_only_their_query_flags() {
+        assert_eq!(foreign(), ["-Qqm"]);
+        assert_eq!(aur_update_check(), ["-Qua"]);
     }
 
     #[test]

@@ -4,7 +4,8 @@ use qframe::prelude::*;
 use qframe::widgets::{CopyValue, EmptyState, ScrollView};
 use qpackages_core::pacman::Package;
 
-use crate::packages::size_text;
+use crate::icons;
+use crate::installed::table::size_text;
 
 /// Shows `package`, or a quiet empty state while nothing is selected.
 pub fn view<Msg: Clone + 'static>(package: Option<&Package>, ui: &mut View<'_, Msg>) {
@@ -15,7 +16,14 @@ pub fn view<Msg: Clone + 'static>(package: Option<&Package>, ui: &mut View<'_, M
     // Keyed by name so the copy confirmation of one package never carries over to the next.
     ui.add_with(ScrollView::new(), |ui| {
         ui.column(|ui| {
-            ui.add(Text::new(package.name.clone()).role("title").no_wrap());
+            // The icon is quiet beside the name: it helps the eye find the package, the name says
+            // what it is.
+            let icon = icons::installed(package, ui.env().icons().mode());
+            ui.add(
+                Text::rich([Span::new(format!("{icon} ")).color("muted"), Span::new(package.name.clone())])
+                    .role("title")
+                    .no_wrap(),
+            );
             let description = package.description.clone().unwrap_or_else(|| t!("detail.no-description"));
             ui.add(Text::new(description)).fill_width();
             ui.column(|ui| {

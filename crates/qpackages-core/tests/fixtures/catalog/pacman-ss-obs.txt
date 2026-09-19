@@ -1,0 +1,14 @@
+extra/kdav 1:6.30.0-1 (kf6)
+    A DAV protocol implemention with KJobs
+extra/markdown-oxide 0.25.12-1
+    PKM oriented Markdown Language Server with Obsidian syntax support
+extra/obs-studio 32.2.2-1
+    Free, open source software for live streaming and recording
+extra/obs-studio-plugin-browser 32.2.2-1
+    CEF-based OBS Studio browser plugin
+extra/obsidian 1.13.7-2 [installed: 1.13.6-1]
+    A powerful knowledge base that works on top of a local folder of plain text Markdown files
+extra/obsidian-icon-theme 4.15-3
+    Obsidian icon theme
+extra/print-manager 1:6.7.5-1 (plasma kde-system) [installed]
+    A tool for managing print jobs and printers

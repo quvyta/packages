@@ -3,3 +3,11 @@
 [app]
 search = "/"
 remove = "delete"
+settings = "ctrl+,"
+tab-next = "alt+right"
+tab-prev = "alt+left"
+tab-1 = "ctrl+1"
+tab-2 = "ctrl+2"
+tab-3 = "ctrl+3"
+back = "esc"
+install-checked = "ctrl+enter"

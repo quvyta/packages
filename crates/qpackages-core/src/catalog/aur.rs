@@ -110,6 +110,8 @@ pub struct AurPackage {
     pub make_depends: Vec<String>,
     /// What it can use, each entry as the package writes it. Only `info` answers carry this.
     pub opt_depends: Vec<String>,
+    /// Its licences, as the recipe names them. Only `info` answers carry this.
+    pub licenses: Vec<String>,
 }
 
 /// Why an RPC answer could not be read.
@@ -168,6 +170,7 @@ fn package(entry: &JsonValue) -> Option<AurPackage> {
         depends: json::strings(entry, "Depends"),
         make_depends: json::strings(entry, "MakeDepends"),
         opt_depends: json::strings(entry, "OptDepends"),
+        licenses: json::strings(entry, "License"),
     })
 }
 
@@ -273,6 +276,8 @@ mod tests {
         assert_eq!(code.votes, 1708);
         assert_eq!(code.base, "visual-studio-code-bin");
         assert_eq!(code.opt_depends, ["glib2", "libdbusmenu-glib", "org.freedesktop.secrets", "icu69"]);
+        assert_eq!(capture.licenses, ["GPL-2.0-or-later"]);
+        assert_eq!(code.licenses, ["custom: commercial"]);
     }
 
     #[test]

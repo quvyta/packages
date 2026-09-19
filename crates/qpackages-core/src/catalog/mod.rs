@@ -15,6 +15,7 @@ mod json;
 pub mod merge;
 pub mod net;
 pub mod popularity;
+pub mod repo;
 pub mod search;
 
 use std::fmt;

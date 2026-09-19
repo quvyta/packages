@@ -8,7 +8,9 @@
 use std::fmt;
 use std::path::Path;
 
+use crate::backup::Snapshot;
 use crate::pacman::command;
+use crate::reflector::Mirrors;
 
 #[cfg(test)]
 mod tests;
@@ -25,6 +27,12 @@ pub const LANG_FLAG: &str = "--lang";
 /// pacman by its absolute path: the helper never looks a program up on a search path.
 pub const PACMAN_PATH: &str = "/usr/bin/pacman";
 
+/// systemctl by its absolute path, for the one timer the helper may switch.
+pub const SYSTEMCTL_PATH: &str = "/usr/bin/systemctl";
+
+/// The only unit `timer` accepts: reflector's own timer, which refreshes the mirror list.
+pub const REFLECTOR_TIMER: &str = "reflector.timer";
+
 /// The search path the helper gives pacman, for the programs pacman itself starts.
 pub const SEARCH_PATH: &str = "/usr/bin:/usr/sbin";
 
@@ -39,8 +47,25 @@ const MAX_LOCALE: usize = 64;
 pub enum Request {
     /// Install these packages from the repositories.
     Install(Vec<String>),
+    /// Bring the whole system up to date and install these packages in the same transaction.
+    UpgradeInstall(Vec<String>),
+    /// Bring the whole system up to date.
+    Upgrade,
     /// Remove these packages with the dependencies only they needed and their saved settings.
     Remove(Vec<String>),
+    /// Remove the orphans. The helper lists them itself; these are the ones qpac showed, and the
+    /// request is refused with [`Refusal::Changed`] when the two lists differ.
+    RemoveOrphans(Vec<String>),
+    /// Mark these packages as installed only as dependencies.
+    MarkDeps(Vec<String>),
+    /// Mark these packages as installed on purpose.
+    MarkExplicit(Vec<String>),
+    /// Start and enable [`REFLECTOR_TIMER`] (`true`), or stop and disable it (`false`).
+    Timer(bool),
+    /// Take a snapshot before or after an update.
+    Snapshot(Snapshot),
+    /// Choose pacman's mirrors with reflector and save the choice for reflector's timer.
+    Mirrors(Mirrors),
     /// Run later commands on a pseudo-terminal of this many columns and rows.
     Size {
         /// Columns.
@@ -61,12 +86,28 @@ pub enum Refusal {
     Values,
     /// A package name breaks pacman's naming rule.
     Name,
-    /// The program could not be started.
+    /// The program could not be started, or the query the request depends on failed.
     Start,
+    /// What the request was based on is no longer true: the orphans the helper found are not the
+    /// ones qpac showed, because another transaction ran in between.
+    Changed,
+    /// reflector ended well but its list names no server; the mirror list was left as it was.
+    NoMirrors,
+    /// A file could not be written; nothing was replaced.
+    File,
 }
 
 impl Refusal {
-    const ALL: [Self; 5] = [Self::NotRoot, Self::Unknown, Self::Values, Self::Name, Self::Start];
+    const ALL: [Self; 8] = [
+        Self::NotRoot,
+        Self::Unknown,
+        Self::Values,
+        Self::Name,
+        Self::Start,
+        Self::Changed,
+        Self::NoMirrors,
+        Self::File,
+    ];
 
     /// The word that names the refusal on the wire and in the language files.
     #[must_use]
@@ -77,6 +118,9 @@ impl Refusal {
             Self::Values => "values",
             Self::Name => "name",
             Self::Start => "start",
+            Self::Changed => "changed",
+            Self::NoMirrors => "no-mirrors",
+            Self::File => "file",
         }
     }
 
@@ -100,7 +144,26 @@ impl Request {
         let values: Vec<&str> = words.collect();
         match word {
             "install" => names(&values).map(Self::Install),
+            "upgrade-install" => names(&values).map(Self::UpgradeInstall),
+            "upgrade" => nothing(&values).map(|()| Self::Upgrade),
             "remove" => names(&values).map(Self::Remove),
+            "remove-orphans" => names(&values).map(Self::RemoveOrphans),
+            "mark-deps" => names(&values).map(Self::MarkDeps),
+            "mark-explicit" => names(&values).map(Self::MarkExplicit),
+            "timer" => match values.as_slice() {
+                ["on", REFLECTOR_TIMER] => Ok(Self::Timer(true)),
+                ["off", REFLECTOR_TIMER] => Ok(Self::Timer(false)),
+                _ => Err(Refusal::Values),
+            },
+            "snapshot" => match values.as_slice() {
+                ["pre", "snapper"] => Ok(Self::Snapshot(Snapshot::SnapperPre)),
+                ["post", "snapper", number] => {
+                    snapshot_number(number).map(|n| Self::Snapshot(Snapshot::SnapperPost(n)))
+                }
+                ["pre", "timeshift"] => Ok(Self::Snapshot(Snapshot::Timeshift)),
+                _ => Err(Refusal::Values),
+            },
+            "mirrors" => Mirrors::from_values(&values).map(Self::Mirrors).ok_or(Refusal::Values),
             "size" => match values.as_slice() {
                 [cols, rows] => Ok(Self::Size { cols: dimension(cols)?, rows: dimension(rows)? }),
                 _ => Err(Refusal::Values),
@@ -109,14 +172,26 @@ impl Request {
         }
     }
 
-    /// The pacman arguments that carry the request out, or `None` for a request that runs
-    /// nothing.
+    /// The program, by its absolute path, and the fixed arguments that carry the request out;
+    /// `None` for a request that runs nothing ([`Request::Size`]) or whose command depends on
+    /// what the helper finds first ([`Request::RemoveOrphans`]) or that is followed by file work
+    /// ([`Request::Mirrors`]).
     #[must_use]
-    pub fn pacman_args(&self) -> Option<Vec<String>> {
+    pub fn command(&self) -> Option<(&'static str, Vec<String>)> {
+        let pacman = |args| Some((PACMAN_PATH, args));
         match self {
-            Self::Install(names) => Some(command::install(names)),
-            Self::Remove(names) => Some(command::remove(names)),
-            Self::Size { .. } => None,
+            Self::Install(names) => pacman(command::install(names)),
+            Self::UpgradeInstall(names) => pacman(command::upgrade_install(names)),
+            Self::Upgrade => pacman(command::upgrade()),
+            Self::Remove(names) => pacman(command::remove(names)),
+            Self::MarkDeps(names) => pacman(command::mark_deps(names)),
+            Self::MarkExplicit(names) => pacman(command::mark_explicit(names)),
+            Self::Timer(on) => {
+                let verb = if *on { "enable" } else { "disable" };
+                Some((SYSTEMCTL_PATH, [verb, "--now", "--", REFLECTOR_TIMER].map(str::to_owned).to_vec()))
+            }
+            Self::Snapshot(snapshot) => Some(snapshot.command()),
+            Self::RemoveOrphans(_) | Self::Mirrors(_) | Self::Size { .. } => None,
         }
     }
 }
@@ -125,7 +200,17 @@ impl fmt::Display for Request {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Install(names) => write!(f, "install {}", names.join(" ")),
+            Self::UpgradeInstall(names) => write!(f, "upgrade-install {}", names.join(" ")),
+            Self::Upgrade => f.write_str("upgrade"),
             Self::Remove(names) => write!(f, "remove {}", names.join(" ")),
+            Self::RemoveOrphans(names) => write!(f, "remove-orphans {}", names.join(" ")),
+            Self::MarkDeps(names) => write!(f, "mark-deps {}", names.join(" ")),
+            Self::MarkExplicit(names) => write!(f, "mark-explicit {}", names.join(" ")),
+            Self::Timer(on) => write!(f, "timer {} {REFLECTOR_TIMER}", if *on { "on" } else { "off" }),
+            Self::Snapshot(Snapshot::SnapperPre) => f.write_str("snapshot pre snapper"),
+            Self::Snapshot(Snapshot::SnapperPost(number)) => write!(f, "snapshot post snapper {number}"),
+            Self::Snapshot(Snapshot::Timeshift) => f.write_str("snapshot pre timeshift"),
+            Self::Mirrors(mirrors) => write!(f, "mirrors {}", mirrors.values().join(" ")),
             Self::Size { cols, rows } => write!(f, "size {cols} {rows}"),
         }
     }
@@ -238,6 +323,19 @@ fn names(values: &[&str]) -> Result<Vec<String>, Refusal> {
         return Err(Refusal::Name);
     }
     Ok(values.iter().map(|name| (*name).to_owned()).collect())
+}
+
+/// No value at all.
+fn nothing(values: &[&str]) -> Result<(), Refusal> {
+    if values.is_empty() { Ok(()) } else { Err(Refusal::Values) }
+}
+
+/// A snapshot number: digits only, without a leading zero, from 1 to `u32::MAX`.
+fn snapshot_number(value: &str) -> Result<u32, Refusal> {
+    if value.starts_with('0') || value.is_empty() || !value.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(Refusal::Values);
+    }
+    value.parse().map_err(|_| Refusal::Values)
 }
 
 /// A terminal dimension: digits only, from 1 to `u16::MAX`.

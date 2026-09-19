@@ -39,6 +39,19 @@ fn parse_line(line: &str) -> Option<Update> {
     Some(Update { name: name.to_owned(), from: from.to_owned(), to: to.to_owned(), ignored })
 }
 
+/// Reads `pacman -Qm`: one `name version` per line, for the packages no repository knows.
+/// A line of another shape is skipped.
+#[must_use]
+pub fn parse_foreign(text: &str) -> Vec<(String, String)> {
+    text.lines()
+        .filter_map(|line| {
+            let mut words = line.split_whitespace();
+            let (name, version) = (words.next()?, words.next()?);
+            words.next().is_none().then(|| (name.to_owned(), version.to_owned()))
+        })
+        .collect()
+}
+
 /// What a finished `pacman -Qu` meant.
 ///
 /// pacman exits 1 both when there is nothing to update and when something went wrong, so the
@@ -109,6 +122,15 @@ mod tests {
         let text = "warning: database file for 'core' does not exist (use '-Sy' to download)\n\n";
         assert!(parse_updates(text).is_empty(), "warnings belong to stderr but may be mixed in");
         assert!(parse_updates("").is_empty());
+    }
+
+    #[test]
+    fn foreign_packages_are_a_name_and_a_version() {
+        let foreign = parse_foreign("paru 2.1.0-1\nbrave-bin 1:1.95.101-1\nbroken\nthree words here\n");
+        assert_eq!(
+            foreign,
+            [("paru".to_owned(), "2.1.0-1".to_owned()), ("brave-bin".to_owned(), "1:1.95.101-1".to_owned())]
+        );
     }
 
     #[test]

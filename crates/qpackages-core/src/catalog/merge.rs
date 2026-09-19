@@ -267,6 +267,7 @@ mod tests {
             icon: None,
             license: None,
             homepage: None,
+            description: None,
         }
     }
 

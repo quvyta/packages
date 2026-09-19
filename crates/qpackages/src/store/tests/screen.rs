@@ -1,0 +1,284 @@
+//! The home page and the application page as they are drawn.
+
+use super::*;
+
+/// The icon a card draws for `name` of `kind` in `mode`.
+fn icon(name: &str, kind: qpackages_core::catalog::category::Category, mode: GlyphMode) -> String {
+    crate::icons::glyph(name, kind, Source::Pacman, mode)
+}
+
+#[test]
+fn the_first_frame_shows_the_starter_list_before_anything_is_read() {
+    let recorded = Arc::new(Recorded::default());
+    let mut unread = page(&recorded, true);
+    unread.init = false;
+    let h = harness(unread, 96, 30, GlyphMode::Unicode);
+    let screen = h.screen();
+    for text in [
+        "Search apps and packages",
+        "All",
+        "Audio & video",
+        "Fonts",
+        "Sources",
+        "Popular apps",
+        "See all",
+        "Firefox",
+        "Web browser",
+        "Repo · Flatpak",
+        "Popular in the AUR",
+        "Visual Studio Co",
+    ] {
+        assert!(screen.contains(text), "`{text}` is missing:\n{screen}");
+    }
+    assert!(recorded.calls().is_empty(), "nothing ran before init");
+    assert!(!screen.contains("app catalog"), "nothing is said about the catalog before it is looked for:\n{screen}");
+}
+
+#[test]
+fn installed_cards_say_so_with_a_mark_and_a_word() {
+    let h = started(96, 30);
+    assert!(h.screen().contains("Repo · Installed ✓"), "{}", h.screen());
+}
+
+#[test]
+fn the_network_ranking_replaces_the_starter_list_without_moving_the_rows() {
+    let recorded = online();
+    let mut unread = page(&recorded, true);
+    unread.init = false;
+    let mut h = harness(unread, 96, 30, GlyphMode::Unicode);
+    let before = h.find("Popular in the AUR").expect("the AUR row stands");
+    let first_before = h.app().store.popular[0].key.clone();
+    // The same answers the background work gets, delivered one by one.
+    let loaded = Arc::new(data::load(&machine(&recorded, true)));
+    h.send(Msg::Loaded(loaded));
+    h.send(Msg::Pkgstats(data::pkgstats(recorded.as_ref()).map(Arc::from)));
+    let names = aur_row_names(&h.app().store);
+    h.send(Msg::AurStats(data::aur_info(recorded.as_ref(), &names).map(Arc::from)));
+    let screen = h.screen();
+    assert_eq!(h.find("Popular in the AUR"), Some(before), "the rows stay where they were:\n{screen}");
+    let ranked: Vec<&str> = h.app().store.popular.iter().take(3).map(|card| card.key.as_str()).collect();
+    assert_eq!(ranked, ["org.mozilla.firefox", "org.videolan.vlc", "libreoffice-writer"], "pkgstats' order");
+    assert_ne!(first_before, "", "the starter list had a first card");
+    assert!(screen.contains("LibreOffice Writ"), "the catalog's own name:\n{screen}");
+    assert!(screen.contains("Google Chrome"), "{screen}");
+    assert!(screen.contains("AUR · 2.2k votes"), "the AUR's votes join the card:\n{screen}");
+    let chrome = h.find("Google Chrome").expect("Chrome leads the AUR row").0;
+    let code = h.find("Visual Studio Co").expect("VS Code follows").0;
+    assert!(chrome < code, "the AUR's popularity orders the row:\n{screen}");
+}
+
+#[test]
+fn every_glyph_mode_draws_an_icon_on_every_card() {
+    use qpackages_core::catalog::category::Category;
+    for mode in [GlyphMode::Nerd, GlyphMode::Unicode, GlyphMode::Ascii] {
+        let recorded = online();
+        let h = harness(page(&recorded, true), 96, 30, mode);
+        let screen = h.screen();
+        let firefox = format!("{} Firefox", icon("firefox", Category::Internet, mode));
+        assert!(screen.contains(&firefox), "`{firefox}` in {mode:?}:\n{screen}");
+        let vlc = format!("{} VLC", icon("vlc", Category::AudioVideo, mode));
+        assert!(screen.contains(&vlc), "`{vlc}` in {mode:?}:\n{screen}");
+        let check = h.env().icons().glyph("check").into_owned();
+        assert!(screen.contains(&format!("Installed {check}")), "the mark follows the mode:\n{screen}");
+    }
+    let ascii = harness(page(&online(), true), 96, 30, GlyphMode::Ascii).screen();
+    assert!(ascii.contains("@ Firefox"), "{ascii}");
+    assert!(ascii.contains("Installed v"), "{ascii}");
+}
+
+#[test]
+fn a_card_icon_is_muted_and_takes_the_text_colour_when_selected() {
+    let mut h = started(96, 30);
+    let (x, y) = h.find("◎ Firefox").expect("the Firefox card");
+    let quiet = h.fg(u16::try_from(x).unwrap_or(0), u16::try_from(y).unwrap_or(0));
+    h.send(Msg::Select(Grid::Row(Section::Popular), 0));
+    let lit = h.fg(u16::try_from(x).unwrap_or(0), u16::try_from(y).unwrap_or(0));
+    assert_ne!(quiet, lit, "the icon brightens on the selected card");
+    let name = h.fg(u16::try_from(x + 2).unwrap_or(0), u16::try_from(y).unwrap_or(0));
+    assert_eq!(lit, name, "and matches the name's colour");
+}
+
+#[test]
+fn without_the_app_catalog_one_line_offers_it() {
+    let recorded = online();
+    let mut h = harness(page(&recorded, false), 96, 30, GlyphMode::Unicode);
+    let screen = h.screen();
+    assert!(screen.contains("Kinds and descriptions need the app catalog."), "{screen}");
+    assert!(screen.contains("Firefox"), "the starter list still fills the page:\n{screen}");
+    h.click_text("Install");
+    let wanted = Offer { source: Source::Pacman, package: CATALOG_PACKAGE.to_owned() };
+    assert_eq!(h.app().requests, [Request::Install(vec![wanted])]);
+}
+
+#[test]
+fn a_kind_turns_the_rows_to_that_kind() {
+    let mut h = started(96, 30);
+    h.click_text("Games");
+    let screen = h.screen();
+    assert!(screen.contains("Games: popular"), "{screen}");
+    assert!(screen.contains("Steam"), "{screen}");
+    assert!(!screen.contains("Firefox"), "{screen}");
+}
+
+#[test]
+fn a_source_that_is_not_installed_says_so_and_leads_to_the_settings() {
+    let mut h = started(96, 30);
+    let screen = h.screen();
+    assert!(screen.contains("✓ Repo"), "{screen}");
+    assert!(screen.contains("○ Snap"), "{screen}");
+    h.click_text("○ Snap");
+    h.render();
+    assert_eq!(h.app().requests, [Request::OpenSettings(Some(Source::Snap))]);
+}
+
+#[test]
+fn narrow_screens_trade_the_kinds_column_then_the_summary_then_the_source_labels() {
+    let wide = started(96, 30).screen();
+    assert!(wide.contains("Audio & video"), "{wide}");
+    let seventy = started(70, 30).screen();
+    assert!(seventy.contains("Kind"), "the kind becomes one line:\n{seventy}");
+    assert!(!seventy.contains("Audio & video"), "the column is gone:\n{seventy}");
+    assert!(seventy.contains("Web browser"), "{seventy}");
+    let fifty = started(50, 30).screen();
+    assert!(!fifty.contains("Web browser"), "no summary under 60 columns:\n{fifty}");
+    assert!(fifty.contains("Repo · Flatpak"), "{fifty}");
+    let thirty = started(36, 30).screen();
+    assert!(thirty.contains("Firefox"), "{thirty}");
+    assert!(!thirty.contains("Repo"), "no source labels under 40 columns:\n{thirty}");
+    let short = started(96, 20).screen();
+    assert!(short.contains("Popular apps"), "{short}");
+    assert!(!short.contains("Popular in the AUR"), "one row under 24 lines:\n{short}");
+}
+
+#[test]
+fn turkish_speaks_turkish_all_the_way_to_the_cards() {
+    let mut h = started(96, 30);
+    h.set_locale("tr");
+    let screen = h.screen();
+    for text in
+        ["Popüler uygulamalar", "Tümü", "Kaynaklar", "Depo · Flatpak", "Kurulu ✓", "AUR'da popüler", "Tümünü gör"]
+    {
+        assert!(screen.contains(text), "`{text}` is missing:\n{screen}");
+    }
+}
+
+#[test]
+fn see_all_lists_a_row_whole_and_esc_comes_back() {
+    let mut h = started(96, 30);
+    h.click_text("See all");
+    h.advance(Duration::from_secs(1));
+    let screen = h.screen();
+    assert!(screen.contains("Back"), "{screen}");
+    assert!(screen.contains("Kate"), "cards past the first row:\n{screen}");
+    h.press("esc");
+    h.advance(Duration::from_secs(1));
+    assert!(h.screen().contains("Sources"), "{}", h.screen());
+}
+
+#[test]
+fn the_app_page_shows_what_the_repositories_say_and_installs_from_there() {
+    let recorded = online();
+    recorded.answer("pacman", &["-Si", "--", "obs-studio"], &core_fixture("pacman-si-obs-studio.txt"), 0);
+    let mut h = harness(page(&recorded, true), 100, 30, GlyphMode::Unicode);
+    h.click_text("Audio & video");
+    h.click_text("OBS Studio");
+    h.render();
+    h.advance(Duration::from_secs(1));
+    let screen = h.screen();
+    for text in [
+        "Back",
+        "OBS Studio",
+        "Live stream and record videos",
+        "mixes scenes, sources and",
+        "Source",
+        "Repo",
+        "Install",
+        "Version  32.2.2-1",
+        "License  GPL-2.0-only",
+        "Download  6.7 MiB",
+        "On disk  24.7 MiB",
+        "Repository  extra",
+        "Website  obsproject.com",
+        "ffmpeg, jansson, libxinerama, libxkbcommon-x11, mbedtls3 and 14 more",
+    ] {
+        assert!(screen.contains(text), "`{text}` is missing:\n{screen}");
+    }
+    h.click_text("Install");
+    let obs = Offer { source: Source::Pacman, package: String::from("obs-studio") };
+    assert_eq!(h.app().requests, [Request::Install(vec![obs])]);
+    h.press("esc");
+    h.advance(Duration::from_secs(1));
+    assert!(h.screen().contains("Sources"), "esc goes back:\n{}", h.screen());
+    assert!(h.app().store.open.is_none());
+}
+
+#[test]
+fn another_source_shows_its_own_facts() {
+    let recorded = online();
+    recorded.answer("pacman", &["-Si", "--", "obs-studio"], &core_fixture("pacman-si-obs-studio.txt"), 0);
+    let mut h = harness(page(&recorded, true), 100, 30, GlyphMode::Unicode);
+    h.click_text("Audio & video");
+    h.click_text("OBS Studio");
+    h.send(Msg::Offer(1));
+    h.advance(Duration::from_secs(1));
+    let screen = h.screen();
+    assert!(screen.contains("Flatpak id  com.obsproject.Studio"), "{screen}");
+    assert!(screen.contains("Flatpak"), "{screen}");
+    h.click_text("Install");
+    let flatpak = Offer { source: Source::Flatpak, package: String::from("com.obsproject.Studio") };
+    assert_eq!(h.app().requests, [Request::Install(vec![flatpak])], "the request names the source chosen");
+}
+
+#[test]
+fn an_installed_package_offers_removal_in_the_danger_tone() {
+    let recorded = online();
+    recorded.answer("pacman", &["-Si", "--", "firefox"], &core_fixture("pacman-si-obs-studio.txt"), 0);
+    let mut h = harness(page(&recorded, true), 100, 30, GlyphMode::Unicode);
+    h.click_text("Firefox");
+    h.advance(Duration::from_secs(1));
+    let screen = h.screen();
+    assert!(screen.contains("Remove"), "{screen}");
+    h.click_text("Remove");
+    let firefox = Offer { source: Source::Pacman, package: String::from("firefox") };
+    assert_eq!(h.app().requests, [Request::Remove(vec![firefox])]);
+}
+
+#[test]
+fn details_that_cannot_be_read_say_so_and_the_page_still_stands() {
+    let recorded = online();
+    let mut h = harness(page(&recorded, true), 100, 30, GlyphMode::Unicode);
+    h.click_text("VLC");
+    h.advance(Duration::from_secs(1));
+    let screen = h.screen();
+    assert!(screen.contains("Repo could not be reached for the details."), "{screen}");
+    assert!(screen.contains("Install"), "{screen}");
+}
+
+#[test]
+fn space_checks_cards_and_ctrl_enter_installs_them() {
+    let mut h = started(96, 30);
+    h.send(Msg::Toggle(Grid::Row(Section::Popular), 0));
+    h.send(Msg::Toggle(Grid::Row(Section::Aur), 0));
+    assert_eq!(h.app().store.checked.len(), 2);
+    h.press("/");
+    h.press("ctrl+enter");
+    let [Request::Install(offers)] = h.app().requests.as_slice() else {
+        panic!("one install request: {:?}", h.app().requests)
+    };
+    let sources: Vec<Source> = offers.iter().map(|offer| offer.source).collect();
+    assert_eq!(sources, [Source::Pacman, Source::Flatpak], "each card's most trusted source");
+    h.send(Msg::Toggle(Grid::Row(Section::Popular), 0));
+    assert_eq!(h.app().store.checked.len(), 1, "a second toggle unchecks");
+}
+
+#[test]
+fn learning_the_catalog_is_missing_moves_nothing_on_screen() {
+    let recorded = online();
+    let mut unread = page(&recorded, false);
+    unread.init = false;
+    let mut h = harness(unread, 96, 30, GlyphMode::Unicode);
+    let before = (h.find("Popular apps"), h.find("Popular in the AUR"));
+    h.send(Msg::Loaded(Arc::new(data::load(&machine(&recorded, false)))));
+    assert!(h.screen().contains("need the app catalog"), "{}", h.screen());
+    assert_eq!((h.find("Popular apps"), h.find("Popular in the AUR")), before, "{}", h.screen());
+}

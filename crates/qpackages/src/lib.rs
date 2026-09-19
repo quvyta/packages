@@ -7,22 +7,33 @@
 //! unless the machine given says so.
 
 pub mod app;
+pub mod autostart;
+pub mod backend_settings;
+pub mod check;
 mod detail;
 mod helper;
-mod packages;
+mod icons;
+mod installed;
 mod reload;
 mod runner;
 mod settings;
+mod settings_page;
 mod sources;
+mod store;
+#[cfg(test)]
+mod testing;
 mod transaction;
+mod updates;
 
 pub use helper::session::{Connection, Host, Start};
+pub use installed::Msg as InstalledMsg;
 pub use reload::{Lookup, Snapshot};
 pub use runner::{Output, Runner};
+pub use settings_page::Msg as SettingsMsg;
 pub use transaction::Msg as TransactionMsg;
 
 use std::os::unix::fs::MetadataExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use qframe::runtime::Runtime;
@@ -41,6 +52,23 @@ const LOCAL_DB: &str = "/var/lib/pacman/local";
 /// Where pacman keeps its lock file while a transaction runs.
 const PACMAN_DIR: &str = "/var/lib/pacman";
 
+/// Where pacman keeps the repository databases.
+const SYNC_DB: &str = "/var/lib/pacman/sync";
+
+/// Where the application menu's launchers are.
+const APPLICATIONS: &str = "/usr/share/applications";
+
+/// The folder, under the user's cache folder, that holds the private copy of the repository
+/// databases the update check refreshes.
+const CHECK_DIR: &str = "quvyta/packages/check";
+
+/// The user's cache folder: `$XDG_CACHE_HOME` when it is an absolute path, else `~/.cache`;
+/// `None` without a usable home folder, in which case no update check can keep its copy.
+fn cache_dir() -> Option<PathBuf> {
+    let absolute = |name: &str| std::env::var_os(name).map(PathBuf::from).filter(|path| path.is_absolute());
+    absolute("XDG_CACHE_HOME").or_else(|| absolute("HOME").map(|home| home.join(".cache")))
+}
+
 /// The user id this process runs as, read from the owner of its own `/proc` entry: root when
 /// started with `sudo`, which the screen warns about. `None` when `/proc` cannot be read.
 fn current_uid() -> Option<u32> {
@@ -53,9 +81,9 @@ fn current_uid() -> Option<u32> {
 /// Started with `--privileged-helper` as its first argument, the program is the root helper
 /// instead: it draws nothing and answers requests on its standard input until that ends.
 ///
-/// qpackages has no settings page yet, so whatever the settings reported (a file left in the
-/// old folder, a value that was repaired) is written to standard error once the screen is gone,
-/// where the user reads it after quitting.
+/// Whatever the settings reported when they were read (a file left in the old folder, a value
+/// that was repaired) is written to standard error once the screen is gone, where the user reads
+/// it after quitting.
 ///
 /// # Errors
 ///
@@ -69,41 +97,53 @@ pub fn run() -> std::io::Result<()> {
         return helper::root::run(rest);
     }
     let settings = settings::load();
+    let check_dir = cache_dir().map(|cache| cache.join(CHECK_DIR));
     let machine = app::Machine {
         dbpath: Path::new(LOCAL_DB),
+        sync_dir: Path::new(SYNC_DB),
+        applications: Path::new(APPLICATIONS),
+        check_dir: check_dir.as_deref(),
         lock_dir: Path::new(PACMAN_DIR),
         lookup: Arc::new(on_path),
         runner: Arc::new(runner::Real),
         helper: Arc::new(helper::session::sudo),
         uid: current_uid(),
+        utc_offset: qframe::date::local_offset_minutes(),
+        app_catalog: Path::new(store::SWCATALOG),
+        flatpak_catalogs: &store::flatpak_catalogs(),
     };
     let app = app::Qpackages::new(machine, &settings);
     let result = LOCALES
         .iter()
         .fold(Runtime::new(app), |runtime, (file, text)| runtime.locale_source(*file, *text))
         .keymap_source(KEYMAP.0, KEYMAP.1)
+        .icon_source(icons::SET.0, icons::SET.1)
         .settings(&settings)
         .run();
     for diagnostic in settings.diagnostics() {
         eprintln!("{diagnostic}");
     }
+    for diagnostic in icons::diagnostics() {
+        eprintln!("{diagnostic}");
+    }
     result
 }
 
-/// The compiled-in language files and key bindings, as the runtime loads them, for drawing the
-/// screen outside a terminal: `qframe::env::Env::load` turns them into the environment a test
-/// harness takes.
+/// The compiled-in language files, key bindings and icon set, as the runtime loads them, for
+/// drawing the screen outside a terminal: `qframe::env::Env::load` turns them into the
+/// environment a test harness takes.
 #[must_use]
 pub fn asset_dirs() -> qframe::env::AssetDirs {
     qframe::env::AssetDirs {
         locale_sources: LOCALES.iter().map(|(file, text)| ((*file).to_owned(), (*text).to_owned())).collect(),
         keymap_source: Some((KEYMAP.0.to_owned(), KEYMAP.1.to_owned())),
+        icon_sources: vec![(icons::SET.0.to_owned(), icons::SET.1.to_owned())],
         ..qframe::env::AssetDirs::default()
     }
 }
 
-/// The built-in files plus the compiled-in locales and keymap, as the runtime loads them, for
-/// tests that drive the screen.
+/// The built-in files plus the compiled-in locales, keymap and icon set, as the runtime loads
+/// them, for tests that drive the screen.
 #[cfg(test)]
 fn test_env() -> qframe::env::Env {
     qframe::env::Env::load(&asset_dirs()).expect("the locales and the keymap are readable")

@@ -13,12 +13,17 @@ use std::path::{Path, PathBuf};
 /// The subdirectory pacman expects the repository databases in under a `--dbpath`.
 const SYNC_DIR: &str = "sync";
 
+/// The subdirectory pacman expects the records of installed packages in under a `--dbpath`.
+const LOCAL_DIR: &str = "local";
+
 /// The extension of a repository database. The `.files` databases beside them are not copied:
 /// they hold file lists, which an update check never reads, and they are many times larger.
 const DB_EXTENSION: &str = "db";
 
 /// Copies the repository databases from `system_sync`, normally `/var/lib/pacman/sync`, into
-/// `<work>/sync`, and returns `work`: the `--dbpath` to give pacman.
+/// `<work>/sync`, links `<work>/local` to the system's installed-package records beside
+/// `system_sync`, and returns `work`: the `--dbpath` to give pacman. Without that link the copy
+/// knows of nothing installed, and so of no update.
 ///
 /// A database is copied only when the copy is missing or older than the system's, so a check
 /// that runs every few minutes does not move megabytes each time. Nothing under `system_sync`
@@ -26,6 +31,7 @@ const DB_EXTENSION: &str = "db";
 pub fn prepare(system_sync: &Path, work: &Path) -> io::Result<PathBuf> {
     let target = work.join(SYNC_DIR);
     fs::create_dir_all(&target)?;
+    link_local(&system_sync.parent().unwrap_or(system_sync).join(LOCAL_DIR), work)?;
     for entry in fs::read_dir(system_sync)? {
         let entry = entry?;
         let source = entry.path();
@@ -39,6 +45,25 @@ pub fn prepare(system_sync: &Path, work: &Path) -> io::Result<PathBuf> {
         fs::copy(&source, &copy)?;
     }
     Ok(work.to_path_buf())
+}
+
+/// Makes `<work>/local` point at the system's record of installed packages, `local`, normally
+/// `/var/lib/pacman/local`, so `pacman -Qu --dbpath <work>` compares what is installed with the
+/// private copy of the repositories, the way `checkupdates` does. A link is enough: the check only
+/// reads the records. A link already pointing there is left alone; anything else in its place is
+/// an error rather than something removed.
+pub fn link_local(local: &Path, work: &Path) -> io::Result<()> {
+    fs::create_dir_all(work)?;
+    let link = work.join(LOCAL_DIR);
+    match fs::read_link(&link) {
+        Ok(target) if target == local => Ok(()),
+        Ok(_) => {
+            fs::remove_file(&link)?;
+            std::os::unix::fs::symlink(local, &link)
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => std::os::unix::fs::symlink(local, &link),
+        Err(error) => Err(error),
+    }
 }
 
 /// Whether `copy` exists and is at least as new as the source it was taken from.
@@ -99,6 +124,46 @@ mod tests {
         assert_eq!(names_in(&work.join("sync")), ["core.db", "extra.db", "multilib.db"]);
         assert_eq!(fs::read_to_string(work.join("sync/extra.db")).expect("the copy reads"), "contents of extra.db");
         assert_eq!(names_in(&system), ["core.db", "core.files", "extra.db", "multilib.db"], "the source is untouched");
+        fs::remove_dir_all(dir).expect("cleanup");
+    }
+
+    #[test]
+    fn the_installed_records_are_linked_not_copied_and_a_second_link_changes_nothing() {
+        let dir = scratch("link");
+        let local = dir.join("system-local");
+        fs::create_dir_all(&local).expect("the fake records");
+        let work = dir.join("work");
+        link_local(&local, &work).expect("the link is made");
+        assert_eq!(fs::read_link(work.join("local")).expect("a link"), local);
+        link_local(&local, &work).expect("an existing link is fine");
+        let elsewhere = dir.join("elsewhere");
+        link_local(&elsewhere, &work).expect("a stale link is replaced");
+        assert_eq!(fs::read_link(work.join("local")).expect("a link"), elsewhere);
+        fs::remove_dir_all(dir).expect("cleanup");
+    }
+
+    #[test]
+    fn a_real_folder_where_the_link_goes_is_an_error_and_is_kept() {
+        let dir = scratch("link-folder");
+        let work = dir.join("work");
+        fs::create_dir_all(work.join("local")).expect("a folder in the way");
+        assert!(link_local(&dir.join("system-local"), &work).is_err());
+        assert!(work.join("local").is_dir(), "nothing is removed");
+        fs::remove_dir_all(dir).expect("cleanup");
+    }
+
+    #[test]
+    fn the_copy_sees_the_installed_packages_through_a_link() {
+        // Without the local database beside the copy, `pacman -Qu --dbpath <copy>` finds nothing
+        // installed and so never any update.
+        let dir = scratch("local");
+        let system = fake_system(&dir);
+        fs::create_dir_all(dir.join("local")).expect("the local database");
+        let work = dir.join("work");
+        prepare(&system, &work).expect("the copy succeeds");
+        assert_eq!(fs::read_link(work.join("local")).expect("a link"), dir.join("local"));
+        prepare(&system, &work).expect("preparing again keeps the link");
+        assert_eq!(fs::read_link(work.join("local")).expect("a link"), dir.join("local"));
         fs::remove_dir_all(dir).expect("cleanup");
     }
 

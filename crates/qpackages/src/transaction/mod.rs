@@ -2,8 +2,9 @@
 //! on our screen, have the root helper run pacman on a pseudo-terminal while the list stays where
 //! it is, then say how it went.
 //!
-//! The first transaction of a run starts the helper: sudo asks for the password on the real
-//! terminal, then `sudo -n` starts the helper, which stays up until qpac quits. Later
+//! The first transaction of a run starts the helper, which stays up until qpac quits. Where polkit
+//! is installed, pkexec asks for the password while the terminal is handed over and starts the
+//! helper itself; elsewhere sudo asks on the real terminal, then `sudo -n` starts it. Later
 //! transactions go straight to it. No password ever passes through this code.
 
 pub mod filter;
@@ -12,12 +13,17 @@ mod screen_tests;
 pub mod view;
 
 use std::fmt;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::SystemTime;
+use std::sync::mpsc::Sender;
+use std::time::{Duration, SystemTime};
 
 use qframe::prelude::*;
-use qframe::runtime::{Handoff, HandoffOutcome, ProcessOutcome, Task, TaskEvent, TaskId, TaskOutcome};
+use qframe::runtime::{
+    ChildLine, DetachedHandoff, DetachedOutcome, Handoff, HandoffOutcome, ProcessOutcome, Task, TaskCx, TaskEvent,
+    TaskId, TaskOutcome,
+};
 use qframe::widgets::{LogBuffer, LogLevel, LogLine, Toast};
 use qpackages_core::helper::{Refusal, Request};
 use qpackages_core::lock::{LockStatus, Owner, lock_status};
@@ -25,7 +31,8 @@ use qpackages_core::pacman::command::{self, PACMAN, SUDO};
 use qpackages_core::pacman::{Plan, parse_install_plan, parse_remove_plan};
 
 use crate::app::Msg as AppMsg;
-use crate::helper::session::{Outcome, Session, StartFailure};
+use crate::helper::pkexec::{self, Tool};
+use crate::helper::session::{self, Outcome, Session, StartFailure, Wait};
 use crate::reload::Reload;
 use crate::runner::Runner;
 
@@ -114,6 +121,12 @@ pub enum Msg {
     Apply,
     /// sudo's ticket was warmed on the real terminal, or not.
     Warmed(HandoffOutcome),
+    /// pkexec gave the terminal back: the helper said its first line, or pkexec ended without
+    /// starting it, or could not run.
+    HelperStarted(DetachedOutcome),
+    /// A helper pkexec started said something after its first line; the number tells which
+    /// start it came from, so a helper let go earlier cannot speak for the current one.
+    HelperLine(u64, ChildLine),
     /// The helper is up, or why it is not.
     Started(Result<(), StartFailure>),
     /// pacman printed a line.
@@ -159,7 +172,7 @@ pub enum State {
         /// The process holding it, when it could be seen.
         owner: Option<Owner>,
     },
-    /// sudo has the terminal and is asking for the password.
+    /// sudo or pkexec has the terminal and is asking for the password.
     Authorizing(Action),
     /// The helper is starting.
     Starting(Action),
@@ -188,6 +201,12 @@ pub struct Flow {
     runner: Arc<dyn Runner>,
     /// The root helper of this run.
     session: Session,
+    /// The program that asks for permission before the helper starts.
+    tool: Tool,
+    /// How many times pkexec was asked to start a helper; each start's lines carry its number.
+    starts: u64,
+    /// Where the lines of the helper pkexec started go, with its start's number, until it ends.
+    helper_lines: Option<(u64, Sender<io::Result<String>>)>,
     /// Whether the helper is up, as last seen; the header shows it without waiting on the helper.
     granted: bool,
     /// The read of the packages and the sources, repeated after a successful transaction.
@@ -216,19 +235,39 @@ fn wrap(msg: Msg) -> AppMsg {
 }
 
 impl Flow {
-    /// An idle flow that plans with `runner`, carries out through `session`, checks the lock
-    /// under `lock_dir` and repeats `reload` after a change.
+    /// An idle flow that plans with `runner`, carries out through `session`, whose helper `tool`
+    /// asks permission for, checks the lock under `lock_dir` and repeats `reload` after a change.
     #[must_use]
-    pub fn new(runner: Arc<dyn Runner>, session: Session, reload: Reload, lock_dir: &Path) -> Self {
+    pub fn new(runner: Arc<dyn Runner>, session: Session, tool: Tool, reload: Reload, lock_dir: &Path) -> Self {
         Self {
             runner,
             session,
+            tool,
+            starts: 0,
+            helper_lines: None,
             granted: false,
             reload,
             lock_dir: lock_dir.to_path_buf(),
             state: State::Idle,
             output_height: 10,
         }
+    }
+
+    /// The program that asks for permission before the helper starts.
+    #[must_use]
+    pub fn tool(&self) -> &Tool {
+        &self.tool
+    }
+
+    /// Asks for permission with `tool` from the next start of the helper on; a helper already up
+    /// keeps running until it is let go.
+    pub fn set_tool(&mut self, tool: Tool) {
+        self.tool = tool;
+    }
+
+    /// Repeats `reload` after a change from now on, as the settings last chose it.
+    pub fn set_reload(&mut self, reload: Reload) {
+        self.reload = reload;
     }
 
     /// Whether the helper is up, so a transaction runs without asking for the password.
@@ -275,6 +314,8 @@ impl Flow {
             }
             Msg::Apply => return self.apply(pty),
             Msg::Warmed(outcome) => return self.warmed(outcome),
+            Msg::HelperStarted(outcome) => return self.helper_started(outcome, pty),
+            Msg::HelperLine(start, line) => self.helper_line(start, line),
             Msg::Started(result) => return self.started(result, pty),
             Msg::Line(text) => self.line(&text),
             Msg::Ended(outcome) => return self.ended(&outcome),
@@ -339,12 +380,16 @@ impl Flow {
 
     /// Runs the confirmed plan through the helper, starting the helper first when there is none.
     fn apply(&mut self, pty: (u16, u16)) -> Command<AppMsg> {
-        let State::Confirming { action, .. } = std::mem::replace(&mut self.state, State::Idle) else {
+        let State::Confirming { action, plan, .. } = std::mem::replace(&mut self.state, State::Idle) else {
             return Command::none();
         };
         self.granted = self.session.is_alive();
         if self.granted {
             return self.execute(action, pty);
+        }
+        if let Tool::Pkexec(program) = &self.tool {
+            let program = program.clone();
+            return self.ask_polkit(program, action, plan.steps.len());
         }
         self.state = State::Authorizing(action);
         let handoff = Handoff::new(SUDO, |outcome| wrap(Msg::Warmed(outcome)))
@@ -367,6 +412,89 @@ impl Flow {
             HandoffOutcome::Finished { .. } => self.not_authorized(t!("transaction.not-authorized-body")),
             HandoffOutcome::Failed(reason) => self.not_authorized(reason),
         }
+    }
+
+    /// Hands the terminal over to pkexec, which asks for the password and starts the helper at
+    /// qpac's own absolute path. qpac's three lines come first, so the user knows who asks and
+    /// why before polkit's own text; the screen comes back once the helper says it is ready.
+    fn ask_polkit(&mut self, program: PathBuf, action: Action, packages: usize) -> Command<AppMsg> {
+        let exe = match std::env::current_exe() {
+            Ok(exe) => exe,
+            Err(error) => return self.helper_failed(error.to_string()),
+        };
+        self.starts += 1;
+        let start = self.starts;
+        let asks = if action.is_removal() {
+            t!("transaction.polkit-asks-remove", n = packages)
+        } else {
+            t!("transaction.polkit-asks-install", n = packages)
+        };
+        // The empty last line sets qpac's words apart from pkexec's.
+        let notice = format!("{asks}\n{}\n{}\n", t!("transaction.polkit-password"), t!("transaction.polkit-lasts"));
+        self.state = State::Authorizing(action);
+        let handoff = DetachedHandoff::new(program, |outcome| wrap(Msg::HelperStarted(outcome)))
+            .args(pkexec::args(&exe, session::locale().as_deref()))
+            .notice(notice)
+            .on_line(move |line| wrap(Msg::HelperLine(start, line)));
+        Command::handoff_detached(handoff)
+    }
+
+    /// Takes the helper pkexec started into the session and runs the action through it; when
+    /// pkexec ended without starting one, permission was not given and nothing ran.
+    fn helper_started(&mut self, outcome: DetachedOutcome, pty: (u16, u16)) -> Command<AppMsg> {
+        let State::Authorizing(action) = std::mem::replace(&mut self.state, State::Idle) else {
+            // Nothing waits for this helper; it is let go at once.
+            if let DetachedOutcome::Detached { child, .. } = outcome {
+                child.close_stdin();
+            }
+            return Command::none();
+        };
+        match outcome {
+            DetachedOutcome::Detached { child, first_line } => {
+                let (connection, lines) = pkexec::connect(child);
+                self.helper_lines = Some((self.starts, lines));
+                self.state = State::Starting(action);
+                let result = self.session.adopt(connection, &first_line);
+                self.started(result, pty)
+            }
+            // pkexec ends with 126 when the password was refused or the prompt dismissed, and
+            // 127 when it could not authenticate at all; a helper that ended before saying it is
+            // ready never had the chance to change anything either.
+            DetachedOutcome::Finished { .. } => self.not_authorized(t!("transaction.not-authorized-body")),
+            DetachedOutcome::Failed(reason) => self.helper_failed(reason),
+        }
+    }
+
+    /// Hands a line of the helper pkexec started to the session, or tells it the helper ended.
+    fn helper_line(&mut self, start: u64, line: ChildLine) {
+        let Some((current, lines)) = &self.helper_lines else {
+            return;
+        };
+        if *current != start {
+            return;
+        }
+        match line {
+            ChildLine::Line(text) => {
+                // The receiver is gone only when the session let this helper go.
+                let _ = lines.send(Ok(text));
+            }
+            ChildLine::Ended { .. } => {
+                self.helper_lines = None;
+                // A run in progress hears of the end through its connection; between runs the
+                // badge goes as soon as the helper does.
+                if !matches!(self.state, State::Running { .. } | State::Starting(_)) {
+                    self.granted = self.session.is_alive();
+                }
+            }
+        }
+    }
+
+    /// Says the helper could not be started at all; nothing was changed.
+    fn helper_failed(&self, reason: String) -> Command<AppMsg> {
+        self.toast(
+            Toast::danger(t!("transaction.helper-failed"))
+                .body(t!("transaction.not-authorized-reason", reason = reason)),
+        )
     }
 
     /// Runs the action once the helper is up; otherwise says why and runs nothing.
@@ -405,7 +533,7 @@ impl Flow {
         let request = action.request();
         let label = running_label(&action);
         let task = Task::new(label, move |cx| {
-            let outcome = session.run(&request, pty, &|| cx.is_cancelled(), &mut |line| cx.send(wrap(Msg::Line(line))));
+            let outcome = session.run(&request, pty, &InTask(cx), &mut |line| cx.send(wrap(Msg::Line(line))));
             Ok(wrap(match outcome {
                 Outcome::Finished(outcome) => Msg::Ended(outcome),
                 Outcome::Refused(refusal) => Msg::Refused(refusal),
@@ -509,6 +637,20 @@ impl Flow {
     /// Shows `toast` in the flow's place, replacing the one before it.
     fn toast(&self, toast: Toast<AppMsg>) -> Command<AppMsg> {
         Command::toast(toast.key(TOAST_KEY))
+    }
+}
+
+/// A wait for the helper inside the task running pacman: stopping the task gives it up, and a
+/// pause is the task's own sleep, which a test's clock decides.
+struct InTask<'a>(&'a TaskCx<AppMsg>);
+
+impl Wait for InTask<'_> {
+    fn given_up(&self) -> bool {
+        self.0.is_cancelled()
+    }
+
+    fn pause(&self, duration: Duration) -> bool {
+        self.0.sleep(duration)
     }
 }
 

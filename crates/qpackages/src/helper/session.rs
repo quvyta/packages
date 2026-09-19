@@ -1,6 +1,7 @@
 //! The helper's user side: the session that owns the root helper for as long as qpac runs.
 //!
-//! The helper is started once, after sudo has asked for the password on the real terminal, with
+//! The helper is started once, either through pkexec while the terminal is handed over (see
+//! [`super::pkexec`]), or after sudo has asked for the password on the real terminal, with
 //! `sudo -n` so it never asks again. From then on every transaction goes to it without a prompt.
 //! It ends when qpac quits, when the user lets it go, or when it dies; the next transaction then
 //! starts a new one. Its only line to qpac is two pipes that no other program can reach.
@@ -25,6 +26,27 @@ const POLL: Duration = Duration::from_millis(50);
 /// start takes this long.
 const READY_WAIT: Duration = Duration::from_secs(20);
 
+/// How a wait for the helper passes the time and learns it was given up.
+pub trait Wait {
+    /// Whether the wait was given up.
+    fn given_up(&self) -> bool;
+
+    /// Lets about `duration` pass. Returns `false` once the wait was given up.
+    fn pause(&self, duration: Duration) -> bool;
+}
+
+/// A closure that says whether the wait was given up; a pause sleeps on this thread.
+impl<F: Fn() -> bool> Wait for F {
+    fn given_up(&self) -> bool {
+        self()
+    }
+
+    fn pause(&self, duration: Duration) -> bool {
+        thread::sleep(duration);
+        !self()
+    }
+}
+
 /// Starts a helper and connects to it.
 pub type Start = dyn Fn() -> io::Result<Connection> + Send + Sync;
 
@@ -45,6 +67,10 @@ pub struct Connection {
     requests: Box<dyn Write + Send>,
     responses: Receiver<io::Result<String>>,
     host: Box<dyn Host>,
+    /// Whether the responses are handed over by the application's own loop rather than read by
+    /// a thread of the connection's: a wait for them then pauses the way its caller pauses, so
+    /// the loop that delivers them is never held up by it.
+    handed: bool,
 }
 
 impl Connection {
@@ -54,7 +80,18 @@ impl Connection {
     pub fn new(requests: Box<dyn Write + Send>, responses: impl Read + Send + 'static, host: Box<dyn Host>) -> Self {
         let (sender, receiver) = mpsc::channel();
         thread::spawn(move || read_responses(responses, &sender));
-        Self { requests, responses: receiver, host }
+        Self { requests, responses: receiver, host, handed: false }
+    }
+
+    /// A connection whose responses someone else reads and hands over line by line, without
+    /// their line endings: the helper's output ends when every sender of `responses` is gone.
+    #[must_use]
+    pub fn from_lines(
+        requests: Box<dyn Write + Send>,
+        responses: Receiver<io::Result<String>>,
+        host: Box<dyn Host>,
+    ) -> Self {
+        Self { requests, responses, host, handed: true }
     }
 
     /// Sends one request.
@@ -63,18 +100,23 @@ impl Connection {
         self.requests.flush()
     }
 
-    /// Waits for the next response; `None` once `cancel` says to stop waiting.
-    fn receive(&mut self, cancel: &dyn Fn() -> bool) -> io::Result<Option<Response>> {
+    /// Waits for the next response; `None` once the wait was given up.
+    fn receive(&mut self, wait: &dyn Wait) -> io::Result<Option<Response>> {
+        let block = if self.handed { Duration::ZERO } else { POLL };
         loop {
-            match self.responses.recv_timeout(POLL) {
+            match self.responses.recv_timeout(block) {
                 Ok(Ok(line)) => {
                     return Response::parse(&line)
                         .map(Some)
                         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, line));
                 }
                 Ok(Err(error)) => return Err(error),
-                Err(RecvTimeoutError::Timeout) if cancel() => return Ok(None),
-                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Timeout) => {
+                    let over = if self.handed { !wait.pause(POLL) } else { wait.given_up() };
+                    if over {
+                        return Ok(None);
+                    }
+                }
                 Err(RecvTimeoutError::Disconnected) => {
                     return Err(io::Error::new(io::ErrorKind::UnexpectedEof, self.host.last_words()));
                 }
@@ -181,28 +223,49 @@ impl Session {
         let mut connection = (self.start)().map_err(|error| StartFailure::Failed(error.to_string()))?;
         let deadline = Instant::now() + READY_WAIT;
         match connection.receive(&|| Instant::now() >= deadline) {
-            Ok(Some(Response::Ready(VERSION))) => {
+            Ok(Some(first)) => self.keep(connection, first),
+            Ok(None) => Err(StartFailure::Silent),
+            Err(error) => Err(StartFailure::Failed(error.to_string())),
+        }
+    }
+
+    /// Takes over a helper someone else started, whose first line was `first_line`: it is kept
+    /// when that line says it is ready, as [`Session::start`] would.
+    ///
+    /// # Errors
+    ///
+    /// Returns why the helper is not ready; then it is let go.
+    pub fn adopt(&self, connection: Connection, first_line: &str) -> Result<(), StartFailure> {
+        self.end();
+        match Response::parse(first_line) {
+            Some(first) => self.keep(connection, first),
+            None => Err(StartFailure::Failed(first_line.to_owned())),
+        }
+    }
+
+    /// Keeps `connection` when its helper's first response says it is ready.
+    fn keep(&self, connection: Connection, first: Response) -> Result<(), StartFailure> {
+        match first {
+            Response::Ready(VERSION) => {
                 *self.lock() = Some(connection);
                 Ok(())
             }
-            Ok(Some(Response::Refused(refusal))) => Err(StartFailure::Refused(refusal)),
-            Ok(Some(other)) => Err(StartFailure::Failed(other.to_string())),
-            Ok(None) => Err(StartFailure::Silent),
-            Err(error) => Err(StartFailure::Failed(error.to_string())),
+            Response::Refused(refusal) => Err(StartFailure::Refused(refusal)),
+            other => Err(StartFailure::Failed(other.to_string())),
         }
     }
 
     /// Sends `request` to run on a `size` pseudo-terminal and hands every line of its output to
     /// `on_line` until it ends. Blocks; runs in the background.
     ///
-    /// When `cancel` says to stop, the helper is let go: it runs pacman to its end, since stopping
+    /// When `wait` is given up, the helper is let go: it runs pacman to its end, since stopping
     /// pacman halfway can break its database, then exits. A helper that is gone or answers
     /// something else is let go as well.
     pub fn run(
         &self,
         request: &Request,
         (cols, rows): (u16, u16),
-        cancel: &dyn Fn() -> bool,
+        wait: &dyn Wait,
         on_line: &mut dyn FnMut(String),
     ) -> Outcome {
         // Taken out for the whole run, so the screen never waits on the lock while pacman works.
@@ -213,7 +276,7 @@ impl Session {
             return Outcome::Lost(error.to_string());
         }
         loop {
-            let ended = match connection.receive(cancel) {
+            let ended = match connection.receive(wait) {
                 Ok(Some(Response::Line(text))) => {
                     on_line(text);
                     continue;
@@ -275,11 +338,8 @@ impl Drop for Sudo {
 /// Returns the error of a program that could not be started.
 pub fn sudo() -> io::Result<Connection> {
     let exe = std::env::current_exe()?;
-    let locale = ["LC_ALL", "LC_MESSAGES", "LANG"]
-        .into_iter()
-        .find_map(|key| std::env::var(key).ok().filter(|value| !value.is_empty()));
     let mut child = Command::new(SUDO)
-        .args(start_args(&exe, locale.as_deref()))
+        .args(start_args(&exe, locale().as_deref()))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -295,6 +355,15 @@ pub fn sudo() -> io::Result<Connection> {
         String::from_utf8_lossy(&bytes).into_owned()
     });
     Ok(Connection::new(Box::new(stdin), stdout, Box::new(Sudo { child: Some(child), stderr: Some(stderr) })))
+}
+
+/// The language the user reads messages in, handed to the helper so pacman's shown output is in
+/// it: sudo and pkexec both give the helper a bare environment.
+#[must_use]
+pub fn locale() -> Option<String> {
+    ["LC_ALL", "LC_MESSAGES", "LANG"]
+        .into_iter()
+        .find_map(|key| std::env::var(key).ok().filter(|value| !value.is_empty()))
 }
 
 /// A helper that runs the root side's loop on a thread, with the recorded runner, for tests that
@@ -366,7 +435,10 @@ mod in_process {
             let (runner, uid, flag) = (Arc::clone(&self.runner), self.uid, Arc::clone(&ended));
             let thread = thread::spawn(move || {
                 let input = BufReader::new(request_reader);
-                let _ = root::answer(&[], Some(uid), input, response_writer, runner.as_ref());
+                // No request these helpers get writes a file; a root that does not exist makes
+                // sure one never could.
+                let nowhere = std::env::temp_dir().join("qpackages-in-process-helper-root");
+                let _ = root::answer(&[], Some(uid), &nowhere, input, response_writer, runner.as_ref());
                 flag.store(true, Ordering::SeqCst);
             });
             let input: Input = Arc::new(Mutex::new(Some(request_writer)));
@@ -432,6 +504,18 @@ mod tests {
     fn session(recorded: &Arc<Recorded>, uid: u32) -> (Session, Arc<InProcess>) {
         let launcher = InProcess::new(recorded, uid);
         (Session::new(launcher.start_fn()), launcher)
+    }
+
+    #[test]
+    fn a_changed_orphan_list_comes_back_as_a_refusal_and_the_helper_stays() {
+        let recorded = Arc::new(Recorded::default());
+        recorded.answer("/usr/bin/pacman", &["-Qtdq"], "libfoo\nlibbar\n", 0);
+        let (session, _launcher) = session(&recorded, 0);
+        assert_eq!(session.start(), Ok(()));
+        let request = Request::RemoveOrphans(vec!["libfoo".to_owned()]);
+        let outcome = session.run(&request, (80, 24), &|| false, &mut |_| {});
+        assert_eq!(outcome, Outcome::Refused(Refusal::Changed));
+        assert!(session.is_alive(), "a refusal leaves the helper ready for the next request");
     }
 
     #[test]

@@ -1,0 +1,26 @@
+Repository      : extra
+Name            : obs-studio
+Version         : 32.2.2-1
+Description     : Free, open source software for live streaming and recording
+Architecture    : x86_64
+URL             : https://obsproject.com
+Licenses        : GPL-2.0-only
+Groups          : None
+Provides        : None
+Depends On      : ffmpeg  jansson  libxinerama  libxkbcommon-x11  mbedtls3  rnnoise  pciutils  qt6-svg  curl  jack  gtk-update-icon-cache  pipewire  libxcomposite  libdatachannel  uthash  simde  qrcodegencpp-cmake  python  luajit
+Optional Deps   : libfdk-aac: FDK AAC codec support
+                  libva-intel-driver: hardware encoding for older Intel GPUs
+                  intel-media-driver: hardware encoding for recent Intel GPUs
+                  libva-mesa-driver: hardware encoding
+                  sndio: Sndio input client
+                  v4l2loopback-dkms: virtual camera support
+                  xdg-desktop-portal-impl: Wayland window/screen capture
+                  obs-studio-plugin-browser: CEF-based browser plugin
+Conflicts With  : None
+Replaces        : None
+Download Size   : 6.69 MiB
+Installed Size  : 24.71 MiB
+Packager        : Example Packager <packager@example.org>
+Build Date      : Sat Aug 15 03:15:39 2026
+Validated By    : SHA-256 Sum  Signature
+

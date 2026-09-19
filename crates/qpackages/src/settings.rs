@@ -33,20 +33,36 @@ const LEGACY: &str = "quvyta-packages";
 /// The key choosing which AUR helper drives the AUR when both are installed.
 const AUR_HELPER: &str = "aur.helper";
 
-/// The settings file's keys and what they accept.
-///
-/// `sources.<name>` turns a source on or off in the sidebar, all on by default. `aur.helper`
-/// is `auto`, `paru` or `yay`; `auto` takes paru when it is there.
-#[must_use]
-pub fn schema() -> Schema {
-    sources::ALL.iter().fold(Schema::builtin(), |schema, source| schema.flag(&source_key(*source), true)).choice(
-        AUR_HELPER,
-        ["auto", "paru", "yay"],
-        "auto",
-    )
+/// The key choosing which program asks for administrator permission.
+const PRIVILEGE_TOOL: &str = "privilege.tool";
+
+/// Which program asks for administrator permission before the root helper starts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrivilegeTool {
+    /// pkexec when polkit is installed, sudo otherwise.
+    Auto,
+    /// Always pkexec: polkit asks, in a desktop window or on the terminal.
+    Pkexec,
+    /// Always sudo, on the terminal.
+    Sudo,
 }
 
-/// Whether the user keeps `source` in the sidebar.
+/// The settings file's keys and what they accept.
+///
+/// `sources.<name>` turns a source on or off, all on by default. `aur.helper`
+/// is `auto`, `paru` or `yay`; `auto` takes paru when it is there. `privilege.tool` is `auto`,
+/// `pkexec` or `sudo`; `auto` takes pkexec when it is there.
+#[must_use]
+pub fn schema() -> Schema {
+    let schema = sources::ALL
+        .iter()
+        .fold(Schema::builtin(), |schema, source| schema.flag(&source_key(*source), true))
+        .choice(AUR_HELPER, ["auto", "paru", "yay"], "auto")
+        .choice(PRIVILEGE_TOOL, ["auto", "pkexec", "sudo"], "auto");
+    crate::backend_settings::declare(schema)
+}
+
+/// Whether the user keeps `source` turned on.
 #[must_use]
 pub fn source_enabled(settings: &Settings, source: Source) -> bool {
     settings.get_or(&source_key(source), true)
@@ -60,6 +76,50 @@ pub fn aur_preference(settings: &Settings) -> AurPreference {
         Some("yay") => AurPreference::Yay,
         _ => AurPreference::Auto,
     }
+}
+
+/// Which program the user wants to ask for administrator permission.
+#[must_use]
+pub fn privilege_tool(settings: &Settings) -> PrivilegeTool {
+    match settings.get::<String>(PRIVILEGE_TOOL).as_deref() {
+        Some("pkexec") => PrivilegeTool::Pkexec,
+        Some("sudo") => PrivilegeTool::Sudo,
+        _ => PrivilegeTool::Auto,
+    }
+}
+
+/// The AUR helper choices in the order the settings page offers them, each with the value the
+/// file keeps.
+pub const AUR_HELPERS: [(AurPreference, &str); 3] =
+    [(AurPreference::Auto, "auto"), (AurPreference::Paru, "paru"), (AurPreference::Yay, "yay")];
+
+/// The permission programs in the order the settings page offers them, each with the value the
+/// file keeps.
+pub const PRIVILEGE_TOOLS: [(PrivilegeTool, &str); 3] =
+    [(PrivilegeTool::Auto, "auto"), (PrivilegeTool::Pkexec, "pkexec"), (PrivilegeTool::Sudo, "sudo")];
+
+/// Turns `source` on or off and says whether that changed anything. Only the value changes;
+/// saving is the caller's, so a change made on the settings page is written once, in the
+/// background.
+pub fn set_source_enabled(settings: &mut Settings, source: Source, enabled: bool) -> bool {
+    settings.set(&source_key(source), enabled)
+}
+
+/// Chooses the AUR helper to prefer and says whether that changed anything.
+pub fn set_aur_preference(settings: &mut Settings, preference: AurPreference) -> bool {
+    AUR_HELPERS
+        .iter()
+        .find(|(choice, _)| *choice == preference)
+        .is_some_and(|(_, value)| settings.set(AUR_HELPER, (*value).to_owned()))
+}
+
+/// Chooses the program that asks for administrator permission and says whether that changed
+/// anything.
+pub fn set_privilege_tool(settings: &mut Settings, tool: PrivilegeTool) -> bool {
+    PRIVILEGE_TOOLS
+        .iter()
+        .find(|(choice, _)| *choice == tool)
+        .is_some_and(|(_, value)| settings.set(PRIVILEGE_TOOL, (*value).to_owned()))
 }
 
 /// Brings the settings over from the folder earlier releases used and reads them from the
@@ -213,6 +273,28 @@ mod tests {
             assert!(source_enabled(&settings, source), "{source:?}");
         }
         assert_eq!(aur_preference(&settings), AurPreference::Auto);
+        assert_eq!(privilege_tool(&settings), PrivilegeTool::Auto);
+    }
+
+    #[test]
+    fn the_file_picks_the_program_that_asks_for_permission() {
+        for (value, tool) in
+            [("auto", PrivilegeTool::Auto), ("pkexec", PrivilegeTool::Pkexec), ("sudo", PrivilegeTool::Sudo)]
+        {
+            let text = format!("[privilege]\ntool = \"{value}\"\n");
+            let settings = Settings::parse_str("settings.toml", &text).schema(schema());
+            assert_eq!(settings.diagnostics(), &[], "{value}");
+            assert_eq!(privilege_tool(&settings), tool, "{value}");
+        }
+    }
+
+    #[test]
+    fn healing_replaces_a_permission_program_nobody_knows() {
+        let text = "[privilege]\ntool = \"doas\"\n";
+        let settings = Settings::parse_str("settings.toml", text).schema(schema()).self_heal(true);
+        assert_eq!(privilege_tool(&settings), PrivilegeTool::Auto);
+        assert_eq!(settings.diagnostics().len(), 1, "the repair is reported: {:?}", settings.diagnostics());
+        assert!(settings.diagnostics()[0].to_string().contains("doas"), "{}", settings.diagnostics()[0]);
     }
 
     #[test]
@@ -223,6 +305,23 @@ mod tests {
         assert!(!source_enabled(&settings, Source::Snap));
         assert!(source_enabled(&settings, Source::Pacman));
         assert_eq!(aur_preference(&settings), AurPreference::Yay);
+    }
+
+    #[test]
+    fn what_the_settings_page_sets_reads_back_and_is_written_as_the_file_expects() {
+        let mut settings = Settings::parse_str("settings.toml", "").schema(schema());
+        assert!(set_source_enabled(&mut settings, Source::Flatpak, false));
+        assert!(set_aur_preference(&mut settings, AurPreference::Yay));
+        assert!(set_privilege_tool(&mut settings, PrivilegeTool::Sudo));
+        assert!(!set_privilege_tool(&mut settings, PrivilegeTool::Sudo), "the same value changes nothing");
+        assert!(!source_enabled(&settings, Source::Flatpak));
+        assert_eq!(aur_preference(&settings), AurPreference::Yay);
+        assert_eq!(privilege_tool(&settings), PrivilegeTool::Sudo);
+        let reread = Settings::parse_str("settings.toml", &settings.to_toml()).schema(schema());
+        assert_eq!(reread.diagnostics(), &[], "{}", settings.to_toml());
+        assert!(!source_enabled(&reread, Source::Flatpak));
+        assert_eq!(aur_preference(&reread), AurPreference::Yay);
+        assert_eq!(privilege_tool(&reread), PrivilegeTool::Sudo);
     }
 
     #[test]

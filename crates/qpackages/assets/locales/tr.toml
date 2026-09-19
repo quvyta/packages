@@ -6,12 +6,17 @@ fallback = "en"
 [keys]
 search = "ara"
 remove = "kaldır"
+settings = "ayarlar"
+tab-next = "sonraki sekme"
+tab-prev = "önceki sekme"
+tab-1 = "ilk sekme"
+tab-2 = "ikinci sekme"
+tab-3 = "üçüncü sekme"
+back = "geri"
+install-checked = "işaretlileri kur"
 
 [hints]
 check = "işaretle"
-
-[search]
-placeholder = "Paket ara"
 
 [root]
 warning = "root olarak çalışıyor"
@@ -22,16 +27,10 @@ aur = "AUR"
 flatpak = "Flatpak"
 snap = "Snap"
 missing = "kurulu değil"
-missing-title = "{name} kurulu değil"
 missing-message = "Bu kaynağın paketleri, {package} bu makineye kurulunca görünür."
 missing-later = "Snap'in paketi AUR'dan geliyor; AUR sonraki bir sürümde yönetilecek."
 install = "{package} kur"
 not-as-root = "root ile olmaz"
-root-title = "{name} root olarak kullanılamaz"
-root-message = "Paketler sıradan bir kullanıcı olarak derlenir; root olarak derlemek reddedilir. qpac'ı sudo olmadan başlat."
-waiting-title = "{name} sonraki bir sürümde geliyor"
-waiting-message = "Bu sürüm yalnızca pacman paketlerini yönetiyor."
-detecting = "{name} aranıyor"
 
 [packages]
 name = "Ad"
@@ -75,6 +74,11 @@ authorizing = "qpac yönetici izni istiyor. Parolanı sudo soracak; qpac parolan
 not-authorized = "İzin verilmedi"
 not-authorized-body = "Hiçbir şey değişmedi."
 not-authorized-reason = "{reason} Hiçbir şey değişmedi."
+polkit-asks-install = { one = "qpac yönetici izni istiyor: {n} paket kurulacak.", other = "qpac yönetici izni istiyor: {n} paket kurulacak." }
+polkit-asks-remove = { one = "qpac yönetici izni istiyor: {n} paket kaldırılacak.", other = "qpac yönetici izni istiyor: {n} paket kaldırılacak." }
+polkit-password = "Parolanı polkit soracak; qpac parolanı görmez ve saklamaz."
+polkit-lasts = "İzin qpac kapanana kadar geçerli."
+helper-failed = "Yönetici yardımcısı başlatılamadı"
 plan-failed = "pacman bunu planlayamadı"
 running-install = "{names} kuruluyor"
 running-remove = "{names} kaldırılıyor"
@@ -104,6 +108,9 @@ refused.unknown = "Yardımcı bu isteği tanımıyor."
 refused.values = "İstekte yardımcının kabul etmediği değerler vardı."
 refused.name = "Bir paket adı pacman'ın ad kuralına uymuyor."
 refused.start = "pacman başlatılamadı."
+refused.changed = "Sahipsiz paketlerin listesi bu arada değişti, hiçbir şey kaldırılmadı. Yeni listeye bir göz at."
+refused.no-mirrors = "reflector bu seçimlerle hiç ayna bulamadı; ayna listesi olduğu gibi bırakıldı."
+refused.file = "Bir dosya yazılamadı; hiçbir şey değiştirilmedi."
 
 [lock]
 title = "Paket veritabanı kilitli"
@@ -114,3 +121,181 @@ owner-unknown = "Kilit bu hesabın göremediği bir süreçte"
 since = "{time} tarihinden beri"
 message = "pacman bir işlem sürerken veritabanını kilitler. Bitmesini bekle. Kilit buradan asla kaldırılmaz: yarıda kalan bir pacman, veritabanını ikinci bir yazıcının bozacağı bir durumda bırakmış olabilir."
 close = "Kapat"
+
+[tabs]
+discover = "Keşfet"
+installed = "Kurulu"
+updates = "Güncellemeler"
+settings-tip = "Ayarlar"
+
+[installed]
+search = "Kurulu paketlerde ara ya da kaynak:aur"
+apps = "Uygulamalar"
+all = "Bütün paketler"
+source = "Kaynak"
+origin-repo = "Depo"
+origin-aur = "AUR"
+no-apps = "Kurulu uygulamaların hiçbirinin başlatıcısı yok; Bütün paketler hepsini gösterir"
+count-apps = { one = "{n} uygulama", other = "{n} uygulama" }
+count-packages = { one = "{n} paket", other = "{n} paket" }
+count-matching = { one = "{n} eşleşme", other = "{n} eşleşme" }
+remove-checked = "Seçilenleri kaldır"
+back = "Geri"
+
+[updates]
+check-now = "Şimdi kontrol et"
+checking = "Güncellemelere bakılıyor"
+checking-message = "Depolara pacman veritabanının özel bir kopyasıyla sorulur; sistemde hiçbir şey değişmez."
+checking-short = "kontrol ediliyor"
+up-to-date = "Her şey güncel"
+last-checked = "Son kontrol {time}."
+last-checked-short = "son kontrol {time}"
+count = { one = "{n} güncelleme", other = "{n} güncelleme" }
+none = "Güncelleme yok"
+repo = "Depolar"
+restart = "yeniden başlatma gerekecek"
+held-back = "IgnorePkg ile tutuluyor"
+failed = "Güncellemelere bakılamadı"
+stale = "Son kontrol bitmedi: {reason}"
+aur-failed = "AUR'a sorulamadı: {reason}"
+no-place = "pacman veritabanının kopyasını koyacak bir önbellek klasörü yok."
+no-fakeroot = "Kontrol için fakeroot gerekiyor ama kurulu değil; base-devel ile gelir."
+no-reason = "Program nedenini söylemeden bitti."
+
+[settings-page]
+title = "Ayarlar"
+back = "Geri"
+not-saved = "Ayarlar kaydedilemedi"
+sources = "Kaynaklar"
+installed = "kurulu"
+looking = "aranıyor"
+through = "{helper} ile"
+aur-helper = "AUR yardımcısı"
+aur-helper-text = "İkisi de kuruluysa kullanılır."
+helper-auto = "Otomatik"
+helper-paru = "paru"
+helper-yay = "yay"
+privilege = "Yetki"
+tool = "Soran"
+tool-auto = "Otomatik"
+tool-pkexec = "polkit (pkexec)"
+tool-sudo = "sudo"
+tool-uses-pkexec = "polkit sorar; bir pencerede ya da terminalde."
+tool-uses-sudo = "sudo terminalde sorar."
+appearance = "Görünüm"
+language = "Dil"
+theme = "Tema"
+icons = "İkonlar"
+icons-auto = "Algıla"
+icons-nerd = "Nerd Font"
+icons-unicode = "Unicode"
+icons-ascii = "ASCII"
+reduce-motion = "Hareketi azalt"
+reduce-motion-text = "Katmanlar anında açılır; hiçbir şey nefes almaz, dönmez."
+forced-on = "Kabuk azalttı (QUVYTA_REDUCED_MOTION); ayar buradan değiştiremez."
+forced-off = "Kabuk korudu (QUVYTA_REDUCED_MOTION); ayar buradan değiştiremez."
+pillar = "Vurgu çubuğu"
+pillar-thick = "Kalın"
+pillar-thin = "İnce"
+[review]
+disclaimer = "Bu kontrol bilinen tehlikeli kalıpları arar. Temiz çıkması paketin güvenli olduğu anlamına gelmez."
+rule.network-in-build = "Derlenirken sağlama toplamı olmadan kod indiriyor."
+rule.runs-hidden-code = "İndirilmiş ya da gizlenmiş bir kodu çalıştırıyor."
+rule.asks-privilege = "Yönetici yetkisi istiyor; bir tarifin buna hiç ihtiyacı olmaz."
+rule.install-script = "Kurulum betiği yönetici olarak ağa çıkıyor ya da bir servisi açıyor."
+rule.plain-http = "Bir kaynağı şifresiz http ile indiriyor."
+rule.skipped-checksum = "İndirilen bir kaynağın sağlama toplamı atlanmış."
+rule.new-domain = "Son onayından beri indirmediği {host} adresinden indiriyor."
+rule.new-maintainer = "Son onayından beri paketin bakımcısı değişmiş."
+rule.writes-outside = "package() dışında ev klasörüne ya da /etc'ye yazıyor."
+
+[check]
+recent = "Güncellemelere bir saatten kısa süre önce bakıldı; o zamana kadar aynalar rahat bırakılıyor."
+locked = "pacman veritabanını değiştiriyor; kontrol bir sonraki sırasını bekliyor."
+done = "Bekleyen güncellemeler: depolardan {pacman}, AUR'dan {aur}."
+failed = "Güncelleme kontrolü bitmedi: {reason}"
+no-home = "Güncelleme kontrolünün bulduklarını saklayacak bir ev klasörüne ihtiyacı var."
+
+[store]
+back = "Geri"
+
+[store.kind]
+label = "Tür"
+all = "Tümü"
+internet = "İnternet"
+audio-video = "Ses ve video"
+graphics = "Grafik"
+office = "Ofis"
+game = "Oyun"
+development = "Geliştirme"
+system = "Sistem"
+utility = "Yardımcılar"
+fonts = "Yazı tipleri"
+other = "Diğer"
+
+[store.source]
+pacman = "Depo"
+aur = "AUR"
+flatpak = "Flatpak"
+snap = "Snap"
+
+[store.sources]
+title = "Kaynaklar"
+install = "Kur"
+
+[store.card]
+installed = "Kurulu"
+votes = { one = "{count} oy", other = "{count} oy" }
+
+[store.home]
+popular = "Popüler uygulamalar"
+aur = "AUR'da popüler"
+kind-popular = "{kind}: popüler"
+kind-aur = "{kind}: AUR'da popüler"
+see-all = "Tümünü gör ›"
+empty-kind = "Bu türden henüz bir şey yok. Uygulama kataloğu her türü listeler."
+
+[store.catalog]
+missing = "Türler ve açıklamalar için uygulama kataloğu gerekiyor."
+install = "Kur"
+
+[store.search]
+placeholder = "Uygulama ya da paket ara"
+count = { one = "“{query}” için {n} sonuç", other = "“{query}” için {n} sonuç" }
+none-title = "“{query}” için bir şey bulunamadı"
+none-message = "Yazımı kontrol et ya da başka bir sözcük dene."
+more = "{n} sonucun ilk {shown} tanesi gösteriliyor. Daraltmak için biraz daha yaz."
+searching = "Aranıyor: {sources}"
+too-many = "{source} çok fazla paket buldu. Daraltmak için biraz daha yaz."
+unreachable = "{source} kaynağına ulaşılamadı."
+unreadable = "{source} okunamayan bir cevap verdi."
+retry = "Tekrar dene"
+
+[store.sort]
+label = "Sırala"
+relevance = "İlgi"
+name = "Ad"
+popularity = "Popülerlik"
+
+[store.app]
+source = "Kaynak"
+install = "Kur"
+remove = "Kaldır"
+reading = "Ayrıntılar okunuyor"
+unreachable = "Ayrıntılar için {source} kaynağına ulaşılamadı."
+out-of-date = "{date} tarihinden beri güncel değil olarak işaretli"
+version = "Sürüm"
+license = "Lisans"
+download = "İndirilecek"
+on-disk = "Diskte"
+repository = "Depo"
+website = "Web sitesi"
+depends = "Bağımlılıklar"
+depends-none = "yok"
+depends-more = { one = "{names} ve {n} tane daha", other = "{names} ve {n} tane daha" }
+votes = "Oy"
+popularity = "Popülerlik"
+maintainer = "Bakımcı"
+orphaned = "yok, sahipsiz"
+updated = "Son güncelleme"
+flatpak-id = "Flatpak kimliği"

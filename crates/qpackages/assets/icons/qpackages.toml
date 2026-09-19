@@ -1,0 +1,30 @@
+# The application's own icons: one per kind of software and one per source, for packages the
+# glyph table in packages.toml does not name. Every icon has all three glyphs, so a package
+# always has an icon, whatever the terminal can draw.
+
+[meta]
+name = "qpackages"
+
+[icons]
+# nf-md-web, nf-md-play_circle, nf-md-palette, nf-md-file_document, nf-md-gamepad_variant
+"category.internet" = { nerd = "\U000F059F", unicode = "◎", ascii = "@" }
+"category.audio-video" = { nerd = "\U000F040C", unicode = "▶", ascii = ">" }
+"category.graphics" = { nerd = "\U000F03D8", unicode = "◈", ascii = "%" }
+"category.office" = { nerd = "\U000F0219", unicode = "▤", ascii = "=" }
+"category.game" = { nerd = "\U000F0297", unicode = "◆", ascii = "&" }
+# nf-md-code_braces, nf-md-cog, nf-md-tools, nf-md-format_font, nf-md-package_variant
+"category.development" = { nerd = "\U000F0169", unicode = "λ", ascii = "$" }
+"category.system" = { nerd = "\U000F0493", unicode = "⚙", ascii = "*" }
+"category.utility" = { nerd = "\U000F1064", unicode = "✦", ascii = "+" }
+"category.fonts" = { nerd = "\U000F06D6", unicode = "A", ascii = "A" }
+"category.library" = { nerd = "\U000F03D6", unicode = "▣", ascii = "#" }
+# nf-md-package
+"category.unknown" = { nerd = "\U000F03D3", unicode = "◉", ascii = "o" }
+
+# A package no kind placed shows where it came from. The official repositories draw the same
+# plain package as an unknown kind: that is all such a package is known to be.
+# nf-md-package, nf-md-account_group, nf-linux-flathub, nf-linux-snappy
+"source.pacman" = { nerd = "\U000F03D3", unicode = "◉", ascii = "o" }
+"source.aur" = { nerd = "\U000F0849", unicode = "◇", ascii = "a" }
+"source.flatpak" = { nerd = "", unicode = "◫", ascii = "f" }
+"source.snap" = { nerd = "", unicode = "◍", ascii = "s" }

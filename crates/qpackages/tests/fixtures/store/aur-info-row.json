@@ -1,0 +1,88 @@
+{
+ "resultcount": 3,
+ "type": "multiinfo",
+ "version": 5,
+ "results": [
+  {
+   "Name": "visual-studio-code-bin",
+   "PackageBase": "visual-studio-code-bin",
+   "Version": "1.104.0-1",
+   "Description": "Visual Studio Code: editor for building and debugging modern applications",
+   "NumVotes": 1708,
+   "Popularity": 11.5,
+   "Maintainer": "maintainer-1",
+   "OutOfDate": null,
+   "LastModified": 1757000000,
+   "URL": "https://code.visualstudio.com",
+   "Depends": [
+    "libxkbfile",
+    "gnupg",
+    "gtk3",
+    "libsecret",
+    "nss",
+    "gcc-libs",
+    "libnotify",
+    "libxss",
+    "glibc",
+    "lsof",
+    "shared-mime-info",
+    "xdg-utils",
+    "alsa-lib"
+   ],
+   "License": [
+    "custom: commercial"
+   ]
+  },
+  {
+   "Name": "google-chrome",
+   "PackageBase": "google-chrome",
+   "Version": "140.0.7339.80-1",
+   "Description": "The popular web browser by Google (Stable Channel)",
+   "NumVotes": 2150,
+   "Popularity": 14.2,
+   "Maintainer": "maintainer-2",
+   "OutOfDate": null,
+   "LastModified": 1757000000,
+   "URL": "https://www.google.com/chrome",
+   "Depends": [
+    "alsa-lib",
+    "gtk3",
+    "libcups",
+    "libxss",
+    "libxtst",
+    "nss",
+    "ttf-liberation",
+    "xdg-utils"
+   ],
+   "License": [
+    "custom:chrome"
+   ]
+  },
+  {
+   "Name": "spotify",
+   "PackageBase": "spotify",
+   "Version": "1:1.2.70.409-1",
+   "Description": "A proprietary music streaming service",
+   "NumVotes": 1050,
+   "Popularity": 6.1,
+   "Maintainer": null,
+   "OutOfDate": 1757500000,
+   "LastModified": 1757000000,
+   "URL": "https://www.spotify.com",
+   "Depends": [
+    "alsa-lib",
+    "gtk3",
+    "libxss",
+    "desktop-file-utils",
+    "openssl",
+    "nss",
+    "at-spi2-atk",
+    "libcurl-gnutls",
+    "libsm"
+   ],
+   "License": [
+    "custom"
+   ]
+  }
+ ]
+}

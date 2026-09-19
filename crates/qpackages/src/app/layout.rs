@@ -4,21 +4,11 @@
 
 use qframe::prelude::Size;
 
-/// Columns the sidebar takes.
-pub const SIDEBAR: u16 = 28;
-
-/// Screens narrower than this hide the sidebar to give the packages room.
-pub const COLLAPSE: u16 = 90;
-
-/// The narrowest the table and the detail panel get before one gives way to the other.
-pub const MIN_TABLE: u16 = 24;
-pub const MIN_DETAIL: u16 = 24;
-
-/// The fewest rows the packages keep above the output pane, and the pane keeps below them.
+/// The fewest rows the page keeps above the output pane, and the pane keeps below them.
 pub const MIN_PACKAGES: u16 = 4;
 pub const MIN_OUTPUT: u16 = 4;
 
-/// Rows the shell's header and footer take around the body: the search line and the key hints.
+/// Rows the shell's header and footer take around the body: the tabs and the key hints.
 const FRAME_ROWS: u16 = 2;
 
 /// The row the splitter's handle takes between the packages and the output pane.
@@ -56,7 +46,8 @@ pub struct OutputLayout {
 #[must_use]
 pub fn output_layout(size: Size, output_height: u16) -> OutputLayout {
     let body_rows = size.height.saturating_sub(FRAME_ROWS);
-    let body_width = if size.width < COLLAPSE { size.width } else { size.width.saturating_sub(SIDEBAR) };
+    // The body is as wide as the screen: there is no sidebar beside it.
+    let body_width = size.width;
     let widest = body_rows.saturating_sub(MIN_OUTPUT + HANDLE).max(MIN_PACKAGES);
     let wanted = body_rows.saturating_sub(output_height + HANDLE);
     // The splitter itself keeps its handle and one cell of the pane whatever the limits say.
@@ -85,15 +76,15 @@ mod tests {
         assert_eq!(layout.body_rows, 28);
         assert_eq!(layout.packages, 17, "28 body rows less 10 for the pane and 1 for the handle");
         assert_eq!(layout.pane_rows_for(layout.packages), 10);
-        assert_eq!(layout.pty, (79, 9), "92 body columns less the pane's chrome, 10 rows less the heading");
-        assert_eq!(output_layout(Size::new(60, 20), 10).pty, (47, 9), "a collapsed sidebar gives the pane the width");
+        assert_eq!(layout.pty, (107, 9), "120 body columns less the pane's chrome, 10 rows less the heading");
+        assert_eq!(output_layout(Size::new(60, 20), 10).pty, (47, 9));
     }
 
     #[test]
     fn a_pane_dragged_too_far_leaves_the_packages_their_minimum() {
         let layout = output_layout(Size::new(120, 30), 100);
         assert_eq!(layout.packages, MIN_PACKAGES);
-        assert_eq!(layout.pty, (79, 22));
+        assert_eq!(layout.pty, (107, 22));
         let layout = output_layout(Size::new(120, 30), 0);
         assert_eq!(layout.packages, layout.widest);
         assert_eq!(layout.pty.1, MIN_OUTPUT.saturating_sub(PANE_HEADING).max(MIN_PTY.1));

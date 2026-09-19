@@ -4,8 +4,9 @@
 //! Flatpak keeps one per remote (`/var/lib/flatpak/appstream/<remote>/<arch>/active/`). Both are
 //! a `<components>` root holding one `<component>` per application, font or add-on. Only what the
 //! store shows is kept: names and summaries in the default language and in Turkish, categories,
-//! keywords, an icon name, the licence and the home page. Descriptions, screenshots and releases
-//! are skipped; a catalog of 1,600 components is 29 MB of text, most of it those.
+//! keywords, an icon name, the licence, the home page and the description's text. Screenshots,
+//! releases and the description's markup are skipped; a catalog of 1,600 components is 29 MB of
+//! text, most of it those.
 //!
 //! Each component is read on its own. A component that is not well-formed, or lacks an id or a
 //! name, is skipped and reported with its position; the ones around it are unaffected.
@@ -123,6 +124,9 @@ pub struct Component {
     pub license: Option<String>,
     /// The project's home page.
     pub homepage: Option<String>,
+    /// The long description as plain text: one line per paragraph or list item, markup and
+    /// wrapping removed.
+    pub description: Option<Localized>,
 }
 
 /// Reads a whole AppStream collection file.
@@ -213,6 +217,8 @@ enum Field {
     Homepage,
     Category,
     Keyword(Lang),
+    /// A paragraph or a list item of the description.
+    Description(Lang),
 }
 
 /// What a component has gathered so far.
@@ -231,6 +237,8 @@ struct Draft {
     icon: Option<Icon>,
     license: Option<String>,
     homepage: Option<String>,
+    description: Vec<String>,
+    description_turkish: Vec<String>,
 }
 
 impl Draft {
@@ -258,7 +266,12 @@ impl Draft {
             Field::Category => return self.categories.push(text),
             Field::Keyword(Lang::Default) => return self.keywords.push(text),
             Field::Keyword(Lang::Turkish) => return self.keywords_turkish.push(text),
-            Field::Name(Lang::Other) | Field::Summary(Lang::Other) | Field::Keyword(Lang::Other) => return,
+            Field::Description(Lang::Default) => return self.description.push(text),
+            Field::Description(Lang::Turkish) => return self.description_turkish.push(text),
+            Field::Name(Lang::Other)
+            | Field::Summary(Lang::Other)
+            | Field::Keyword(Lang::Other)
+            | Field::Description(Lang::Other) => return,
         };
         slot.get_or_insert(text);
     }
@@ -272,6 +285,12 @@ impl Draft {
         let Some(name) = self.name else {
             return Err(format!("component `{id}` has no <name> and is skipped"));
         };
+        // A translation that is not whole would mix languages in one text; it is left out.
+        let description = (!self.description.is_empty()).then(|| Localized {
+            turkish: (self.description_turkish.len() == self.description.len())
+                .then(|| self.description_turkish.join("\n")),
+            default: self.description.join("\n"),
+        });
         Ok(Component {
             id,
             kind: self.kind.unwrap_or_else(|| Kind::Other(String::from("generic"))),
@@ -284,6 +303,7 @@ impl Draft {
             icon: self.icon,
             license: self.license,
             homepage: self.homepage,
+            description,
         })
     }
 }
@@ -293,9 +313,12 @@ fn read_component(text: &str) -> Result<Component, Failure> {
     let mut reader = Reader::from_str(text);
     let mut draft = Draft::default();
     let mut depth = 0_usize;
-    // The field being collected and its text so far, and the `<keywords>` list's language.
-    let mut capture: Option<(Field, String)> = None;
+    // The field being collected, its text so far and the depth of its element: markup inside it,
+    // such as `<em>` in a paragraph, adds its text and does not end it.
+    let mut capture: Option<(Field, String, usize)> = None;
+    // The languages of the `<keywords>` list and of the `<description>` being read.
     let mut keywords: Option<Lang> = None;
+    let mut description: Option<Lang> = None;
     let mut in_categories = false;
     let fail = |reader: &Reader<&[u8]>, draft: &Draft, message: String| {
         let named = draft.id.as_ref().map_or_else(String::new, |id| format!(" `{id}`"));
@@ -347,7 +370,18 @@ fn read_component(text: &str) -> Result<Component, Failure> {
                         keywords = Some(lang().map_err(|message| fail(&reader, &draft, message))?);
                         None
                     }
+                    (2, "description") => {
+                        description = Some(lang().map_err(|message| fail(&reader, &draft, message))?);
+                        None
+                    }
                     (3, "category") if in_categories => Some(Field::Category),
+                    (3, "p") | (4, "li") if capture.is_none() => description.map(|whole| {
+                        // Catalogs translate paragraph by paragraph, each with its own language.
+                        match attribute(&tag, "xml:lang") {
+                            Ok(Some(own)) => Field::Description(Lang::from_attribute(Some(&own))),
+                            _ => Field::Description(whole),
+                        }
+                    }),
                     (3, "keyword") => keywords.map(|list| {
                         // A keyword may carry its own language instead of the list's.
                         match attribute(&tag, "xml:lang") {
@@ -358,24 +392,24 @@ fn read_component(text: &str) -> Result<Component, Failure> {
                     _ => None,
                 };
                 if let Some(field) = field {
-                    capture = Some((field, String::new()));
+                    capture = Some((field, String::new(), depth));
                 }
             }
             Event::Empty(tag) if depth == 0 && tag.local_name().as_ref() == "component" => {
                 return Err(fail(&reader, &draft, String::from("the component is empty")));
             }
             Event::Text(text) => {
-                if let Some((_, collected)) = capture.as_mut() {
+                if let Some((_, collected, _)) = capture.as_mut() {
                     collected.push_str(&text.xml10_content());
                 }
             }
             Event::CData(data) => {
-                if let Some((_, collected)) = capture.as_mut() {
+                if let Some((_, collected, _)) = capture.as_mut() {
                     collected.push_str(&data.xml10_content());
                 }
             }
             Event::GeneralRef(reference) => {
-                if let Some((_, collected)) = capture.as_mut() {
+                if let Some((_, collected, _)) = capture.as_mut() {
                     let written = format!("&{};", reference.xml10_content());
                     let resolved = unescape(&written).map_err(|error| fail(&reader, &draft, error.to_string()))?;
                     collected.push_str(&resolved);
@@ -385,9 +419,12 @@ fn read_component(text: &str) -> Result<Component, Failure> {
                 match (depth, tag.local_name().as_ref()) {
                     (2, "categories") => in_categories = false,
                     (2, "keywords") => keywords = None,
+                    (2, "description") => description = None,
                     _ => {}
                 }
-                if let Some((field, collected)) = capture.take() {
+                if capture.as_ref().is_some_and(|(_, _, at)| *at == depth)
+                    && let Some((field, collected, _)) = capture.take()
+                {
                     draft.take(field, normalize_space(&collected));
                 }
                 depth -= 1;
@@ -572,6 +609,36 @@ mod tests {
         let (catalog, problems) = parse(xml);
         assert!(problems.is_empty());
         assert_eq!(catalog.components[0].summary.as_ref().map(|summary| summary.default.as_str()), Some("one two"));
+    }
+
+    #[test]
+    fn the_description_is_read_as_plain_lines_with_its_translation() {
+        let xml = "<components><component type=\"desktop-application\"><id>a</id><name>A</name>\n\
+            <description>\n  <p>Streams and <em>records</em>\n  video.</p>\n  <p xml:lang=\"tr\">Yayın ve kayıt.</p>\n\
+            <ul><li>Scenes</li><li xml:lang=\"tr\">Sahneler</li></ul>\n</description>\n\
+            <summary>After the description</summary></component></components>";
+        let (catalog, problems) = parse(xml);
+        assert!(problems.is_empty(), "{problems:?}");
+        let component = &catalog.components[0];
+        let description = component.description.as_ref().expect("a description");
+        assert_eq!(description.default, "Streams and records video.\nScenes", "inline markup keeps its text");
+        assert_eq!(description.turkish.as_deref(), Some("Yayın ve kayıt.\nSahneler"));
+        assert_eq!(component.summary.as_ref().map(|summary| summary.default.as_str()), Some("After the description"));
+        assert_eq!(
+            find(&parse(ARCH).0, "org.kernel.software.network.ethtool")
+                .description
+                .as_ref()
+                .map(|d| d.turkish.is_none()),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn a_partial_translation_of_the_description_is_left_out() {
+        let xml = "<components><component><id>a</id><name>A</name><description><p>One</p><p>Two</p>\
+            <p xml:lang=\"tr\">Bir</p></description></component></components>";
+        let description = parse(xml).0.components[0].description.clone().expect("a description");
+        assert_eq!(description, Localized { default: String::from("One\nTwo"), turkish: None });
     }
 
     #[test]

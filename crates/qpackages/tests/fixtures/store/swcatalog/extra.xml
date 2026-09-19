@@ -1,0 +1,531 @@
+<?xml version="1.0" encoding="utf-8"?>
+<components version="1.0" origin="archlinux-arch-extra" time="2026-09-10T20:29:17Z">
+<component type="desktop-application">
+  <id>acme.desktop</id>
+  <name>Acme</name>
+  <summary>Editor from Plan 9</summary>
+  <pkgname>plan9port</pkgname>
+  <launchable type="desktop-id">acme.desktop</launchable>
+  <icon type="cached" width="64" height="64">plan9port_acme.jxl</icon>
+  <icon type="stock">acme</icon>
+  <categories>
+    <category>Development</category>
+    <category>TextEditor</category>
+  </categories>
+</component>
+<component type="desktop-application">
+  <id>adljack.desktop</id>
+  <name>ADLMIDI for Jack</name>
+  <name xml:lang="fr">ADLMIDI pour Jack</name>
+  <summary>OPL3/OPN2 synthesizer using ADLMIDI for Jack</summary>
+  <summary xml:lang="fr">Synthétiseur OPL3/OPN2 utilisant ADLMIDI pour Jack</summary>
+  <pkgname>adljack</pkgname>
+  <launchable type="desktop-id">adljack.desktop</launchable>
+  <icon type="cached" width="64" height="64">adljack_adljack.jxl</icon>
+  <icon type="stock">adljack</icon>
+  <categories>
+    <category>AudioVideo</category>
+    <category>Audio</category>
+    <category>Music</category>
+    <category>Midi</category>
+  </categories>
+</component>
+<component type="desktop-application">
+  <id>adlrt.desktop</id>
+  <name>ADLMIDI</name>
+  <summary>OPL3/OPN2 synthesizer using ADLMIDI</summary>
+  <summary xml:lang="fr">Synthétiseur OPL3/OPN2 utilisant ADLMIDI</summary>
+  <pkgname>adljack</pkgname>
+  <launchable type="desktop-id">adlrt.desktop</launchable>
+  <icon type="cached" width="64" height="64">adljack_adljack.jxl</icon>
+  <icon type="stock">adljack</icon>
+  <categories>
+    <category>AudioVideo</category>
+    <category>Audio</category>
+    <category>Music</category>
+    <category>Midi</category>
+  </categories>
+</component>
+<component type="addon">
+  <id>codeblocks-contrib</id>
+  <name>Code::Blocks Plugins</name>
+  <summary>Additional plugins for the Code::Blocks IDE</summary>
+  <extends>codeblocks.desktop</extends>
+  <pkgname>codeblocks</pkgname>
+  <url type="homepage">http://www.codeblocks.org/cbplugins</url>
+</component>
+<component type="desktop-application">
+  <id>code-oss.desktop</id>
+  <name>Code - OSS</name>
+  <summary>Visual Studio Code. Code editing. Redefined.</summary>
+  <project_license>MIT</project_license>
+  <pkgname>code</pkgname>
+  <launchable type="desktop-id">code-oss.desktop</launchable>
+  <icon type="cached" width="48" height="48">code_com.visualstudio.code.oss.jxl</icon>
+  <icon type="cached" width="64" height="64">code_com.visualstudio.code.oss.jxl</icon>
+  <icon type="cached" width="128" height="128">code_com.visualstudio.code.oss.jxl</icon>
+  <icon type="stock">com.visualstudio.code.oss</icon>
+  <url type="homepage">https://code.visualstudio.com</url>
+  <categories>
+    <category>TextEditor</category>
+    <category>Development</category>
+    <category>IDE</category>
+  </categories>
+  <keywords>
+    <keyword>vscode</keyword>
+  </keywords>
+</component>
+<component type="desktop-application">
+  <id>com.obsproject.Studio</id>
+  <name>OBS Studio</name>
+  <summary>Live stream and record videos</summary>
+  <description>
+    <p>Free software for live streaming and screen recording. It mixes scenes, sources and
+      transitions into one picture and streams it to the service of your choice.</p>
+    <p xml:lang="tr">Canlı yayın ve ekran kaydı için özgür yazılım. Sahneleri, kaynakları ve
+      geçişleri tek görüntüde birleştirir ve seçtiğin servise yayınlar.</p>
+  </description>
+  <project_license>GPL-2.0-or-later</project_license>
+  <developer id="com.obsproject">
+    <name>OBS Project</name>
+  </developer>
+  <developer_name>OBS Project</developer_name>
+  <pkgname>obs-studio</pkgname>
+  <launchable type="desktop-id">com.obsproject.Studio.desktop</launchable>
+  <icon type="cached" width="48" height="48">obs-studio_com.obsproject.Studio.jxl</icon>
+  <icon type="cached" width="64" height="64">obs-studio_com.obsproject.Studio.jxl</icon>
+  <icon type="cached" width="128" height="128">obs-studio_com.obsproject.Studio.jxl</icon>
+  <icon type="stock">com.obsproject.Studio</icon>
+  <url type="homepage">https://obsproject.com</url>
+  <categories>
+    <category>AudioVideo</category>
+    <category>Recorder</category>
+  </categories>
+</component>
+<component type="font">
+  <id>de.urwpp.D050000L</id>
+  <name>D050000L</name>
+  <summary>An alternative font for ITC Zapf Dingbats typeface</summary>
+  <project_license>AGPL-3.0</project_license>
+  <developer>
+    <name>URW++ Design and Development GmbH</name>
+  </developer>
+  <developer_name>URW++ Design and Development GmbH</developer_name>
+  <pkgname>gsfonts</pkgname>
+  <icon type="cached" width="48" height="48">gsfonts_d050000l-regular.jxl</icon>
+  <icon type="cached" width="48" height="48" scale="2">gsfonts_d050000l-regular.jxl</icon>
+  <icon type="cached" width="64" height="64">gsfonts_d050000l-regular.jxl</icon>
+  <icon type="cached" width="64" height="64" scale="2">gsfonts_d050000l-regular.jxl</icon>
+  <icon type="cached" width="128" height="128">gsfonts_d050000l-regular.jxl</icon>
+  <icon type="remote" width="128" height="128">de/urwpp/D050000L/b0f1f935334abe3b6f46b74feff276f6/icons/128x128/gsfonts_d050000l-regular.jxl</icon>
+  <icon type="cached" width="128" height="128" scale="2">gsfonts_d050000l-regular.jxl</icon>
+  <icon type="remote" width="128" height="128" scale="2">de/urwpp/D050000L/b0f1f935334abe3b6f46b74feff276f6/icons/128x128@2/gsfonts_d050000l-regular.jxl</icon>
+  <url type="homepage">https://www.urwpp.de/en/</url>
+</component>
+<component type="console-application">
+  <id>io.github.syllo.nvtop</id>
+  <name>nvtop</name>
+  <summary>GPU process monitor for AMD, Intel and NVIDIA</summary>
+  <project_license>GPL-3.0-or-later</project_license>
+  <developer>
+    <name>Maxime Schmitt</name>
+  </developer>
+  <developer_name>Maxime Schmitt</developer_name>
+  <pkgname>nvtop</pkgname>
+  <launchable type="desktop-id">nvtop.desktop</launchable>
+  <url type="homepage">https://github.com/Syllo/nvtop</url>
+  <categories>
+    <category>System</category>
+    <category>Monitor</category>
+  </categories>
+</component>
+<component type="desktop-application">
+  <id>libreoffice-writer.desktop</id>
+  <name>LibreOffice Writer</name>
+  <summary>Word processor part of the LibreOffice productivity suite</summary>
+  <project_license>MPL-2.0</project_license>
+  <developer>
+    <name>The Document Foundation</name>
+  </developer>
+  <developer_name>The Document Foundation</developer_name>
+  <pkgname>libreoffice-fresh</pkgname>
+  <launchable type="desktop-id">libreoffice-writer.desktop</launchable>
+  <icon type="cached" width="48" height="48">libreoffice-fresh_libreoffice-writer.jxl</icon>
+  <icon type="cached" width="64" height="64">libreoffice-fresh_libreoffice-writer.jxl</icon>
+  <icon type="cached" width="128" height="128">libreoffice-fresh_libreoffice-writer.jxl</icon>
+  <icon type="stock">libreoffice-writer</icon>
+  <url type="homepage">http://www.libreoffice.org/discover/writer/</url>
+  <categories>
+    <category>Office</category>
+    <category>WordProcessor</category>
+  </categories>
+  <keywords>
+    <keyword>Text</keyword>
+    <keyword>Letter</keyword>
+    <keyword>Fax</keyword>
+    <keyword>Document</keyword>
+    <keyword>OpenDocument Text</keyword>
+    <keyword>Microsoft Word</keyword>
+    <keyword>Microsoft Works</keyword>
+    <keyword>Lotus WordPro</keyword>
+    <keyword>OpenOffice Writer</keyword>
+    <keyword>CV</keyword>
+    <keyword>odt</keyword>
+    <keyword>doc</keyword>
+    <keyword>docx</keyword>
+    <keyword>rtf</keyword>
+  </keywords>
+</component>
+<component type="desktop-application">
+  <id>net.supertuxkart.SuperTuxKart</id>
+  <name>SuperTuxKart</name>
+  <summary>A 3D open-source kart racing game</summary>
+  <summary xml:lang="fr">Un jeu libre de course de karts en 3D</summary>
+  <summary xml:lang="tr">3D açık kaynaklı kart yarış oyunu</summary>
+  <project_license>GPL-3.0+</project_license>
+  <developer>
+    <name>SuperTuxKart Team</name>
+    <name xml:lang="fr">L'équipe SuperTuxKart</name>
+    <name xml:lang="tr">SuperTuxKart Takımı</name>
+  </developer>
+  <developer_name>SuperTuxKart Team</developer_name>
+  <pkgname>supertuxkart</pkgname>
+  <launchable type="desktop-id">supertuxkart.desktop</launchable>
+  <icon type="cached" width="48" height="48">supertuxkart_supertuxkart.jxl</icon>
+  <icon type="cached" width="64" height="64">supertuxkart_supertuxkart.jxl</icon>
+  <icon type="cached" width="128" height="128">supertuxkart_supertuxkart.jxl</icon>
+  <icon type="stock">supertuxkart</icon>
+  <url type="homepage">https://supertuxkart.net</url>
+  <categories>
+    <category>Game</category>
+    <category>ArcadeGame</category>
+  </categories>
+  <keywords>
+    <keyword>tux</keyword>
+    <keyword>game</keyword>
+    <keyword>race</keyword>
+  </keywords>
+  <keywords xml:lang="tr">
+    <keyword>tux</keyword>
+    <keyword>oyun</keyword>
+    <keyword>yarış</keyword>
+  </keywords>
+</component>
+<component type="desktop-application">
+  <id>obsidian.desktop</id>
+  <name>Obsidian</name>
+  <summary>Obsidian</summary>
+  <pkgname>obsidian</pkgname>
+  <launchable type="desktop-id">obsidian.desktop</launchable>
+  <icon type="cached" width="64" height="64">obsidian_obsidian.jxl</icon>
+  <icon type="cached" width="128" height="128">obsidian_obsidian.jxl</icon>
+  <icon type="stock">obsidian</icon>
+  <categories>
+    <category>Office</category>
+  </categories>
+</component>
+<component type="desktop-application">
+  <id>org.example.Broken</id>
+  <name>Broken</name>
+  <summary>A summary whose end tag is misspelt</sumary>
+  <pkgname>broken</pkgname>
+</component>
+<component type="desktop-application">
+  <name>No id</name>
+  <summary>A component without an id</summary>
+  <pkgname>no-id</pkgname>
+</component>
+<component type="desktop-application">
+  <id>org.gimp.GIMP</id>
+  <name>GNU Image Manipulation Program</name>
+  <name xml:lang="fr">Éditeur d’image GIMP</name>
+  <name xml:lang="tr">GNU Görüntü İşleme Programı</name>
+  <summary>High-end image creation and manipulation</summary>
+  <summary xml:lang="tr">Yüksek nitelikli görüntü oluşturma ve işleme</summary>
+  <project_license>GPL-3.0+ AND LGPL-3.0+</project_license>
+  <developer>
+    <name>The GIMP team</name>
+    <name xml:lang="tr">GIMP takımı</name>
+  </developer>
+  <developer_name>The GIMP team</developer_name>
+  <pkgname>gimp</pkgname>
+  <launchable type="desktop-id">gimp.desktop</launchable>
+  <icon type="cached" width="48" height="48">gimp_gimp.jxl</icon>
+  <icon type="cached" width="64" height="64">gimp_gimp.jxl</icon>
+  <icon type="cached" width="128" height="128">gimp_gimp.jxl</icon>
+  <icon type="stock">gimp</icon>
+  <url type="homepage">https://www.gimp.org/</url>
+  <categories>
+    <category>Graphics</category>
+    <category>2DGraphics</category>
+    <category>RasterGraphics</category>
+  </categories>
+  <keywords>
+    <keyword>GIMP</keyword>
+    <keyword>Photoshop</keyword>
+  </keywords>
+  <keywords xml:lang="tr">
+    <keyword>GIMP</keyword>
+  </keywords>
+</component>
+<component type="desktop-application">
+  <id>org.inkscape.Inkscape</id>
+  <name>Inkscape</name>
+  <name xml:lang="fr">Inkscape</name>
+  <name xml:lang="tr">Inkscape</name>
+  <summary>Vector Graphics Editor</summary>
+  <summary xml:lang="fr">Éditeur d'images vectorielles SVG Inkscape</summary>
+  <summary xml:lang="tr">Vektör Grafiği Düzenleyici</summary>
+  <project_license>GPL-2.0-or-later</project_license>
+  <developer>
+    <name>The Inkscape Community</name>
+    <name xml:lang="fr">La Communauté Inkscape</name>
+    <name xml:lang="tr">Inkscape topluluğu</name>
+  </developer>
+  <developer_name>The Inkscape Community</developer_name>
+  <pkgname>inkscape</pkgname>
+  <launchable type="desktop-id">org.inkscape.Inkscape.desktop</launchable>
+  <icon type="cached" width="48" height="48">inkscape_org.inkscape.Inkscape.jxl</icon>
+  <icon type="cached" width="64" height="64">inkscape_org.inkscape.Inkscape.jxl</icon>
+  <icon type="cached" width="128" height="128">inkscape_org.inkscape.Inkscape.jxl</icon>
+  <icon type="stock">org.inkscape.Inkscape</icon>
+  <url type="homepage">https://inkscape.org</url>
+  <categories>
+    <category>Graphics</category>
+  </categories>
+  <keywords>
+    <keyword>image</keyword>
+    <keyword>editor</keyword>
+    <keyword>vector</keyword>
+    <keyword>drawing</keyword>
+  </keywords>
+  <keywords xml:lang="tr">
+    <keyword>görsel</keyword>
+    <keyword>düzenleyici</keyword>
+    <keyword>vektör</keyword>
+    <keyword>çizim</keyword>
+  </keywords>
+</component>
+<component type="desktop-application">
+  <id>org.kde.kate.desktop</id>
+  <name>Kate</name>
+  <name xml:lang="fr">Kate</name>
+  <name xml:lang="tr">Kate</name>
+  <summary>Advanced text editor</summary>
+  <summary xml:lang="fr">Éditeur de texte avancé</summary>
+  <summary xml:lang="tr">Gelişmiş metin düzenleyicisi</summary>
+  <project_license>LGPL-2.1+</project_license>
+  <project_group>KDE</project_group>
+  <developer>
+    <name>KDE</name>
+  </developer>
+  <developer_name>KDE</developer_name>
+  <pkgname>kate</pkgname>
+  <launchable type="desktop-id">org.kde.kate.desktop</launchable>
+  <icon type="cached" width="48" height="48">kate_kate.jxl</icon>
+  <icon type="cached" width="64" height="64">kate_kate.jxl</icon>
+  <icon type="cached" width="128" height="128">kate_kate.jxl</icon>
+  <icon type="stock">kate</icon>
+  <url type="homepage">https://kate-editor.org/</url>
+  <categories>
+    <category>Development</category>
+    <category>TextEditor</category>
+  </categories>
+  <keywords>
+    <keyword>text</keyword>
+    <keyword>txt</keyword>
+    <keyword>editor</keyword>
+    <keyword>programming</keyword>
+    <keyword>programmer</keyword>
+    <keyword>development</keyword>
+    <keyword>developer</keyword>
+    <keyword>code</keyword>
+  </keywords>
+  <keywords xml:lang="tr">
+    <keyword>text</keyword>
+    <keyword>txt</keyword>
+    <keyword>düzenleyici</keyword>
+    <keyword>programlama</keyword>
+    <keyword>programcı</keyword>
+    <keyword>geliştirme</keyword>
+    <keyword>geliştirici</keyword>
+    <keyword>kod</keyword>
+    <keyword>editör</keyword>
+    <keyword>editor</keyword>
+    <keyword>code</keyword>
+  </keywords>
+</component>
+<component type="console-application">
+  <id>org.kernel.software.network.ethtool</id>
+  <name>ethtool</name>
+  <summary>display or change Ethernet device settings</summary>
+  <description>
+    <p>ethtool can be used to query and change settings such as speed, auto- negotiation and checksum
+      offload on many network devices, especially Ethernet devices.</p>
+  </description>
+  <pkgname>ethtool</pkgname>
+  <url type="homepage">https://www.kernel.org/pub/software/network/ethtool/</url>
+</component>
+<component type="desktop-application">
+  <id>org.keepassxc.KeePassXC.desktop</id>
+  <name>KeePassXC</name>
+  <summary>Secure and Full-featured Password Manager</summary>
+  <project_license>GPL-3.0-or-later</project_license>
+  <developer id="org.keepassxc">
+    <name>KeePassXC Team</name>
+  </developer>
+  <developer_name>KeePassXC Team</developer_name>
+  <pkgname>keepassxc</pkgname>
+  <launchable type="desktop-id">org.keepassxc.KeePassXC.desktop</launchable>
+  <icon type="cached" width="48" height="48">keepassxc_keepassxc.jxl</icon>
+  <icon type="cached" width="64" height="64">keepassxc_keepassxc.jxl</icon>
+  <icon type="cached" width="128" height="128">keepassxc_keepassxc.jxl</icon>
+  <icon type="stock">keepassxc</icon>
+  <url type="homepage">https://keepassxc.org</url>
+  <categories>
+    <category>Utility</category>
+    <category>Security</category>
+  </categories>
+  <keywords>
+    <keyword>security</keyword>
+    <keyword>privacy</keyword>
+    <keyword>password-manager</keyword>
+    <keyword>yubikey</keyword>
+    <keyword>password</keyword>
+    <keyword>keepass</keyword>
+  </keywords>
+</component>
+<component type="desktop-application">
+  <id>org.mozilla.firefox</id>
+  <name>Firefox</name>
+  <summary>Fast, Private &amp; Safe Web Browser</summary>
+  <project_license>MPL-2.0</project_license>
+  <developer id="org.mozilla">
+    <name>Mozilla</name>
+  </developer>
+  <developer_name>Mozilla</developer_name>
+  <pkgname>firefox</pkgname>
+  <launchable type="desktop-id">firefox.desktop</launchable>
+  <icon type="cached" width="48" height="48">firefox_firefox.jxl</icon>
+  <icon type="cached" width="64" height="64">firefox_firefox.jxl</icon>
+  <icon type="cached" width="128" height="128">firefox_firefox.jxl</icon>
+  <icon type="stock">firefox</icon>
+  <url type="homepage">https://www.firefox.com/</url>
+  <categories>
+    <category>Network</category>
+    <category>WebBrowser</category>
+  </categories>
+  <keywords>
+    <keyword>mozilla</keyword>
+    <keyword>internet</keyword>
+    <keyword>web</keyword>
+  </keywords>
+  <keywords xml:lang="tr">
+    <keyword>Internet</keyword>
+    <keyword>WWW</keyword>
+    <keyword>Browser</keyword>
+    <keyword>Web</keyword>
+    <keyword>Explorer</keyword>
+    <keyword>İnternet</keyword>
+    <keyword>Tarayıcı</keyword>
+  </keywords>
+</component>
+<component type="desktop-application">
+  <id>org.qbittorrent.qBittorrent</id>
+  <name>qBittorrent</name>
+  <summary>An open-source Bittorrent client</summary>
+  <project_license>GPL-3.0-or-later and OpenSSL</project_license>
+  <developer id="org.qbittorrent">
+    <name>The qBittorrent Project</name>
+  </developer>
+  <developer_name>The qBittorrent Project</developer_name>
+  <pkgname>qbittorrent</pkgname>
+  <launchable type="desktop-id">org.qbittorrent.qBittorrent.desktop</launchable>
+  <icon type="cached" width="48" height="48">qbittorrent_qbittorrent.jxl</icon>
+  <icon type="cached" width="64" height="64">qbittorrent_qbittorrent.jxl</icon>
+  <icon type="cached" width="128" height="128">qbittorrent_qbittorrent.jxl</icon>
+  <icon type="stock">qbittorrent</icon>
+  <url type="homepage">https://www.qbittorrent.org/</url>
+  <categories>
+    <category>Network</category>
+    <category>FileTransfer</category>
+    <category>P2P</category>
+  </categories>
+  <keywords>
+    <keyword>bittorrent</keyword>
+    <keyword>torrent</keyword>
+    <keyword>magnet</keyword>
+    <keyword>download</keyword>
+    <keyword>p2p</keyword>
+  </keywords>
+</component>
+<component type="desktop-application">
+  <id>org.telegram.desktop</id>
+  <name>Telegram</name>
+  <summary>New era of messaging</summary>
+  <project_license>GPL-3.0</project_license>
+  <developer id="org.telegram">
+    <name>Telegram FZ-LLC</name>
+  </developer>
+  <developer_name>Telegram FZ-LLC</developer_name>
+  <pkgname>telegram-desktop</pkgname>
+  <launchable type="desktop-id">org.telegram.desktop.desktop</launchable>
+  <icon type="cached" width="48" height="48">telegram-desktop_org.telegram.desktop.jxl</icon>
+  <icon type="cached" width="48" height="48" scale="2">telegram-desktop_org.telegram.desktop.jxl</icon>
+  <icon type="cached" width="64" height="64">telegram-desktop_org.telegram.desktop.jxl</icon>
+  <icon type="cached" width="64" height="64" scale="2">telegram-desktop_org.telegram.desktop.jxl</icon>
+  <icon type="cached" width="128" height="128">telegram-desktop_org.telegram.desktop.jxl</icon>
+  <icon type="cached" width="128" height="128" scale="2">telegram-desktop_org.telegram.desktop.jxl</icon>
+  <icon type="stock">org.telegram.desktop</icon>
+  <url type="homepage">https://desktop.telegram.org/</url>
+  <categories>
+    <category>Network</category>
+    <category>InstantMessaging</category>
+  </categories>
+  <keywords>
+    <keyword>tg</keyword>
+    <keyword>telegram</keyword>
+    <keyword>tdesktop</keyword>
+    <keyword>messaging</keyword>
+    <keyword>messenger</keyword>
+    <keyword>chat</keyword>
+    <keyword>sms</keyword>
+    <keyword>im</keyword>
+  </keywords>
+</component>
+<component type="desktop-application">
+  <id>org.videolan.vlc</id>
+  <name>VLC</name>
+  <name xml:lang="fr">VLC</name>
+  <name xml:lang="tr">VLC</name>
+  <summary>VLC media player, the open-source multimedia player</summary>
+  <project_license>GPL-2.0+</project_license>
+  <project_group>VideoLAN</project_group>
+  <developer>
+    <name>VideoLAN et al.</name>
+  </developer>
+  <developer_name>VideoLAN et al.</developer_name>
+  <pkgname>vlc</pkgname>
+  <launchable type="desktop-id">vlc.desktop</launchable>
+  <icon type="cached" width="48" height="48">vlc_vlc.jxl</icon>
+  <icon type="cached" width="64" height="64">vlc_vlc.jxl</icon>
+  <icon type="cached" width="128" height="128">vlc_vlc.jxl</icon>
+  <icon type="stock">vlc</icon>
+  <url type="homepage">https://www.videolan.org/vlc/</url>
+  <categories>
+    <category>AudioVideo</category>
+    <category>Player</category>
+    <category>Recorder</category>
+  </categories>
+  <keywords>
+    <keyword>Player</keyword>
+    <keyword>Capture</keyword>
+    <keyword>DVD</keyword>
+    <keyword>Audio</keyword>
+    <keyword>Video</keyword>
+    <keyword>Server</keyword>
+    <keyword>Broadcast</keyword>
+  </keywords>
+</component>
+
+</components>

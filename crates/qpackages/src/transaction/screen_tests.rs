@@ -17,7 +17,13 @@ use crate::runner::Recorded;
 
 /// A read of nowhere, for a flow that never gets to reread.
 fn no_reload() -> Reload {
-    Reload::new(Path::new("/nowhere/local"), qpackages_core::sources::AurPreference::default(), Arc::new(|_| None))
+    Reload::new(
+        Path::new("/nowhere/local"),
+        Path::new("/nowhere/applications"),
+        qpackages_core::sources::AurPreference::default(),
+        Arc::new(|_| None),
+        Arc::new(Recorded::default()),
+    )
 }
 
 /// The flow's own screen: its output pane and its dialogs, nothing else.
@@ -43,7 +49,7 @@ impl App for Pane {
 fn idle() -> Flow {
     let recorded = Arc::new(Recorded::default());
     let session = Session::new(InProcess::new(&recorded, 0).start_fn());
-    Flow::new(recorded, session, no_reload(), Path::new("/nowhere"))
+    Flow::new(recorded, session, Tool::Sudo, no_reload(), Path::new("/nowhere"))
 }
 
 /// A flow in the middle of installing paru, as `execute` leaves it, without a process behind it.

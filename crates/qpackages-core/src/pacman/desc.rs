@@ -23,6 +23,9 @@ pub struct Package {
     pub optional: Vec<String>,
     /// The project's home page.
     pub url: Option<String>,
+    /// The pacman groups it belongs to, such as `xorg-fonts`: one of the hints its kind is read
+    /// from.
+    pub groups: Vec<String>,
 }
 
 /// Reads one `desc` file from pacman's local database, usually
@@ -64,6 +67,7 @@ impl Package {
             "LICENSE" => self.licenses.push(value.to_owned()),
             "DEPENDS" => self.depends.push(value.to_owned()),
             "OPTDEPENDS" => self.optional.push(value.to_owned()),
+            "GROUPS" => self.groups.push(value.to_owned()),
             _ => {}
         }
     }
@@ -88,6 +92,14 @@ mod tests {
         assert_eq!(package.depends, ["readline", "libreadline.so=8-64", "glibc", "ncurses"]);
         assert_eq!(package.optional, ["bash-completion: for tab completion"]);
         assert_eq!(package.url.as_deref(), Some("https://www.gnu.org/software/bash/bash.html"));
+    }
+
+    #[test]
+    fn groups_are_read_one_per_line() {
+        let text = "%NAME%\nxorg-fonts-misc\n\n%VERSION%\n1.0-1\n\n%GROUPS%\nxorg\nxorg-fonts\n";
+        let package = parse_desc(text).expect("a font package");
+        assert_eq!(package.groups, ["xorg", "xorg-fonts"]);
+        assert!(parse_desc(BASH).expect("bash is a package").groups.is_empty(), "bash is in no group");
     }
 
     #[test]

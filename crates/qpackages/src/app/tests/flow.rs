@@ -13,10 +13,11 @@ use qframe::runtime::{HandoffOutcome, ProcessOutcome};
 use qpackages_core::helper::PACMAN_PATH;
 use qpackages_core::pacman::command::{PACMAN, install, print_install, print_remove, remove};
 
-use super::{app_on, env, fixture};
+use super::{after_reads, app_on, env, fixture};
 use crate::app::{Msg, Qpackages};
 use crate::helper::session::InProcess;
 use crate::runner::Recorded;
+use crate::{installed, settings_page};
 
 /// What `pacman -S --print` said for gimp on the reference machine, played back for flatpak: the
 /// screen shows what pacman says, whatever it is.
@@ -35,7 +36,7 @@ fn scratch(name: &str) -> PathBuf {
 }
 
 /// A runner that knows the flatpak plan.
-fn runner() -> Arc<Recorded> {
+pub(super) fn runner() -> Arc<Recorded> {
     let recorded = Recorded::default();
     recorded.answer(PACMAN, &print_install(&["flatpak"]), &gimp_plan(), 0);
     Arc::new(recorded)
@@ -70,11 +71,20 @@ fn screen(recorded: &Arc<Recorded>) -> Screen {
     screen_with(recorded, 0, &fixture(), 120, 30)
 }
 
-/// Opens the Flatpak source, which the pretend machine lacks, and presses its install button.
-/// The source is chosen by message because a narrow screen folds the sidebar away.
-fn ask_to_install_flatpak(h: &mut Harness<Qpackages>) {
-    h.send(Msg::Source(2));
-    h.click_text(if h.screen().contains("Install flatpak") { "Install flatpak" } else { "flatpak kur" });
+/// Opens the settings page, where Flatpak, which the pretend machine lacks, is on offer, and
+/// presses its install button. The page is opened by message so a narrow screen needs no aim.
+pub(super) fn ask_to_install_flatpak(h: &mut Harness<Qpackages>) {
+    h.send(Msg::OpenSettings);
+    let screen = h.screen();
+    match ["Install flatpak", "flatpak kur"].into_iter().find(|label| screen.contains(label)) {
+        Some(label) => {
+            h.click_text(label);
+        }
+        // A screen too small for the whole label presses it by its message.
+        None => {
+            h.send(Msg::Settings(settings_page::Msg::Install(qpackages_core::sources::Source::Flatpak)));
+        }
+    }
 }
 
 /// Where `label` stands as a whole word in `line`: `Install` in a button, not in `Installed`.
@@ -86,7 +96,7 @@ fn word_at(line: &str, label: &str) -> Option<usize> {
 
 /// Clicks the last place `label` appears on screen as a word: a dialog's action buttons sit at
 /// its bottom, below a title that may carry the same word; a toast's `Installed` is not `Install`.
-fn click_last(h: &mut Harness<Qpackages>, label: &str) {
+pub(super) fn click_last(h: &mut Harness<Qpackages>, label: &str) {
     let screen = h.screen();
     let (y, line, start) = screen
         .lines()
@@ -100,7 +110,7 @@ fn click_last(h: &mut Harness<Qpackages>, label: &str) {
 
 /// Lets the chain after a confirmation run to its end: the handoff, the helper's start in the
 /// background, then the transaction. Toasts slide in; a moment passes so the words are on screen.
-fn settle(h: &mut Harness<Qpackages>) -> String {
+pub(super) fn settle(h: &mut Harness<Qpackages>) -> String {
     for _ in 0..4 {
         h.advance(Duration::from_millis(20));
     }
@@ -108,7 +118,7 @@ fn settle(h: &mut Harness<Qpackages>) -> String {
 }
 
 /// Confirms the flatpak installation and lets it run through.
-fn install_flatpak(h: &mut Harness<Qpackages>) -> String {
+pub(super) fn install_flatpak(h: &mut Harness<Qpackages>) -> String {
     ask_to_install_flatpak(h);
     click_last(h, "Install");
     settle(h)
@@ -138,12 +148,10 @@ fn the_confirmation_says_exactly_what_pacman_printed() {
     ] {
         assert!(screen.contains(text), "`{text}` is missing:\n{screen}");
     }
-    assert_eq!(
-        recorded.command_lines(),
-        ["pacman -S --print --print-format %r|%n|%v|%s -- flatpak"],
-        "planning runs the print and nothing else"
-    );
-    assert_eq!(recorded.calls()[0].env, [("LC_ALL".to_owned(), "C".to_owned()), ("LANG".to_owned(), "C".to_owned())]);
+    let calls = after_reads(&recorded);
+    let lines: Vec<String> = calls.iter().map(|call| format!("{} {}", call.program, call.args.join(" "))).collect();
+    assert_eq!(lines, ["pacman -S --print --print-format %r|%n|%v|%s -- flatpak"], "planning runs the print alone");
+    assert_eq!(calls[0].env, [("LC_ALL".to_owned(), "C".to_owned()), ("LANG".to_owned(), "C".to_owned())]);
     assert!(h.handoffs().is_empty(), "nothing is authorized before the user applies");
     assert_eq!(helper.starts(), 0, "no helper before the user applies");
     assert!(!screen.contains("admin"), "no badge without a helper:\n{screen}");
@@ -158,8 +166,8 @@ fn escape_closes_the_confirmation_and_nothing_runs() {
     h.press("esc");
     let screen = h.screen();
     assert!(!screen.contains("Install 9 packages?"), "{screen}");
-    assert!(screen.contains("Flatpak is not installed"), "the source screen is back:\n{screen}");
-    assert_eq!(recorded.calls().len(), 1, "only the planning call was made");
+    assert!(screen.contains("Install flatpak"), "the settings page is back:\n{screen}");
+    assert_eq!(after_reads(&recorded).len(), 1, "only the planning call was made");
     assert!(h.handoffs().is_empty());
     assert_eq!(helper.starts(), 0);
 }
@@ -178,12 +186,12 @@ fn the_first_transaction_asks_once_and_starts_the_helper_that_runs_pacman() {
     assert!(h.handoffs()[0].notice.as_deref().is_some_and(|notice| notice.contains("password")));
     assert_eq!(helper.starts(), 1, "the helper started after the handoff");
     assert_eq!(pacman_runs(&recorded), ["/usr/bin/pacman -S --needed --noconfirm -- flatpak"]);
-    let run = recorded.calls().last().cloned().expect("pacman ran");
-    assert_eq!(run.pty, Some((79, 9)), "pacman runs on a pseudo-terminal the size of the output pane at 120x30");
+    let run = recorded.calls().into_iter().rev().find(|call| call.program == PACMAN_PATH).expect("pacman ran");
+    assert_eq!(run.pty, Some((107, 9)), "pacman runs on a pseudo-terminal the size of the output pane at 120x30");
     assert_eq!(run.env[0], ("PATH".to_owned(), "/usr/bin:/usr/sbin".to_owned()), "the helper sets the path");
     assert!(screen.contains("Installed flatpak"), "the success toast:\n{screen}");
     assert!(!screen.contains("Hold to stop"), "the pane closes after a success:\n{screen}");
-    assert!(screen.contains("Flatpak is not installed"), "the source screen is still there:\n{screen}");
+    assert!(screen.contains("Install flatpak"), "the source screen is still there:\n{screen}");
     assert!(screen.contains("◆ admin"), "the header says the helper is up:\n{screen}");
 }
 
@@ -252,11 +260,11 @@ fn pacman_gets_a_terminal_as_wide_as_the_pane_and_follows_a_resize() {
     let recorded = installing_runner();
     let Screen { mut h, .. } = screen(&recorded);
     install_flatpak(&mut h);
-    assert_eq!(pty_sizes(&recorded), [(79, 9)], "at 120x30 the pane shows 79 columns of 9 lines");
+    assert_eq!(pty_sizes(&recorded), [(107, 9)], "at 120x30 the pane shows 107 columns of 9 lines");
     h.resize(60, 20);
     assert_eq!(h.app().size, qframe::prelude::Size::new(60, 20), "the application hears the new size");
     install_flatpak(&mut h);
-    assert_eq!(pty_sizes(&recorded), [(79, 9), (47, 9)], "the next transaction gets the smaller pane");
+    assert_eq!(pty_sizes(&recorded), [(107, 9), (47, 9)], "the next transaction gets the smaller pane");
 }
 
 /// The pseudo-terminal sizes of every stream the runner was asked for, oldest first.
@@ -285,7 +293,7 @@ fn a_refused_authorization_runs_nothing() {
     assert!(screen.contains("Permission was not given"), "{screen}");
     assert!(screen.contains("Nothing was changed."), "{screen}");
     assert!(!screen.contains("Install 9 packages?"), "the dialog is gone:\n{screen}");
-    assert!(screen.contains("Flatpak is not installed"), "the list is back:\n{screen}");
+    assert!(screen.contains("Install flatpak"), "the list is back:\n{screen}");
 }
 
 #[test]
@@ -321,7 +329,7 @@ fn a_failed_run_keeps_its_output_on_screen_without_escape_sequences() {
     }
     assert!(!screen.contains('\u{1b}'), "escape sequences are filtered:\n{screen}");
     assert!(!screen.contains("3008"), "the OSC payload is gone:\n{screen}");
-    assert!(screen.contains("Flatpak is not installed"), "the source screen stays above the pane:\n{screen}");
+    assert!(screen.contains("Install flatpak"), "the source screen stays above the pane:\n{screen}");
     assert!(h.app().transaction.has_helper(), "a failed pacman leaves the helper up");
     h.click_text("Close");
     assert!(!h.screen().contains("Retrieving packages"), "the pane closes:\n{}", h.screen());
@@ -339,8 +347,10 @@ fn the_checked_packages_are_removed_with_their_own_dependencies_and_settings() {
     );
     let recorded = Arc::new(recorded);
     let Screen { mut h, .. } = screen(&recorded);
+    h.send(Msg::Tab(crate::app::Tab::Installed.index()));
+    h.send(Msg::Installed(installed::Msg::Show(1)));
     assert!(!h.screen().contains("Remove"), "nothing to remove before a check:\n{}", h.screen());
-    h.send(Msg::Toggle(0));
+    h.send(Msg::Installed(installed::Msg::Toggle(0)));
     let screen = h.screen();
     assert!(screen.contains("1 package checked"), "{screen}");
     assert!(screen.contains("Remove"), "{screen}");
@@ -350,7 +360,14 @@ fn the_checked_packages_are_removed_with_their_own_dependencies_and_settings() {
         assert!(screen.contains(text), "`{text}` is missing:\n{screen}");
     }
     assert!(!screen.contains("Total download"), "a removal downloads nothing:\n{screen}");
-    click_last(&mut h, "Remove");
+    // The dialog's own button, beside Cancel: the summary line under the dialog says Remove too.
+    let (y, line) = screen
+        .lines()
+        .enumerate()
+        .find(|(_, line)| line.contains("Cancel") && line.contains("Remove"))
+        .expect("the dialog's buttons");
+    let x = line[..line.rfind("Remove").expect("the button")].chars().count();
+    h.click(i32::try_from(x).expect("a column"), i32::try_from(y).expect("a row"));
     let screen = settle(&mut h);
     assert_eq!(pacman_runs(&recorded), ["/usr/bin/pacman -Rns --noconfirm -- bash"]);
     assert!(screen.contains("Removed bash"), "{screen}");
@@ -388,39 +405,9 @@ fn a_held_lock_shows_the_notice_instead_of_the_confirmation() {
     h.click_text("Close");
     assert!(!h.screen().contains("database is locked"), "{}", h.screen());
     assert!(h.handoffs().is_empty());
-    assert_eq!(recorded.calls().len(), 1, "planning ran, nothing else");
+    assert_eq!(after_reads(&recorded).len(), 1, "planning ran, nothing else");
     assert!(dir.join("db.lck").exists(), "the lock is never removed");
     fs::remove_dir_all(dir).expect("cleanup");
-}
-
-/// The screen of an application running as `uid`.
-fn as_user(uid: Option<u32>) -> Harness<Qpackages> {
-    let recorded = runner();
-    let app = app_on("", &recorded, &InProcess::new(&recorded, 0), uid, &fixture());
-    let mut h = Harness::with_env(app, env(), 120, 30);
-    h.set_locale("en").set_glyph_mode(GlyphMode::Unicode).set_reduced_motion(true);
-    h
-}
-
-#[test]
-fn running_as_root_is_said_in_the_header_and_makes_the_aur_unusable() {
-    let mut h = as_user(Some(0));
-    let screen = h.screen();
-    assert!(screen.contains("Running as root"), "{screen}");
-    assert!(screen.contains("not as root"), "{screen}");
-    let (px, py) = h.find("Pacman").expect("pacman is listed");
-    let (ax, ay) = h.find("AUR").expect("the AUR is listed");
-    let pacman = h.fg(u16::try_from(px).unwrap(), u16::try_from(py).unwrap());
-    let aur = h.fg(u16::try_from(ax).unwrap(), u16::try_from(ay).unwrap());
-    assert_ne!(pacman, aur, "the AUR row is faint");
-    h.click_text("AUR");
-    let screen = h.screen();
-    assert!(screen.contains("AUR cannot be used as root"), "{screen}");
-    let mut ordinary = as_user(Some(1000));
-    assert!(!ordinary.screen().contains("Running as root"));
-    assert!(!ordinary.screen().contains("not as root"));
-    ordinary.click_text("AUR");
-    assert!(ordinary.screen().contains("AUR comes in a later version"), "{}", ordinary.screen());
 }
 
 #[test]

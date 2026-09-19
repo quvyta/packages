@@ -1,0 +1,503 @@
+# The starter list: what the store shows before it has read a catalog or heard from the
+# network, and whenever the network never answers. Popular rankings replace its order once they
+# arrive. Entries the repositories offer fill "Popular apps"; the ones only the AUR (and maybe
+# Flathub) has fill "Popular in the AUR". The format is described in the core's catalog::featured.
+
+[[app]]
+name = "Firefox"
+id = "org.mozilla.firefox"
+category = "internet"
+sources = ["pacman:firefox", "flatpak:org.mozilla.firefox"]
+summary = "Web browser"
+summary-tr = "Web tarayıcısı"
+
+[[app]]
+name = "Chromium"
+id = "org.chromium.Chromium"
+category = "internet"
+sources = ["pacman:chromium", "flatpak:org.chromium.Chromium"]
+summary = "Web browser"
+summary-tr = "Web tarayıcısı"
+
+[[app]]
+name = "Thunderbird"
+id = "org.mozilla.Thunderbird"
+category = "internet"
+sources = ["pacman:thunderbird", "flatpak:org.mozilla.Thunderbird"]
+summary = "Mail and calendar"
+summary-tr = "E-posta ve takvim"
+
+[[app]]
+name = "Telegram"
+id = "org.telegram.desktop"
+category = "internet"
+sources = ["pacman:telegram-desktop", "flatpak:org.telegram.desktop"]
+summary = "Messaging"
+summary-tr = "Mesajlaşma"
+
+[[app]]
+name = "qBittorrent"
+id = "org.qbittorrent.qBittorrent"
+category = "internet"
+sources = ["pacman:qbittorrent", "flatpak:org.qbittorrent.qBittorrent"]
+summary = "Torrent client"
+summary-tr = "Torrent istemcisi"
+
+[[app]]
+name = "Transmission"
+id = "com.transmissionbt.Transmission"
+category = "internet"
+sources = ["pacman:transmission-gtk", "flatpak:com.transmissionbt.Transmission"]
+summary = "Torrent client"
+summary-tr = "Torrent istemcisi"
+
+[[app]]
+name = "Signal"
+id = "org.signal.Signal"
+category = "internet"
+sources = ["pacman:signal-desktop", "flatpak:org.signal.Signal"]
+summary = "Private messaging"
+summary-tr = "Gizli mesajlaşma"
+
+[[app]]
+name = "Discord"
+id = "com.discordapp.Discord"
+category = "internet"
+sources = ["pacman:discord", "flatpak:com.discordapp.Discord"]
+summary = "Voice and text chat"
+summary-tr = "Sesli ve yazılı sohbet"
+
+[[app]]
+name = "VLC"
+id = "org.videolan.VLC"
+category = "audio-video"
+sources = ["pacman:vlc", "flatpak:org.videolan.VLC"]
+summary = "Media player"
+summary-tr = "Ortam oynatıcısı"
+
+[[app]]
+name = "mpv"
+id = "io.mpv.Mpv"
+category = "audio-video"
+sources = ["pacman:mpv", "flatpak:io.mpv.Mpv"]
+summary = "Minimal video player"
+summary-tr = "Sade video oynatıcı"
+
+[[app]]
+name = "OBS Studio"
+id = "com.obsproject.Studio"
+category = "audio-video"
+sources = ["pacman:obs-studio", "flatpak:com.obsproject.Studio"]
+summary = "Streaming and recording"
+summary-tr = "Yayın ve kayıt"
+
+[[app]]
+name = "Audacity"
+id = "org.audacityteam.Audacity"
+category = "audio-video"
+sources = ["pacman:audacity", "flatpak:org.audacityteam.Audacity"]
+summary = "Audio editor"
+summary-tr = "Ses düzenleyici"
+
+[[app]]
+name = "Kdenlive"
+id = "org.kde.kdenlive"
+category = "audio-video"
+sources = ["pacman:kdenlive", "flatpak:org.kde.kdenlive"]
+summary = "Video editor"
+summary-tr = "Video düzenleyici"
+
+[[app]]
+name = "Shotcut"
+id = "org.shotcut.Shotcut"
+category = "audio-video"
+sources = ["pacman:shotcut", "flatpak:org.shotcut.Shotcut"]
+summary = "Video editor"
+summary-tr = "Video düzenleyici"
+
+[[app]]
+name = "HandBrake"
+id = "fr.handbrake.ghb"
+category = "audio-video"
+sources = ["pacman:handbrake", "flatpak:fr.handbrake.ghb"]
+summary = "Video converter"
+summary-tr = "Video dönüştürücü"
+
+[[app]]
+name = "Rhythmbox"
+id = "org.gnome.Rhythmbox3"
+category = "audio-video"
+sources = ["pacman:rhythmbox", "flatpak:org.gnome.Rhythmbox3"]
+summary = "Music player"
+summary-tr = "Müzik çalar"
+
+[[app]]
+name = "GIMP"
+id = "org.gimp.GIMP"
+category = "graphics"
+sources = ["pacman:gimp", "flatpak:org.gimp.GIMP"]
+summary = "Image editor"
+summary-tr = "Görüntü düzenleyici"
+
+[[app]]
+name = "Inkscape"
+id = "org.inkscape.Inkscape"
+category = "graphics"
+sources = ["pacman:inkscape", "flatpak:org.inkscape.Inkscape"]
+summary = "Vector drawing"
+summary-tr = "Vektör çizim"
+
+[[app]]
+name = "Krita"
+id = "org.kde.krita"
+category = "graphics"
+sources = ["pacman:krita", "flatpak:org.kde.krita"]
+summary = "Digital painting"
+summary-tr = "Dijital boyama"
+
+[[app]]
+name = "Blender"
+id = "org.blender.Blender"
+category = "graphics"
+sources = ["pacman:blender", "flatpak:org.blender.Blender"]
+summary = "3D creation suite"
+summary-tr = "3B üretim paketi"
+
+[[app]]
+name = "darktable"
+id = "org.darktable.Darktable"
+category = "graphics"
+sources = ["pacman:darktable", "flatpak:org.darktable.Darktable"]
+summary = "Photo workflow"
+summary-tr = "Fotoğraf iş akışı"
+
+[[app]]
+name = "Gwenview"
+id = "org.kde.gwenview"
+category = "graphics"
+sources = ["pacman:gwenview", "flatpak:org.kde.gwenview"]
+summary = "Image viewer"
+summary-tr = "Görüntü gösterici"
+
+[[app]]
+name = "LibreOffice"
+id = "org.libreoffice.LibreOffice"
+category = "office"
+sources = ["pacman:libreoffice-fresh", "flatpak:org.libreoffice.LibreOffice"]
+summary = "Office suite"
+summary-tr = "Ofis paketi"
+
+[[app]]
+name = "Okular"
+id = "org.kde.okular"
+category = "office"
+sources = ["pacman:okular", "flatpak:org.kde.okular"]
+summary = "Document viewer"
+summary-tr = "Belge gösterici"
+
+[[app]]
+name = "Evince"
+id = "org.gnome.Evince"
+category = "office"
+sources = ["pacman:evince", "flatpak:org.gnome.Evince"]
+summary = "Document viewer"
+summary-tr = "Belge gösterici"
+
+[[app]]
+name = "Obsidian"
+id = "md.obsidian.Obsidian"
+category = "office"
+sources = ["pacman:obsidian", "flatpak:md.obsidian.Obsidian"]
+summary = "Notes in Markdown"
+summary-tr = "Markdown notları"
+
+[[app]]
+name = "Xournal++"
+id = "com.github.xournalpp.xournalpp"
+category = "office"
+sources = ["pacman:xournalpp", "flatpak:com.github.xournalpp.xournalpp"]
+summary = "Handwritten notes"
+summary-tr = "El yazısı notlar"
+
+[[app]]
+name = "Calibre"
+id = "com.calibre_ebook.calibre"
+category = "office"
+sources = ["pacman:calibre", "flatpak:com.calibre_ebook.calibre"]
+summary = "E-book library"
+summary-tr = "E-kitap kitaplığı"
+
+[[app]]
+name = "Steam"
+id = "com.valvesoftware.Steam"
+category = "game"
+sources = ["pacman:steam", "flatpak:com.valvesoftware.Steam"]
+summary = "Game store"
+summary-tr = "Oyun mağazası"
+
+[[app]]
+name = "Lutris"
+id = "net.lutris.Lutris"
+category = "game"
+sources = ["pacman:lutris", "flatpak:net.lutris.Lutris"]
+summary = "Game launcher"
+summary-tr = "Oyun başlatıcı"
+
+[[app]]
+name = "SuperTuxKart"
+id = "net.supertuxkart.SuperTuxKart"
+category = "game"
+sources = ["pacman:supertuxkart", "flatpak:net.supertuxkart.SuperTuxKart"]
+summary = "Kart racing"
+summary-tr = "Kart yarışı"
+
+[[app]]
+name = "0 A.D."
+id = "com.play0ad.zeroad"
+category = "game"
+sources = ["pacman:0ad", "flatpak:com.play0ad.zeroad"]
+summary = "Historical strategy"
+summary-tr = "Tarihî strateji"
+
+[[app]]
+name = "RetroArch"
+id = "org.libretro.RetroArch"
+category = "game"
+sources = ["pacman:retroarch", "flatpak:org.libretro.RetroArch"]
+summary = "Emulator front end"
+summary-tr = "Emülatör arayüzü"
+
+[[app]]
+name = "Code - OSS"
+id = "code-oss.desktop"
+category = "development"
+sources = ["pacman:code"]
+summary = "Code editor"
+summary-tr = "Kod düzenleyici"
+
+[[app]]
+name = "Kate"
+id = "org.kde.kate"
+category = "development"
+sources = ["pacman:kate", "flatpak:org.kde.kate"]
+summary = "Text editor"
+summary-tr = "Metin düzenleyici"
+
+[[app]]
+name = "Neovim"
+id = "io.neovim.nvim"
+category = "development"
+sources = ["pacman:neovim"]
+summary = "Modal text editor"
+summary-tr = "Kipli metin düzenleyici"
+
+[[app]]
+name = "Git"
+category = "development"
+sources = ["pacman:git"]
+summary = "Version control"
+summary-tr = "Sürüm denetimi"
+
+[[app]]
+name = "Docker"
+category = "development"
+sources = ["pacman:docker"]
+summary = "Containers"
+summary-tr = "Kapsayıcılar"
+
+[[app]]
+name = "Meld"
+id = "org.gnome.Meld"
+category = "development"
+sources = ["pacman:meld", "flatpak:org.gnome.Meld"]
+summary = "Compare files"
+summary-tr = "Dosya karşılaştırma"
+
+[[app]]
+name = "GParted"
+category = "system"
+sources = ["pacman:gparted"]
+summary = "Partition editor"
+summary-tr = "Bölüm düzenleyici"
+
+[[app]]
+name = "htop"
+category = "system"
+sources = ["pacman:htop"]
+summary = "Process viewer"
+summary-tr = "Süreç gösterici"
+
+[[app]]
+name = "btop"
+category = "system"
+sources = ["pacman:btop"]
+summary = "Resource monitor"
+summary-tr = "Kaynak izleyici"
+
+[[app]]
+name = "nvtop"
+id = "io.github.syllo.nvtop"
+category = "system"
+sources = ["pacman:nvtop"]
+summary = "GPU monitor"
+summary-tr = "Ekran kartı izleyici"
+
+[[app]]
+name = "Timeshift"
+category = "system"
+sources = ["pacman:timeshift"]
+summary = "System snapshots"
+summary-tr = "Sistem anlık görüntüleri"
+
+[[app]]
+name = "VirtualBox"
+category = "system"
+sources = ["pacman:virtualbox"]
+summary = "Virtual machines"
+summary-tr = "Sanal makineler"
+
+[[app]]
+name = "KeePassXC"
+id = "org.keepassxc.KeePassXC"
+category = "utility"
+sources = ["pacman:keepassxc", "flatpak:org.keepassxc.KeePassXC"]
+summary = "Password manager"
+summary-tr = "Parola yöneticisi"
+
+[[app]]
+name = "Kitty"
+category = "utility"
+sources = ["pacman:kitty"]
+summary = "Terminal"
+summary-tr = "Uçbirim"
+
+[[app]]
+name = "Alacritty"
+category = "utility"
+sources = ["pacman:alacritty"]
+summary = "Terminal"
+summary-tr = "Uçbirim"
+
+[[app]]
+name = "Ark"
+id = "org.kde.ark"
+category = "utility"
+sources = ["pacman:ark", "flatpak:org.kde.ark"]
+summary = "Archive manager"
+summary-tr = "Arşiv yöneticisi"
+
+[[app]]
+name = "Flameshot"
+id = "org.flameshot.Flameshot"
+category = "utility"
+sources = ["pacman:flameshot", "flatpak:org.flameshot.Flameshot"]
+summary = "Screenshots"
+summary-tr = "Ekran görüntüleri"
+
+[[app]]
+name = "Syncthing"
+category = "utility"
+sources = ["pacman:syncthing"]
+summary = "File sync"
+summary-tr = "Dosya eşitleme"
+
+[[app]]
+name = "Noto Fonts"
+category = "fonts"
+sources = ["pacman:noto-fonts"]
+summary = "Fonts for every script"
+summary-tr = "Her yazı için yazı tipleri"
+
+[[app]]
+name = "JetBrains Mono Nerd Font"
+category = "fonts"
+sources = ["pacman:ttf-jetbrains-mono-nerd"]
+summary = "Coding font with icons"
+summary-tr = "İkonlu kod yazı tipi"
+
+[[app]]
+name = "Fira Code"
+category = "fonts"
+sources = ["pacman:ttf-fira-code"]
+summary = "Coding font"
+summary-tr = "Kod yazı tipi"
+
+[[app]]
+name = "Visual Studio Code"
+id = "com.visualstudio.code"
+category = "development"
+sources = ["aur:visual-studio-code-bin", "flatpak:com.visualstudio.code"]
+summary = "Code editor"
+summary-tr = "Kod düzenleyici"
+
+[[app]]
+name = "Google Chrome"
+id = "com.google.Chrome"
+category = "internet"
+sources = ["aur:google-chrome", "flatpak:com.google.Chrome"]
+summary = "Web browser"
+summary-tr = "Web tarayıcısı"
+
+[[app]]
+name = "Spotify"
+id = "com.spotify.Client"
+category = "audio-video"
+sources = ["aur:spotify", "flatpak:com.spotify.Client"]
+summary = "Music"
+summary-tr = "Müzik"
+
+[[app]]
+name = "Zoom"
+id = "us.zoom.Zoom"
+category = "internet"
+sources = ["aur:zoom", "flatpak:us.zoom.Zoom"]
+summary = "Video meetings"
+summary-tr = "Görüntülü toplantı"
+
+[[app]]
+name = "Brave"
+id = "com.brave.Browser"
+category = "internet"
+sources = ["aur:brave-bin", "flatpak:com.brave.Browser"]
+summary = "Web browser"
+summary-tr = "Web tarayıcısı"
+
+[[app]]
+name = "Slack"
+id = "com.slack.Slack"
+category = "internet"
+sources = ["aur:slack-desktop", "flatpak:com.slack.Slack"]
+summary = "Team chat"
+summary-tr = "Ekip sohbeti"
+
+[[app]]
+name = "Heroic Games Launcher"
+id = "com.heroicgameslauncher.hgl"
+category = "game"
+sources = ["aur:heroic-games-launcher-bin", "flatpak:com.heroicgameslauncher.hgl"]
+summary = "Game launcher"
+summary-tr = "Oyun başlatıcı"
+
+[[app]]
+name = "Sublime Text"
+id = "com.sublimetext.three"
+category = "development"
+sources = ["aur:sublime-text-4", "flatpak:com.sublimetext.three"]
+summary = "Text editor"
+summary-tr = "Metin düzenleyici"
+
+[[app]]
+name = "OnlyOffice"
+id = "org.onlyoffice.desktopeditors"
+category = "office"
+sources = ["aur:onlyoffice-bin", "flatpak:org.onlyoffice.desktopeditors"]
+summary = "Office suite"
+summary-tr = "Ofis paketi"
+
+[[app]]
+name = "Microsoft Edge"
+id = "com.microsoft.Edge"
+category = "internet"
+sources = ["aur:microsoft-edge-stable-bin", "flatpak:com.microsoft.Edge"]
+summary = "Web browser"
+summary-tr = "Web tarayıcısı"
