@@ -292,7 +292,7 @@ mod tests {
             .map(|kind| format!("category.{}", kind.key()))
             .chain(crate::sources::ALL.map(|source| format!("source.{}", crate::sources::name(source))))
             .collect();
-        let env = crate::test_env();
+        let env = crate::locales::env();
         // The set qpac gives is not the one any theme names, so this is the layering the
         // framework promises: its keys are there whatever set is chosen.
         for (theme, _) in env.themes() {
@@ -316,7 +316,7 @@ mod tests {
             }
             fn view(&self, _: &mut View<'_, ()>) {}
         }
-        let mut h = Harness::with_env(Nothing, crate::test_env(), 10, 2);
+        let mut h = Harness::with_env(Nothing, crate::locales::env(), 10, 2);
         h.set_theme(theme).set_glyph_mode(mode);
         h.env().icons().clone()
     }

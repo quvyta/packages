@@ -15,7 +15,7 @@ pub const REFLECTOR_PATH: &str = "/usr/bin/reflector";
 pub const MIRRORLIST: &str = "etc/pacman.d/mirrorlist";
 
 /// The name the replaced mirror list is kept under, beside the new one.
-pub const BACKUP: &str = "mirrorlist.qpac-yedek";
+pub const BACKUP: &str = "mirrorlist.qpac-backup";
 
 /// reflector's own configuration, read by its timer, from the root of the file system.
 pub const CONFIG: &str = "etc/xdg/reflector/reflector.conf";

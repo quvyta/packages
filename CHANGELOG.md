@@ -2,6 +2,23 @@
 
 Every release of quvyta-packages, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/); while the version starts with 0, a minor release may change the interface, the command line or the files qpac keeps under `~/.config/quvyta/` and `~/.local/state/quvyta/packages/`, and the notes say so when it does.
 
+## 0.1.8 - 2026-09-20
+
+### Added
+
+- Seven languages beside English and Turkish: German, Spanish, French, Brazilian Portuguese, Russian, Simplified Chinese and Japanese. qpac follows your system language, and finds its file even where the setting names a region or a script (`pt_PT` reads the Brazilian file, `zh_CN` and `zh_SG` the Simplified Chinese one).
+- The checks a translation is held to. Every language file must carry every English key and no other, keep every placeholder its English text has, hold exactly the plural forms its own language uses (Russian's four, Chinese's and Japanese's one), and use only characters the embedded fonts can draw, because a character the fonts lack is left out of a picture rather than drawn. Each of those rules is itself shown refusing the mistake it is there for.
+- Every page, every dialog and every notice must now show its fixed labels whole in all nine languages at the narrow widths qpac is already held to, and a dialog's buttons must stand inside the panel rather than at its edge. A translation runs longer than English, and a label shortened with an ellipsis is no longer the word the file holds, so the check fails on it.
+
+### Changed
+
+- The mirror list qpac replaces is kept as `mirrorlist.qpac-backup`. It was kept under a Turkish name, which is no name for a file an application in nine languages leaves on disk. A copy an earlier version left as `mirrorlist.qpac-yedek` stays where it is; nothing reads it, and you can delete it.
+
+### Fixed
+
+- The Installed tab's summary line no longer cuts its buttons off on a narrow screen: when *Remove checked* and *Clean up* no longer fit beside the counts, they move to a row of their own, and take one row each when even that is too narrow. It read `R…` at 36 columns, in English as well.
+- The pane of a running or failed transaction keeps its control whole: the heading took the whole row and left the button whatever remained, so a German *Close* read `Schli…`. The heading, which carries package names and may honestly be shortened, is the one that gives way now.
+
 ## 0.1.7 - 2026-09-20
 
 ### Added

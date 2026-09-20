@@ -50,7 +50,7 @@ impl App for Tab {
 
 fn tab(width: u16, height: u16) -> Harness<Tab> {
     let cx = Cx { aur: true, utc_offset: 0, can_check: true, busy: false, backup: backup::Plan::Off };
-    let mut h = Harness::with_env(Tab(Updates::default(), cx), crate::test_env(), width, height);
+    let mut h = Harness::with_env(Tab(Updates::default(), cx), crate::locales::env(), width, height);
     h.set_locale("en").set_glyph_mode(GlyphMode::Unicode).set_reduced_motion(true);
     h
 }
@@ -151,7 +151,7 @@ fn a_first_check_that_fails_says_why_and_offers_another() {
 #[test]
 fn a_turned_off_aur_is_neither_shown_nor_counted() {
     let cx = Cx { aur: false, utc_offset: 0, can_check: true, busy: false, backup: backup::Plan::Off };
-    let mut h = Harness::with_env(Tab(Updates::default(), cx), crate::test_env(), 100, 20);
+    let mut h = Harness::with_env(Tab(Updates::default(), cx), crate::locales::env(), 100, 20);
     h.set_locale("en").set_glyph_mode(GlyphMode::Unicode);
     h.send(Msg::Checked(found()));
     let screen = h.screen();
@@ -205,7 +205,7 @@ fn machine(settings: &str) -> (Harness<Qpackages>, Scratch, Arc<Recorded>) {
     );
     recorded.answer("paru", &command::aur_update_check(), "visual-studio-code-bin 1.104.0-1 -> 1.105.0-1\n", 0);
     let settings = Settings::parse_str("packages.conf", settings);
-    let mut h = Harness::with_env(app_in(&scratch, settings, &recorded), crate::test_env(), 120, 24);
+    let mut h = Harness::with_env(app_in(&scratch, settings, &recorded), crate::locales::env(), 120, 24);
     h.set_locale("en").set_glyph_mode(GlyphMode::Unicode).set_reduced_motion(true);
     h.advance(Duration::from_millis(20));
     (h, scratch, recorded)

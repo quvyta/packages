@@ -5,6 +5,7 @@
 use std::collections::BTreeSet;
 
 use qframe::prelude::*;
+use qframe::text;
 use qframe::widgets::{Segmented, Splitter, Table, TextInput};
 
 use super::table::{self, RowsKey};
@@ -77,7 +78,7 @@ impl Installed {
             } else {
                 self.table(width, cx, ui);
             }
-            self.summary(cx, ui);
+            self.summary(width, cx, ui);
         })
         .fill();
     }
@@ -130,7 +131,12 @@ impl Installed {
     }
 
     /// How many applications and packages there are, how many are checked, and the removal.
-    fn summary(&self, cx: Cx<'_>, ui: &mut View<'_, Msg>) {
+    ///
+    /// The counts give way with an ellipsis when the row is short of cells, but a button cannot:
+    /// a shortened "Remove checked" is a button nobody dares press. So when what stands to the
+    /// right of the counts no longer fits beside them, it leaves the row and stands under them,
+    /// and when the buttons cannot share a row either, each takes one of its own.
+    fn summary(&self, width: u16, cx: Cx<'_>, ui: &mut View<'_, Msg>) {
         if cx.loading {
             return;
         }
@@ -154,23 +160,63 @@ impl Installed {
         // they would be a count of rows that are not there.
         let orphans = cx.library.orphans.as_ref().map_or(0, BTreeSet::len);
         let clean = self.show == Show::All && orphans > 0;
-        ui.row(|ui| {
-            ui.add(Text::new(parts.join(" · ")).role("faint").no_wrap()).fill_width();
-            if clean {
-                ui.add(Text::new(t!("installed.orphans", n = orphans)).role("faint").no_wrap());
-                let button = Button::new(t!("installed.clean-up")).loading(cx.planning).on_press(Msg::CleanOrphans);
+        let orphan_text = clean.then(|| t!("installed.orphans", n = orphans));
+        let clean_label = clean.then(|| t!("installed.clean-up"));
+        let remove_label = (!self.checked.is_empty()).then(|| t!("installed.remove-checked"));
+        let button = |label: &Option<String>| label.as_deref().map_or(0, |label| button_width(ui, label) + GAP);
+        let buttons = button(&clean_label) + button(&remove_label);
+        let beside = orphan_text.as_deref().map_or(0, |text| text::width(text) + GAP) + buttons;
+        let room = width.saturating_sub(TEXT_INDENT.saturating_mul(2));
+        let add_buttons = |ui: &mut View<'_, Msg>| {
+            if let Some(label) = clean_label.clone() {
+                let button = Button::new(label).loading(cx.planning).on_press(Msg::CleanOrphans);
                 ui.add(button).id("clean-orphans");
             }
-            if !self.checked.is_empty() {
-                let remove = Button::new(t!("installed.remove-checked"))
-                    .variant("danger")
-                    .loading(cx.planning)
-                    .on_press(Msg::RemoveChecked);
+            if let Some(label) = remove_label.clone() {
+                let remove = Button::new(label).variant("danger").loading(cx.planning).on_press(Msg::RemoveChecked);
                 ui.add(remove).id("remove");
             }
+        };
+        if beside <= room {
+            ui.row(|ui| {
+                ui.add(Text::new(parts.join(" · ")).role("faint").no_wrap()).fill_width();
+                if let Some(text) = orphan_text.clone() {
+                    ui.add(Text::new(text).role("faint").no_wrap());
+                }
+                add_buttons(ui);
+            })
+            .gap(GAP)
+            .padding(Padding::symmetric(0, TEXT_INDENT))
+            .fill_width();
+            return;
+        }
+        // The orphan count joins the other counts: it is a count, and the buttons have left.
+        if let Some(text) = orphan_text {
+            parts.push(text);
+        }
+        ui.column(|ui| {
+            ui.add(Text::new(parts.join(" · ")).role("faint").no_wrap()).fill_width();
+            if buttons <= room {
+                ui.row(|ui| add_buttons(ui)).gap(GAP).fill_width().justify(Align::End);
+            } else {
+                ui.column(|ui| add_buttons(ui)).gap(0).fill_width().align(Align::End);
+            }
         })
-        .gap(2)
+        .gap(0)
         .padding(Padding::symmetric(0, TEXT_INDENT))
         .fill_width();
     }
+}
+
+/// Cells between the things standing on the summary row.
+const GAP: u16 = 2;
+
+/// Cells a button labelled `label` takes: its label with the theme's own padding on each side.
+///
+/// The summary row has to know this before it places anything, because whether the buttons fit
+/// beside the counts is what decides the shape of the row.
+fn button_width(ui: &View<'_, Msg>, label: &str) -> u16 {
+    let style = ui.env().theme().style("button", None, &[]);
+    let (_, horizontal) = style.pair("padding").unwrap_or((0, 2));
+    text::width(label).saturating_add(horizontal.saturating_mul(2))
 }

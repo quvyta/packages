@@ -22,7 +22,7 @@ mod upgrade;
 
 /// Built-in files plus the compiled-in locales and keymap, as the runtime loads them.
 fn env() -> Env {
-    crate::test_env()
+    crate::locales::env()
 }
 
 /// The recorded local database: bash, plus two records that cannot be read.
@@ -394,6 +394,70 @@ fn every_page_keeps_the_rules_in_ascii_and_on_narrow_screens() {
                 assert!(!screen.contains(forbidden), "`{forbidden}` at {width}x{height}:\n{screen}");
             }
             assert!(!screen.contains("-->") && !screen.contains("==="), "{width}x{height}:\n{screen}");
+        }
+    }
+}
+
+/// The fixed labels each page must show whole, by the page's own name. They are the words that
+/// tell the user where they are and what a row is for: a cut heading leaves a settings section
+/// nameless. Values, package names and the counts beside them are left out on purpose, because
+/// the layout is allowed to shorten those with an ellipsis when the screen is narrow.
+const LABELS: &[(&str, &[&str])] = &[
+    ("discover", &["store.kind.label", "store.home.see-all", "store.catalog.install"]),
+    ("installed", &["installed.apps", "installed.all", "packages.name", "packages.version", "packages.size"]),
+    ("updates", &["updates.check-now", "updates.repo"]),
+    (
+        "settings",
+        &[
+            "settings-page.title",
+            "settings-page.back",
+            "settings-page.sources",
+            "settings-page.aur-helper",
+            "settings-page.updates",
+            "settings-page.check",
+            "settings-page.interval",
+            "settings-page.backup",
+            "settings-page.backup-tool",
+            "settings-page.cleanup",
+            "settings-page.orphans",
+            "settings-page.mirrors",
+            "settings-page.privilege",
+            "settings-page.tool",
+        ],
+    ),
+];
+
+#[test]
+fn every_page_shows_its_labels_whole_in_every_language_on_a_narrow_screen() {
+    // Translations run longer than English, and a label the layout cannot fit is shortened with
+    // an ellipsis rather than left out, so a screen that merely draws something is no proof. The
+    // test therefore reads each label's text out of the language file and looks for it whole: a
+    // shortened "Güncellemeler" is no longer the string the file holds, and the search fails.
+    // The screen is tall, so nothing is missing for want of room below and width alone is what is
+    // under test; the widths are the narrow ones qpac is already held to.
+    for code in crate::locales::tests::codes() {
+        for width in [36, 60, 80, 120] {
+            let mut h = harness(width, 200);
+            h.set_locale(&code);
+            h.send(Msg::Updates(updates::Msg::Checked(three_updates())));
+            h.send(Msg::Installed(installed::Msg::Select(0)));
+            let pages = TABS.iter().map(|tab| (tab.key(), Msg::Tab(tab.index())));
+            for (name, page) in pages.chain([("settings", Msg::OpenSettings)]) {
+                h.send(page);
+                let screen = h.screen();
+                let keys = LABELS
+                    .iter()
+                    .find(|(page, _)| *page == name)
+                    .map(|(_, keys)| *keys)
+                    .unwrap_or_else(|| panic!("no labels are listed for the `{name}` page"));
+                for key in keys {
+                    let label = crate::locales::tests::label(&code, key);
+                    assert!(
+                        screen.contains(&label),
+                        "`{key}` is cut off in `{code}` on {name} at {width} columns; it reads `{label}`:\n{screen}"
+                    );
+                }
+            }
         }
     }
 }

@@ -15,6 +15,7 @@ mod detail;
 mod helper;
 mod icons;
 mod installed;
+pub mod locales;
 mod reload;
 mod review;
 mod runner;
@@ -30,6 +31,7 @@ mod updates;
 
 pub use helper::session::{Connection, Host, Start};
 pub use installed::Msg as InstalledMsg;
+pub use locales::asset_dirs;
 pub use reload::{Lookup, Snapshot};
 pub use runner::{Output, Runner};
 pub use settings_page::Msg as SettingsMsg;
@@ -44,13 +46,6 @@ use qframe::runtime::Runtime;
 use qframe::storage::Family;
 use qframe::widgets::Appearance;
 use qpackages_core::sources::on_path;
-
-/// The language files, compiled in so an installed binary needs nothing beside it.
-const LOCALES: [(&str, &str); 2] =
-    [("en.toml", include_str!("../assets/locales/en.toml")), ("tr.toml", include_str!("../assets/locales/tr.toml"))];
-
-/// The application's own key bindings, compiled in for the same reason.
-const KEYMAP: (&str, &str) = ("keymap.toml", include_str!("../assets/keymap.toml"));
 
 /// Where pacman keeps the records of installed packages.
 const LOCAL_DB: &str = "/var/lib/pacman/local";
@@ -72,7 +67,7 @@ const CHECK_DIR: &str = "check";
 /// screen: the shared preferences' language detection and `--check`'s report.
 fn i18n() -> I18n {
     let mut i18n = I18n::builtin();
-    for (file, text) in LOCALES {
+    for (file, text) in locales::LOCALES {
         i18n.add_source(file, text);
     }
     i18n
@@ -134,10 +129,10 @@ pub fn run() -> std::io::Result<()> {
         snap_socket: Path::new(qpackages_core::snap::SOCKET),
     };
     let app = app::Qpackages::new(machine, &settings);
-    let result = LOCALES
+    let result = locales::LOCALES
         .iter()
         .fold(Runtime::new(app), |runtime, (file, text)| runtime.locale_source(*file, *text))
-        .keymap_source(KEYMAP.0, KEYMAP.1)
+        .keymap_source(locales::KEYMAP.0, locales::KEYMAP.1)
         .icon_source(icons::SET.0, icons::SET.1)
         .settings(&settings)
         .preferences(&preferences)
@@ -154,19 +149,6 @@ pub fn run() -> std::io::Result<()> {
     result
 }
 
-/// The compiled-in language files, key bindings and icon set, as the runtime loads them, for
-/// drawing the screen outside a terminal: `qframe::env::Env::load` turns them into the
-/// environment a test harness takes.
-#[must_use]
-pub fn asset_dirs() -> qframe::env::AssetDirs {
-    qframe::env::AssetDirs {
-        locale_sources: LOCALES.iter().map(|(file, text)| ((*file).to_owned(), (*text).to_owned())).collect(),
-        keymap_source: Some((KEYMAP.0.to_owned(), KEYMAP.1.to_owned())),
-        icon_sources: vec![(icons::SET.0.to_owned(), icons::SET.1.to_owned())],
-        ..qframe::env::AssetDirs::default()
-    }
-}
-
 /// The appearance rows of the settings page with `folder` as the family's settings folder, for
 /// building the screen outside a terminal: a test or a picture then never reads or writes the
 /// user's own settings. [`run`] uses the user's own family folder.
@@ -175,11 +157,4 @@ pub fn appearance_in(folder: &Path) -> Appearance {
     let family = Family::QUVYTA;
     let preferences = family.preferences_in(folder, settings::APP, &i18n());
     Appearance::new(family, settings::APP, preferences).in_folder(folder)
-}
-
-/// The built-in files plus the compiled-in locales, keymap and icon set, as the runtime loads
-/// them, for tests that drive the screen.
-#[cfg(test)]
-fn test_env() -> qframe::env::Env {
-    qframe::env::Env::load(&asset_dirs()).expect("the locales and the keymap are readable")
 }

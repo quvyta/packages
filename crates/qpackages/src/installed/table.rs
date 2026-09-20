@@ -357,7 +357,7 @@ mod tests {
         let packages = vec![package("bash", 1024, true, ""), package("zsh", 1024, true, "")];
         let colours = |selected| {
             let app = Installed(packages.clone(), None, selected);
-            let mut h = Harness::with_env(app, crate::test_env(), 80, 8);
+            let mut h = Harness::with_env(app, crate::locales::env(), 80, 8);
             h.set_locale("en").set_glyph_mode(GlyphMode::Unicode);
             let (x, y) = h.find("bash").expect("the first row");
             let (x, y) = (u16::try_from(x).expect("on screen"), u16::try_from(y).expect("on screen"));
@@ -373,7 +373,7 @@ mod tests {
     #[test]
     fn a_name_column_too_narrow_cuts_the_name_and_keeps_the_glyph() {
         let long = package("a-very-long-package-name-indeed", 1024, true, "");
-        let mut h = Harness::with_env(Installed::new(vec![long], None), crate::test_env(), 36, 6);
+        let mut h = Harness::with_env(Installed::new(vec![long], None), crate::locales::env(), 36, 6);
         h.set_locale("en").set_glyph_mode(GlyphMode::Unicode);
         let screen = h.screen();
         assert!(screen.contains('…'), "the name gives way:\n{screen}");
@@ -386,7 +386,7 @@ mod tests {
             .into_iter()
             .map(|name| package(name, 1024, true, ""))
             .collect();
-        let mut h = Harness::with_env(Installed::new(packages, None), crate::test_env(), 80, 8);
+        let mut h = Harness::with_env(Installed::new(packages, None), crate::locales::env(), 80, 8);
         h.set_locale("en").set_glyph_mode(GlyphMode::Nerd);
         let screen = h.screen();
         for line in [
@@ -411,7 +411,7 @@ mod tests {
     fn the_source_reads_in_the_active_language_and_leaves_a_very_narrow_screen() {
         let packages = vec![package("paru", 1024, true, ""), package("bash", 1024, true, "")];
         let foreign: Foreign = Some(BTreeSet::from(["paru".to_owned()]));
-        let mut h = Harness::with_env(Installed::new(packages, foreign), crate::test_env(), 70, 6);
+        let mut h = Harness::with_env(Installed::new(packages, foreign), crate::locales::env(), 70, 6);
         h.set_locale("en").set_glyph_mode(GlyphMode::Unicode);
         let screen = h.screen();
         assert!(screen.contains("Source") && screen.contains("AUR") && screen.contains("Repo"), "{screen}");

@@ -107,8 +107,11 @@ of the Quvyta family of terminal applications, is built on
   looks for updates without opening the screen and without privileges, and writes what it found
   to `~/.local/state/quvyta/packages/state.json`. Nothing runs as root and nothing is installed.
 
-The interface follows your system language (English and Turkish are included) and uses the
-family's themes, icons, keys and mouse behaviour.
+The interface follows your system language. Nine are included: English, Turkish, German,
+Spanish, French, Brazilian Portuguese, Russian, Simplified Chinese and Japanese. Every one of
+them is held to the same screens at the same narrow widths, so a translated button is never
+cut short or pushed out of its panel. The themes, icons, keys and mouse behaviour are the
+family's own.
 
 ### Not yet
 

@@ -146,7 +146,13 @@ fn page(recorded: &Arc<Recorded>, catalog: bool) -> Page {
 
 /// A harness on `page`, `width` × `height`, in English and `mode`, with the start-up work done.
 fn harness(page: Page, width: u16, height: u16, mode: GlyphMode) -> Harness<Page> {
-    let mut h = Harness::with_env(page, crate::test_env(), width, height);
+    // The environment is loaded once per test thread and handed out as a copy: loading it parses
+    // every language file, the key bindings and the icon set, which the checks that walk nine
+    // languages at three widths would otherwise pay for over and over.
+    thread_local! {
+        static LOADED: qframe::env::Env = crate::locales::env();
+    }
+    let mut h = Harness::with_env(page, LOADED.with(Clone::clone), width, height);
     h.set_locale("en").set_glyph_mode(mode);
     // The catalogs and the network answer in the background; one more step delivers them.
     h.render();
@@ -186,7 +192,7 @@ fn the_starter_list_reads_cleanly_and_every_entry_can_be_installed_from_somewher
 
 #[test]
 fn the_language_files_carry_the_store_in_both_languages() {
-    let env = crate::test_env();
+    let env = crate::locales::env();
     assert_eq!(env.diagnostics(), &[]);
     assert_eq!(env.i18n().missing_keys("tr", "en"), Vec::<String>::new());
 }

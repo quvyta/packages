@@ -355,8 +355,16 @@ pub fn output(flow: &Flow, ui: &mut View<'_, AppMsg>) {
                 State::BackupFailed(job) => (job.heading(), ProgressBar::new(1.0).variant("warning").percent(false)),
                 _ => (finished_label(&job.action), ProgressBar::new(1.0).variant("danger").percent(false)),
             };
-            ui.add(Text::new(heading).bold().no_wrap());
-            ui.add(bar).fill_width();
+            // The heading and the bar share what the control at the end leaves: measured on
+            // their own, a heading as long as a translation can make it would take the whole row
+            // and the control would be cut off at the edge. In their own filling row the control
+            // keeps its width and the heading is the one that shortens.
+            ui.row(|ui| {
+                ui.add(Text::new(heading).bold().no_wrap());
+                ui.add(bar).fill_width();
+            })
+            .gap(2)
+            .fill_width();
             match flow.state() {
                 State::Running { .. } => {
                     ui.add(HoldToConfirm::new(t!("transaction.stop")).on_confirm(AppMsg::Transaction(Msg::Stop)))

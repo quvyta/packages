@@ -453,3 +453,111 @@ fn visual_review_flow() {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/qpackages-flow-review.html");
     fs::write(path, qframe::runtime::html_page(&fragments)).expect("review page written");
 }
+
+/// The widths the transaction's dialogs and notices are held to.
+pub(super) const NARROW: [u16; 2] = [60, 120];
+
+/// A screen tall enough that nothing is left out for want of room below, so width alone is what
+/// the language checks put under test.
+pub(super) const TALL: u16 = 40;
+
+/// The words of the notice that floats over the screen, its rows joined back into one.
+///
+/// A notice is narrower than the screen, so a sentence the language file writes on one line may
+/// be drawn over two. Its own surface colour names the cells it covers, and the close mark at
+/// its top right corner stands on that surface: the run of the colour left of the mark and down
+/// from it is the notice and nothing else. What lies beside it on the same rows belongs to the
+/// page behind and would otherwise come between a sentence and its own second row.
+pub(super) fn notice(h: &Harness<Qpackages>) -> String {
+    let mark = h.env().icons().glyph("close").into_owned();
+    let (x, y) = h.find(&mark).unwrap_or_else(|| panic!("a notice draws its close mark:\n{}", h.screen()));
+    let (x, y) = (u16::try_from(x).unwrap_or(0), u16::try_from(y).unwrap_or(0));
+    let surface = h.bg(x, y);
+    let area = h.buffer().area;
+    let (mut left, mut right, mut bottom) = (x, x, y);
+    while left > 0 && h.bg(left - 1, y) == surface {
+        left -= 1;
+    }
+    while right + 1 < area.width && h.bg(right + 1, y) == surface {
+        right += 1;
+    }
+    while bottom + 1 < area.height && h.bg(left, bottom + 1) == surface {
+        bottom += 1;
+    }
+    // The close mark stands at the right end of the first row, between the end of a wrapped
+    // sentence and the rest of it on the row below; it is the notice's own furniture, not a word
+    // of it.
+    let rows = (y..=bottom).map(|row| {
+        let mut line = String::new();
+        for column in left..=right {
+            let symbol = h.buffer()[(column, row)].symbol();
+            if symbol != mark {
+                line.push_str(symbol);
+            }
+        }
+        line.trim().to_owned()
+    });
+    rows.collect::<Vec<String>>().join(" ")
+}
+
+/// Whether `text` stands whole in `drawn`, wrapped or not.
+///
+/// A sentence too long for the notice is wrapped over as many rows as it needs, so its words are
+/// no longer neighbours. Reading both without their spaces puts the sentence back together,
+/// while a word left out, or one shortened with an ellipsis, still fails to match.
+pub(super) fn shows_whole(drawn: &str, text: &str) -> bool {
+    let bare = |text: &str| text.chars().filter(|c| !c.is_whitespace()).collect::<String>();
+    bare(drawn).contains(&bare(text))
+}
+
+/// The text `key` holds in the language `code`, read from the language file itself and kept.
+///
+/// Every lookup parses all nine files afresh, and the checks below ask for a few dozen of them,
+/// so each answer is kept for the ones that follow.
+pub(super) fn label(code: &str, key: &str) -> String {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock, PoisonError};
+    static KNOWN: OnceLock<Mutex<HashMap<(String, String), String>>> = OnceLock::new();
+    let known = KNOWN.get_or_init(Mutex::default);
+    let asked = (code.to_owned(), key.to_owned());
+    if let Some(text) = known.lock().unwrap_or_else(PoisonError::into_inner).get(&asked) {
+        return text.clone();
+    }
+    let text = crate::locales::tests::label(code, key);
+    known.lock().unwrap_or_else(PoisonError::into_inner).insert(asked, text.clone());
+    text
+}
+
+/// Confirms a dialog by pressing the button that carries `key` in the language `code`, as the
+/// user presses it: by the words he reads.
+pub(super) fn click_labelled(h: &mut Harness<Qpackages>, code: &str, key: &str) {
+    let text = label(code, key);
+    click_last(h, &text);
+}
+
+#[test]
+fn a_refused_password_says_so_whole_in_every_language() {
+    // sudo turned the transaction down. The notice that follows is the only thing on screen that
+    // tells the user nothing happened, so every word of it must be there.
+    for code in crate::locales::tests::codes() {
+        for width in NARROW {
+            let recorded = installing_runner();
+            let Screen { mut h, .. } = screen_with(&recorded, 0, &fixture(), width, TALL);
+            h.set_handoff_outcome(HandoffOutcome::Finished { code: Some(1) });
+            h.set_locale(&code);
+            ask_to_install_flatpak(&mut h);
+            click_labelled(&mut h, &code, "transaction.install");
+            settle(&mut h);
+            let drawn = notice(&h);
+            for key in ["transaction.not-authorized", "transaction.not-authorized-body"] {
+                let text = label(&code, key);
+                assert!(
+                    shows_whole(&drawn, &text),
+                    "`{key}` is cut off in `{code}` at {width} columns; it reads `{text}`, \
+                     the notice reads `{drawn}`:\n{}",
+                    h.screen()
+                );
+            }
+        }
+    }
+}

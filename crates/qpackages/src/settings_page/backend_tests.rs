@@ -45,7 +45,7 @@ fn page(files: &[&str], lookup: fn(&str) -> Option<PathBuf>) -> (Harness<Qpackag
     let recorded = Arc::new(Recorded::default());
     recorded.answer("reflector", &list_countries_args(), COUNTRIES, 0);
     let settings = Settings::open(scratch.root().join("packages.conf"));
-    let mut h = Harness::with_env(app_with(&scratch, settings, &recorded, lookup), crate::test_env(), 110, 90);
+    let mut h = Harness::with_env(app_with(&scratch, settings, &recorded, lookup), crate::locales::env(), 110, 90);
     h.set_locale("en").set_glyph_mode(GlyphMode::Unicode).set_reduced_motion(true);
     h.advance(Duration::from_millis(20));
     h.send(AppMsg::OpenSettings);

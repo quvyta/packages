@@ -230,7 +230,7 @@ fn screen(name: &str, pkgbuild: &str, locale: &str, size: (u16, u16), glyphs: Gl
         &settings,
     )
     .with_places(places(&scratch));
-    let mut h = Harness::with_env(app, crate::test_env(), size.0, size.1);
+    let mut h = Harness::with_env(app, crate::locales::env(), size.0, size.1);
     h.set_locale(locale).set_glyph_mode(glyphs).set_reduced_motion(true);
     let places = review::Places::new(Some(&scratch.root().join("cache")), Some(&scratch.root().join("data")))
         .expect("both folders are given");

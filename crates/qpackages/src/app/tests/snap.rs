@@ -61,7 +61,7 @@ fn screen(
 ) -> Harness<Qpackages> {
     let settings = Settings::parse_str("settings.toml", "");
     let app = app_with(scratch, settings, recorded, lookup).on_tab(Tab::Discover);
-    let mut h = Harness::with_env(app, crate::test_env(), width, height);
+    let mut h = Harness::with_env(app, crate::locales::env(), width, height);
     h.set_locale(language).set_glyph_mode(GlyphMode::Unicode).set_reduced_motion(true);
     h.render();
     h

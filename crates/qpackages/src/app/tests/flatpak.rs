@@ -73,7 +73,7 @@ fn ids(names: &[&str]) -> Vec<String> {
 fn screen(recorded: &Arc<Recorded>, scratch: &Scratch, language: &str, width: u16, height: u16) -> Harness<Qpackages> {
     let settings = Settings::parse_str("settings.toml", "");
     let app = app_with(scratch, settings, recorded, with_flatpak).on_tab(Tab::Discover);
-    let mut h = Harness::with_env(app, crate::test_env(), width, height);
+    let mut h = Harness::with_env(app, crate::locales::env(), width, height);
     h.set_locale(language).set_glyph_mode(GlyphMode::Unicode).set_reduced_motion(true);
     h.render();
     h
@@ -429,7 +429,7 @@ fn settings_say_nothing_of_flathub_when_it_is_there_or_flatpak_is_off() {
     recorded.answer("flatpak", &flatpak::remotes_args(), &recording("remotes-user-empty.txt"), 0);
     let settings = Settings::parse_str("settings.toml", "[sources]\nflatpak = false\n");
     let app = app_with(&scratch, settings, &recorded, with_flatpak);
-    let mut off = Harness::with_env(app, crate::test_env(), 120, 40);
+    let mut off = Harness::with_env(app, crate::locales::env(), 120, 40);
     off.set_locale("en").set_reduced_motion(true);
     off.send(Msg::OpenSettings);
     assert!(!off.screen().contains("Not added"), "Flatpak is off:\n{}", off.screen());

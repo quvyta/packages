@@ -303,3 +303,82 @@ fn an_aur_page_without_paru_or_yay_names_what_to_install_in_place_of_the_button(
         assert!(screen.contains(text), "`{text}` is missing:\n{screen}");
     }
 }
+
+/// The widths a search's results are held to. At seventy the store has already given up the
+/// kinds column, so the results and the lines under them have the page to themselves.
+const NARROW: [u16; 3] = [70, 100, 120];
+
+/// A search whose repositories answer and whose AUR cannot be reached, so the warning line and
+/// its button stand under the results. The query is typed, as a user types it.
+fn unreachable_aur(width: u16, code: &str) -> (Harness<Page>, Arc<Recorded>, String) {
+    let recorded = online();
+    recorded.answer("pacman", &["-Ss", "--", "obs"], &core_fixture("pacman-ss-obs.txt"), 0);
+    let url = aur::search_url("obs", aur::SearchBy::NameDesc).expect("long enough");
+    fail_url(&recorded, &url);
+    // A tall screen, so nothing is missing for want of room below and width alone is under test.
+    let mut h = harness(page(&recorded, true), width, 40, GlyphMode::Unicode);
+    h.set_locale(code);
+    search_for(&mut h, "obs");
+    (h, recorded, url)
+}
+
+/// A search no source can answer, so the page says it found nothing.
+fn nothing_found(width: u16, code: &str) -> Harness<Page> {
+    let recorded = online();
+    recorded.answer("pacman", &["-Ss", "--", "zzqx"], "", 1);
+    let url = aur::search_url("zzqx", aur::SearchBy::NameDesc).expect("long enough");
+    answer_url(&recorded, &url, &core_fixture("aur-search-empty.json"));
+    let mut h = harness(page(&recorded, true), width, 40, GlyphMode::Unicode);
+    h.set_locale(code);
+    search_for(&mut h, "zzqx");
+    h
+}
+
+/// Whether `text` stands whole on `screen`, wrapped or not.
+///
+/// The message of an empty state is wrapped over as many rows as it needs, so the words of one
+/// sentence are no longer neighbours in the drawn screen. Reading both without their spaces puts
+/// the sentence back together, while a word left out or shortened with an ellipsis still fails
+/// to match.
+fn shows_wrapped(screen: &str, text: &str) -> bool {
+    let bare = |text: &str| text.chars().filter(|c| !c.is_whitespace()).collect::<String>();
+    bare(screen).contains(&bare(text))
+}
+
+#[test]
+fn a_search_that_failed_or_found_nothing_reads_whole_in_every_language() {
+    // A label the line cannot fit is shortened with an ellipsis rather than left out, so a
+    // screen that draws something is no proof. Each label is read out of the language file and
+    // looked for as it is written: a shortened "Noch einmal versuchen" is no longer that string.
+    for code in crate::locales::tests::codes() {
+        for width in NARROW {
+            let (h, _recorded, _url) = unreachable_aur(width, &code);
+            let screen = h.screen();
+            let retry = crate::locales::tests::label(&code, "store.search.retry");
+            assert!(
+                screen.contains(&retry),
+                "`store.search.retry` is cut off in `{code}` at {width} columns; it reads `{retry}`:\n{screen}"
+            );
+            let h = nothing_found(width, &code);
+            let screen = h.screen();
+            let message = crate::locales::tests::label(&code, "store.search.none-message");
+            assert!(
+                shows_wrapped(&screen, &message),
+                "`store.search.none-message` is cut off in `{code}` at {width} columns; \
+                 it reads `{message}`:\n{screen}"
+            );
+        }
+    }
+}
+
+#[test]
+fn the_retry_button_asks_the_source_again_when_it_is_pressed_by_its_own_words() {
+    // The button is pressed where the user presses it and by the words he reads, so it is the
+    // screen that sends the message and not the test.
+    let (mut h, recorded, url) = unreachable_aur(110, "tr");
+    answer_url(&recorded, &url, &fixture("aur-search-obs.json"));
+    h.click_text(&crate::locales::tests::label("tr", "store.search.retry"));
+    h.render();
+    let screen = h.screen();
+    assert!(screen.contains("obs-vkcapture"), "the AUR answered the second time:\n{screen}");
+}

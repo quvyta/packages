@@ -6,7 +6,7 @@ use std::sync::Arc;
 use qframe::icons::GlyphMode;
 use qframe::prelude::*;
 use qframe::storage::Settings;
-use qpackages_core::pacman::command::{PACMAN, foreign, print_remove};
+use qpackages_core::pacman::command::{PACMAN, foreign, orphans, print_remove};
 
 use crate::app::{Msg, Qpackages};
 use crate::installed::Msg as Tab;
@@ -26,7 +26,8 @@ fn screen(width: u16, height: u16) -> (Harness<Qpackages>, Scratch, Arc<Recorded
     let scratch = Scratch::new("installed", &SAMPLES);
     let recorded = Arc::new(Recorded::default());
     recorded.answer(PACMAN, &foreign(), "paru\n", 0);
-    let mut h = Harness::with_env(app_in(&scratch, Settings::in_memory(), &recorded), crate::test_env(), width, height);
+    let mut h =
+        Harness::with_env(app_in(&scratch, Settings::in_memory(), &recorded), crate::locales::env(), width, height);
     h.set_locale("en").set_glyph_mode(GlyphMode::Unicode).set_reduced_motion(true);
     (h, scratch, recorded)
 }
@@ -86,7 +87,7 @@ fn the_search_reads_words_and_a_source_filter() {
 fn without_pacman_s_answer_no_package_claims_a_source() {
     let scratch = Scratch::new("installed-unknown", &SAMPLES);
     let recorded = Arc::new(Recorded::default());
-    let mut h = Harness::with_env(app_in(&scratch, Settings::in_memory(), &recorded), crate::test_env(), 120, 24);
+    let mut h = Harness::with_env(app_in(&scratch, Settings::in_memory(), &recorded), crate::locales::env(), 120, 24);
     h.set_locale("en").set_glyph_mode(GlyphMode::Unicode);
     h.send(Msg::Installed(Tab::Show(1)));
     let screen = h.screen();
@@ -160,7 +161,7 @@ fn checks_survive_a_search_and_the_removal_starts_from_the_summary_line() {
 fn a_machine_without_launchers_says_where_the_packages_are() {
     let scratch = Scratch::new("installed-plain", &[Sample::new("bash", "5.3-1", "Shell")]);
     let recorded = Arc::new(Recorded::default());
-    let mut h = Harness::with_env(app_in(&scratch, Settings::in_memory(), &recorded), crate::test_env(), 120, 24);
+    let mut h = Harness::with_env(app_in(&scratch, Settings::in_memory(), &recorded), crate::locales::env(), 120, 24);
     h.set_locale("en");
     assert!(h.screen().contains("No installed application has a launcher"), "{}", h.screen());
     h.set_locale("tr");
@@ -193,6 +194,56 @@ fn every_glyph_mode_and_width_keeps_the_rules() {
             let search = screen.lines().position(|line| line.contains("Search")).expect("the search line");
             let choice = screen.lines().position(|line| line.contains("All packages")).expect("the choice");
             assert!(choice > search, "the choice goes under the search when narrow:\n{screen}");
+        }
+    }
+}
+
+/// The widths the Installed tab is held to. The summary line is the last row of the tab, where
+/// the counts and the buttons share one row, so it is where a long translation runs out of room
+/// first.
+const NARROW: [u16; 4] = [36, 60, 80, 120];
+
+/// The screen over the pretend machine where zlib is an orphan, so the summary line carries the
+/// cleanup as well as the removal: both buttons on one row is the line at its fullest.
+fn with_orphans(width: u16, height: u16) -> (Harness<Qpackages>, Scratch, Arc<Recorded>) {
+    let scratch = Scratch::new("installed-orphans", &SAMPLES);
+    let recorded = Arc::new(Recorded::default());
+    recorded.answer(PACMAN, &foreign(), "paru\n", 0);
+    recorded.answer(PACMAN, &orphans(), "zlib\n", 0);
+    let mut h =
+        Harness::with_env(app_in(&scratch, Settings::in_memory(), &recorded), crate::locales::env(), width, height);
+    h.set_locale("en").set_glyph_mode(GlyphMode::Unicode).set_reduced_motion(true);
+    (h, scratch, recorded)
+}
+
+#[test]
+fn the_summary_line_shows_its_fixed_labels_whole_in_every_language() {
+    // A button the row cannot fit is shortened with an ellipsis rather than left out, so a line
+    // that draws something is no proof. Each label is read out of the language file and looked
+    // for as it is written: a shortened "Ausgewählte entfernen" is no longer that string.
+    // The screen is tall, so nothing is missing for want of room below and width alone is what
+    // is under test.
+    for code in crate::locales::tests::codes() {
+        for width in NARROW {
+            let (mut h, _scratch, _) = with_orphans(width, 40);
+            h.set_locale(&code);
+            h.send(Msg::Installed(Tab::Show(1)));
+            let remove = crate::locales::tests::label(&code, "installed.remove-checked");
+            assert!(!h.screen().contains(&remove), "nothing is checked yet:\n{}", h.screen());
+            // The check is put on the way a user puts it: a click on the check mark of a row,
+            // not the message the table would send.
+            let empty = h.env().icons().glyph("select-off").into_owned();
+            let (x, y) = h.find(&empty).expect("a row offers an empty check mark");
+            h.click(x, y);
+            let screen = h.screen();
+            assert!(screen.contains(&remove), "the space bar checked a row in `{code}`:\n{screen}");
+            for key in ["installed.clean-up", "installed.remove-checked"] {
+                let label = crate::locales::tests::label(&code, key);
+                assert!(
+                    screen.contains(&label),
+                    "`{key}` is cut off in `{code}` at {width} columns; it reads `{label}`:\n{screen}"
+                );
+            }
         }
     }
 }

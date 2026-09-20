@@ -17,7 +17,7 @@ fn page(width: u16, height: u16) -> (Harness<Qpackages>, Scratch, Arc<Recorded>)
     let scratch = Scratch::new("settings", &[Sample::new("bash", "5.3-1", "Shell")]);
     let recorded = Arc::new(Recorded::default());
     let settings = Settings::open(scratch.root().join("packages.conf"));
-    let mut h = Harness::with_env(app_in(&scratch, settings, &recorded), crate::test_env(), width, height);
+    let mut h = Harness::with_env(app_in(&scratch, settings, &recorded), crate::locales::env(), width, height);
     h.set_locale("en").set_glyph_mode(GlyphMode::Unicode).set_reduced_motion(true);
     h.send(AppMsg::OpenSettings);
     (h, scratch, recorded)

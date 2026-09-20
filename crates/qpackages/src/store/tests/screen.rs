@@ -375,3 +375,65 @@ fn every_short_kind_name_fits_beside_a_three_digit_count_in_both_languages() {
         }
     }
 }
+
+/// The widths an application's page is held to. Under 70 columns the store drops the summary and
+/// the source labels from its cards, and the page's two columns of facts become one.
+const NARROW: [u16; 3] = [70, 100, 120];
+
+/// The page of the application `key` on the popular row, with the repositories' answer for every
+/// package a test may open recorded. The card is opened by message, so no width and no language
+/// has to be aimed at.
+fn app_page(key: &str, width: u16) -> Harness<Page> {
+    let recorded = online();
+    for package in ["firefox", "vlc"] {
+        recorded.answer("pacman", &["-Si", "--", package], &core_fixture("pacman-si-obs-studio.txt"), 0);
+    }
+    let mut h = harness(page(&recorded, true), width, 40, GlyphMode::Unicode);
+    let index = h
+        .app()
+        .store
+        .popular
+        .iter()
+        .position(|card| card.key == key)
+        .unwrap_or_else(|| panic!("`{key}` is on the popular row"));
+    h.send(Msg::Open(Grid::Row(Section::Popular), index));
+    h.advance(Duration::from_secs(1));
+    h
+}
+
+#[test]
+fn an_application_page_shows_its_fixed_labels_whole_in_every_language() {
+    // A label the page cannot fit is shortened with an ellipsis rather than left out, so a page
+    // that draws something is no proof. Each label is read out of the language file and looked
+    // for as it is written: a shortened "Herunterladen" is no longer that string.
+    let shared = [
+        "store.back",
+        "store.app.source",
+        "store.app.version",
+        "store.app.license",
+        "store.app.download",
+        "store.app.on-disk",
+        "store.app.repository",
+        "store.app.website",
+        "store.app.depends",
+    ];
+    // VLC is not on this pretend machine and Firefox is, so between them the page shows both of
+    // the buttons it can offer.
+    let applications = [("org.videolan.vlc", "store.app.install"), ("org.mozilla.firefox", "store.app.remove")];
+    for code in crate::locales::tests::codes() {
+        for width in NARROW {
+            for (key, button) in applications {
+                let mut h = app_page(key, width);
+                h.set_locale(&code);
+                let screen = h.screen();
+                for label in shared.iter().chain([&button]) {
+                    let text = crate::locales::tests::label(&code, label);
+                    assert!(
+                        screen.contains(&text),
+                        "`{label}` is cut off in `{code}` on {key} at {width} columns; it reads `{text}`:\n{screen}"
+                    );
+                }
+            }
+        }
+    }
+}

@@ -244,8 +244,11 @@ pub fn click_last<A: App>(h: &mut Harness<A>, label: &str) {
         .rfind(in_dialog)
         .or_else(|| found.last())
         .unwrap_or_else(|| panic!("`{label}` is not on screen:\n{screen}"));
-    let x = line[..start].chars().count();
-    h.click(i32::try_from(x).expect("a screen column"), i32::try_from(y).expect("a screen row"));
+    // The column, not the character: a Chinese or Japanese label stands two cells wide, so what
+    // comes before the button on its row takes more columns than it has characters and counting
+    // characters would aim the click at the button beside it.
+    let x = qframe::text::width(&line[..start]);
+    h.click(i32::from(x), i32::try_from(y).expect("a screen row"));
 }
 
 /// A stand-in for snapd on a socket of the test's own.

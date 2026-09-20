@@ -30,7 +30,7 @@ fn screen(orphaned: &str, settings: &str, width: u16, height: u16) -> (Harness<Q
     recorded.answer(PACMAN, &print_remove(&["libfoo"]), "libfoo|1.0-1\n", 0);
     recorded.answer(PACMAN, &print_remove(&["yay"]), "yay|12.5.0-1\n", 0);
     let settings = Settings::parse_str("packages.conf", settings);
-    let mut h = Harness::with_env(app_in(&scratch, settings, &recorded), crate::test_env(), width, height);
+    let mut h = Harness::with_env(app_in(&scratch, settings, &recorded), crate::locales::env(), width, height);
     h.set_locale("en").set_glyph_mode(GlyphMode::Unicode).set_reduced_motion(true);
     settle(&mut h);
     (h, scratch, recorded)

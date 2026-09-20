@@ -10,7 +10,10 @@ use qframe::prelude::Harness;
 use qframe::runtime::{DetachedOutcome, LiveChild, TestChild};
 use qframe::storage::Settings;
 
-use super::flow::{ask_to_install_flatpak, click_last, install_flatpak, runner, settle};
+use super::flow::{
+    NARROW, TALL, ask_to_install_flatpak, click_labelled, click_last, install_flatpak, label, notice, runner, settle,
+    shows_whole,
+};
 use super::{after_reads, env, fixture, nowhere};
 use crate::app::{Machine, Qpackages};
 use crate::helper::pkexec;
@@ -26,6 +29,11 @@ fn with_polkit(program: &str) -> Option<PathBuf> {
 /// The screen on the machine with polkit, following `settings`. The sudo path's helpers are
 /// in-process ones, so a test that ends up on sudo never reaches the real thing either.
 fn screen(settings: &str) -> (Harness<Qpackages>, Arc<InProcess>, Arc<Recorded>) {
+    screen_at(settings, 120, 30)
+}
+
+/// The same screen, `width` × `height`.
+fn screen_at(settings: &str, width: u16, height: u16) -> (Harness<Qpackages>, Arc<InProcess>, Arc<Recorded>) {
     let recorded = runner();
     let helper = InProcess::new(&recorded, 0);
     let settings = Settings::parse_str("settings.toml", settings).schema(settings::schema());
@@ -45,7 +53,7 @@ fn screen(settings: &str) -> (Harness<Qpackages>, Arc<InProcess>, Arc<Recorded>)
         appearance: crate::testing::appearance_apart(),
         snap_socket: &nowhere().join("snapd.socket"),
     };
-    let mut h = Harness::with_env(Qpackages::new(machine, &settings), env(), 120, 30);
+    let mut h = Harness::with_env(Qpackages::new(machine, &settings), env(), width, height);
     h.set_locale("en").set_glyph_mode(GlyphMode::Unicode).set_reduced_motion(true);
     (h, helper, recorded)
 }
@@ -254,4 +262,48 @@ fn a_helper_that_ends_on_its_own_takes_the_badge_with_it() {
     program.exit(Some(0));
     until(&mut h, "the badge to go", |h| !h.screen().contains("◆ admin"));
     assert!(!h.app().transaction.has_helper());
+}
+
+#[test]
+fn every_notice_polkit_leaves_behind_reads_whole_in_every_language() {
+    // The notice is the only thing on screen that tells the user what became of his transaction,
+    // so every word of it must be there. Each one is read out of the language file and looked
+    // for as it is written: a shortened "Die Rechte wurden nicht gegeben" is no longer that
+    // string. The screen is tall, so width alone is what is under test.
+    //
+    // Three ways the permission can fail, each with its own words: the password was turned down,
+    // the helper that started refuses to serve, and pkexec itself could not run.
+    for code in crate::locales::tests::codes() {
+        for width in NARROW {
+            let refused = |h: &mut Harness<Qpackages>| {
+                h.set_locale(&code);
+                ask_to_install_flatpak(h);
+                click_labelled(h, &code, "transaction.install");
+                settle(h);
+            };
+            let (mut h, _, _) = screen_at("", width, TALL);
+            h.set_detached_outcome(DetachedOutcome::Finished { code: Some(126) });
+            refused(&mut h);
+            let mut expected: Vec<(&str, String)> =
+                vec![("transaction.not-authorized", notice(&h)), ("transaction.not-authorized-body", notice(&h))];
+            let (mut h, _, _) = screen_at("", width, TALL);
+            let (child, _program) = LiveChild::for_tests();
+            h.set_detached_outcome(DetachedOutcome::Detached { child, first_line: "refused not-root".to_owned() });
+            refused(&mut h);
+            expected.push(("transaction.not-authorized", notice(&h)));
+            expected.push(("helper.refused.not-root", notice(&h)));
+            let (mut h, _, _) = screen_at("", width, TALL);
+            h.set_detached_outcome(DetachedOutcome::Failed("No such file or directory".to_owned()));
+            refused(&mut h);
+            expected.push(("transaction.helper-failed", notice(&h)));
+            for (key, drawn) in expected {
+                let text = label(&code, key);
+                assert!(
+                    shows_whole(&drawn, &text),
+                    "`{key}` is cut off in `{code}` at {width} columns; it reads `{text}`, \
+                     the notice reads `{drawn}`"
+                );
+            }
+        }
+    }
 }
