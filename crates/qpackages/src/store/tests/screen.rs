@@ -2,9 +2,9 @@
 
 use super::*;
 
-/// The icon a card draws for `name` of `kind` in `mode`.
-fn icon(name: &str, kind: qpackages_core::catalog::category::Category, mode: GlyphMode) -> String {
-    crate::icons::glyph(name, kind, Source::Pacman, mode)
+/// The icon a card draws for `name` of `kind`, as `icons` draws it.
+fn icon(name: &str, kind: qpackages_core::catalog::category::Category, icons: &qframe::icons::Icons) -> String {
+    crate::icons::glyph(name, kind, Source::Pacman, icons.mode()).resolve(icons).into_owned()
 }
 
 #[test]
@@ -74,9 +74,9 @@ fn every_glyph_mode_draws_an_icon_on_every_card() {
         let recorded = online();
         let h = harness(page(&recorded, true), 96, 30, mode);
         let screen = h.screen();
-        let firefox = format!("{} Firefox", icon("firefox", Category::Internet, mode));
+        let firefox = format!("{} Firefox", icon("firefox", Category::Internet, h.env().icons()));
         assert!(screen.contains(&firefox), "`{firefox}` in {mode:?}:\n{screen}");
-        let vlc = format!("{} VLC", icon("vlc", Category::AudioVideo, mode));
+        let vlc = format!("{} VLC", icon("vlc", Category::AudioVideo, h.env().icons()));
         assert!(screen.contains(&vlc), "`{vlc}` in {mode:?}:\n{screen}");
         let check = h.env().icons().glyph("check").into_owned();
         assert!(screen.contains(&format!("Installed {check}")), "the mark follows the mode:\n{screen}");

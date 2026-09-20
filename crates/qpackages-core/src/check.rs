@@ -1,7 +1,7 @@
 //! What a background update check leaves for the screen: the state file.
 //!
 //! `qpac --check` runs without privileges, from a user timer. It writes the updates it found and
-//! when it found them to `$XDG_STATE_HOME/quvyta-packages/state.json`; the screen reads the file
+//! when it found them to `$XDG_STATE_HOME/quvyta/packages/state.json`; the screen reads the file
 //! when it opens, and runs its own check when there is none. This module holds the file's format,
 //! the rule that keeps checks from hammering the mirrors, and the comparison that tells an AUR
 //! update from the versions installed.

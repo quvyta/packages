@@ -11,12 +11,16 @@
 //!   or a new maintainer.
 //!
 //! The approval is kept by [`Store`]: a digest of the recipe, its maintainer and source hosts,
-//! and a copy of its files to compare the next version with.
+//! and a copy of its files to compare the next version with. The recipe itself comes from the
+//! AUR's git repository through [`fetch`], and [`summary`] turns a review into what the
+//! confirmation before a build shows.
 
 pub mod diff;
+pub mod fetch;
 pub mod rules;
 mod sha256;
 mod store;
+pub mod summary;
 
 pub use rules::{Finding, Rule};
 pub use store::{Approved, Diagnostic, Store};

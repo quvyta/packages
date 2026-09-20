@@ -6,8 +6,11 @@
 //! label column, which no parser can follow.
 
 pub mod backup;
+pub mod build;
 pub mod catalog;
 pub mod check;
+pub mod depends;
+pub mod flatpak;
 pub mod helper;
 pub mod lock;
 pub mod news;

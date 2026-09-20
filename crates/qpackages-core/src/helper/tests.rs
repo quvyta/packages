@@ -29,7 +29,7 @@ fn an_unknown_word_is_refused() {
         "Upgrade",
         "upgrade-all",
         "INSTALL firefox",
-        "install-built /tmp/x.pkg.tar.zst",
+        "install_built /tmp/x.pkg.tar.zst",
         " install firefox",
         "sh -c id",
     ] {
@@ -167,6 +167,98 @@ fn mirrors_takes_only_checked_values() {
 }
 
 #[test]
+fn flatpak_system_removes_one_or_more_valid_ids() {
+    assert_eq!(
+        Request::parse("flatpak-system remove org.mozilla.firefox"),
+        Ok(Request::FlatpakSystemRemove(owned(&["org.mozilla.firefox"])))
+    );
+    assert_eq!(
+        Request::parse("flatpak-system remove org.gimp.GIMP io.github.celluloid_player.Celluloid org.example.a-b"),
+        Ok(Request::FlatpakSystemRemove(owned(&[
+            "org.gimp.GIMP",
+            "io.github.celluloid_player.Celluloid",
+            "org.example.a-b"
+        ])))
+    );
+    let longest = format!("a.b.{}", "c".repeat(251));
+    assert_eq!(longest.len(), 255);
+    assert_eq!(
+        Request::parse(&format!("flatpak-system remove {longest}")),
+        Ok(Request::FlatpakSystemRemove(vec![longest]))
+    );
+}
+
+#[test]
+fn flatpak_system_refuses_what_is_not_a_removal_of_ids() {
+    // Installing and updating are the user's own and never reach the helper.
+    for line in [
+        "flatpak-system",
+        "flatpak-system remove",
+        "flatpak-system install org.mozilla.firefox",
+        "flatpak-system update org.mozilla.firefox",
+        "flatpak-system uninstall org.mozilla.firefox",
+        "flatpak-system REMOVE org.mozilla.firefox",
+        "flatpak-system --system remove org.mozilla.firefox",
+        "flatpak-system org.mozilla.firefox",
+    ] {
+        assert_eq!(Request::parse(line), Err(Refusal::Values), "`{line}`");
+    }
+    for line in
+        ["flatpak org.mozilla.firefox", "flatpak-user remove org.mozilla.firefox", "Flatpak-system remove a.b.c"]
+    {
+        assert_eq!(Request::parse(line), Err(Refusal::Unknown), "`{line}`");
+    }
+}
+
+#[test]
+fn flatpak_ids_breaking_the_rule_are_refused() {
+    let too_long = format!("a.b.{}", "c".repeat(252));
+    for id in [
+        "",
+        "firefox",
+        "org.firefox",
+        "-org.mozilla.firefox",
+        "--system",
+        "--delete-data",
+        "org..mozilla",
+        "../../etc.passwd.x",
+        ".org.mozilla.firefox",
+        "org.mozilla.firefox.",
+        "org.mozilla.fire/fox",
+        "org.mozilla.fırefox",
+        "org.mozilla.fire\tfox",
+        "org.mozilla.firefox\r",
+        "app/org.mozilla.firefox/x86_64/stable",
+        "org.mozilla.firefox//stable",
+        too_long.as_str(),
+    ] {
+        let line = format!("flatpak-system remove {id}");
+        assert_eq!(Request::parse(&line), Err(Refusal::FlatpakId), "`{line}`");
+    }
+    for line in [
+        "flatpak-system remove org.mozilla.firefox ",
+        "flatpak-system remove  org.mozilla.firefox",
+        "flatpak-system remove org.mozilla.firefox -x.y.z",
+        "flatpak-system remove org.mozilla.firefox --system",
+    ] {
+        assert_eq!(Request::parse(line), Err(Refusal::FlatpakId), "`{line}`");
+    }
+}
+
+#[test]
+fn flatpak_system_runs_flatpak_by_its_path_for_the_system_with_a_double_dash() {
+    let request = Request::FlatpakSystemRemove(owned(&["org.gimp.GIMP", "org.videolan.VLC"]));
+    assert_eq!(
+        request.command(),
+        Some((
+            "/usr/bin/flatpak",
+            owned(&["--system", "uninstall", "--noninteractive", "--", "org.gimp.GIMP", "org.videolan.VLC"])
+        ))
+    );
+    assert_eq!(request.to_string(), "flatpak-system remove org.gimp.GIMP org.videolan.VLC");
+}
+
+#[test]
 fn a_request_writes_the_line_it_is_read_from() {
     for request in [
         Request::Install(owned(&["firefox", "vlc"])),
@@ -183,6 +275,8 @@ fn a_request_writes_the_line_it_is_read_from() {
         Request::Snapshot(Snapshot::Timeshift),
         Request::Mirrors(Mirrors::default()),
         Request::Mirrors(Mirrors::from_values(&["http", "24", "5", "age", "TR,DE"]).expect("valid")),
+        Request::FlatpakSystemRemove(owned(&["org.gimp.GIMP", "org.videolan.VLC"])),
+        Request::InstallBuilt(owned(&["/home/a/.cache/paru/clone/x/x-1-1-any.pkg.tar.zst"])),
         Request::Size { cols: 120, rows: 9 },
     ] {
         assert_eq!(Request::parse(&request.to_string()), Ok(request));
@@ -206,6 +300,8 @@ fn requests_run_programs_by_their_path_with_fixed_flags_and_a_double_dash() {
     assert_eq!(Request::Timer(true).command(), systemctl(&["enable", "--now", "--", "reflector.timer"]));
     assert_eq!(Request::Timer(false).command(), systemctl(&["disable", "--now", "--", "reflector.timer"]));
     assert_eq!(Request::RemoveOrphans(firefox()).command(), None, "the helper lists the orphans first");
+    let built = Request::InstallBuilt(owned(&["/home/a/.cache/yay/x/x-1-1-any.pkg.tar.zst"]));
+    assert_eq!(built.command(), None, "the helper opens the files first");
     assert_eq!(Request::Size { cols: 80, rows: 24 }.command(), None);
 }
 
@@ -225,6 +321,9 @@ fn responses_are_read_and_written_the_same_way() {
         ("refused changed", Response::Refused(Refusal::Changed)),
         ("refused no-mirrors", Response::Refused(Refusal::NoMirrors)),
         ("refused file", Response::Refused(Refusal::File)),
+        ("refused flatpak-id", Response::Refused(Refusal::FlatpakId)),
+        ("refused built", Response::Refused(Refusal::Built)),
+        ("refused not-this-build", Response::Refused(Refusal::NotThisBuild)),
     ] {
         assert_eq!(Response::parse(line), Some(response.clone()), "`{line}`");
         assert_eq!(response.to_string(), line);
@@ -290,4 +389,93 @@ fn pacman_gets_a_fixed_path_and_the_given_locale() {
         [("PATH", "/usr/bin:/usr/sbin"), ("LANG", "tr_TR.UTF-8"), ("LC_ALL", "tr_TR.UTF-8")]
     );
     assert_eq!(PACMAN_PATH, "/usr/bin/pacman");
+}
+
+const BUILT: &str = "/home/ayse/.cache/paru/clone/hello/hello-1.0-1-x86_64.pkg.tar.zst";
+
+#[test]
+fn install_built_takes_one_or_more_absolute_package_paths() {
+    assert_eq!(Request::parse(&format!("install-built {BUILT}")), Ok(Request::InstallBuilt(owned(&[BUILT]))));
+    let yay =
+        ["hello", "hello-debug"].map(|name| format!("/home/ayse/.cache/yay/hello/{name}-1.0-1-x86_64.pkg.tar.xz"));
+    assert_eq!(Request::parse(&format!("install-built {}", yay.join(" "))), Ok(Request::InstallBuilt(yay.to_vec())));
+    assert_eq!(
+        Request::InstallBuilt(owned(&[BUILT])).to_string(),
+        format!("install-built {BUILT}"),
+        "the line a relay passes on is the line it read"
+    );
+}
+
+#[test]
+fn install_built_refuses_paths_that_break_the_file_rule() {
+    assert_eq!(Request::parse("install-built"), Err(Refusal::Values));
+    let too_long = format!("/home/ayse/.cache/paru/clone/{}.pkg.tar.zst", "a".repeat(4096));
+    for path in [
+        "",
+        "hello-1.0-1-x86_64.pkg.tar.zst",
+        "./hello-1.0-1-x86_64.pkg.tar.zst",
+        "~/.cache/paru/clone/hello/hello-1.0-1-x86_64.pkg.tar.zst",
+        "/home/ayse/.cache/paru/clone/../../../../etc/shadow.pkg.tar.zst",
+        "/home/ayse/.cache/paru/clone/./hello/hello-1.0-1-x86_64.pkg.tar.zst",
+        "/home/ayse/.cache/paru/clone//hello/hello-1.0-1-x86_64.pkg.tar.zst",
+        "/home/ayse/.cache/paru/clone/hello/hello-1.0-1-x86_64.pkg.tar.gz",
+        "/home/ayse/.cache/paru/clone/hello/hello-1.0-1-x86_64.pkg.tar",
+        "/home/ayse/.cache/paru/clone/hello/PKGBUILD",
+        "/home/ayse/.cache/paru/clone/hello/hello.pkg.tar.zst.sig",
+        "/home/ayse/.cache/paru/clone/hello/",
+        "/.pkg.tar.zst",
+        "/home/ayse/.cache/paru/clone/hello/x\u{7}.pkg.tar.zst",
+        "--overwrite=*",
+        too_long.as_str(),
+    ] {
+        assert_eq!(Request::parse(&format!("install-built {path}")), Err(Refusal::Built), "`{path}`");
+        assert!(!is_built_path(path), "`{path}`");
+    }
+    assert_eq!(Request::parse(&format!("install-built {BUILT} ../x.pkg.tar.zst")), Err(Refusal::Built), "all or none");
+}
+
+#[test]
+fn a_built_file_lies_below_one_of_the_users_build_caches() {
+    let home = Path::new("/home/ayse");
+    for path in [BUILT, "/home/ayse/.cache/yay/hello/hello-1.0-1-any.pkg.tar.zst"] {
+        assert!(in_build_cache(Path::new(path), home), "`{path}`");
+    }
+    for path in [
+        "/home/ayse/.cache/paru/clone",
+        "/home/ayse/.cache/paru/hello-1.0-1-any.pkg.tar.zst",
+        "/home/ayse/.cache/yayx/hello-1.0-1-any.pkg.tar.zst",
+        "/home/ayse/hello-1.0-1-any.pkg.tar.zst",
+        "/home/mehmet/.cache/paru/clone/hello/hello-1.0-1-any.pkg.tar.zst",
+        "/home/ayse/.cache/paru/clone/../../../../etc/x.pkg.tar.zst",
+        "/var/cache/pacman/pkg/hello-1.0-1-any.pkg.tar.zst",
+    ] {
+        assert!(!in_build_cache(Path::new(path), home), "`{path}`");
+    }
+}
+
+#[test]
+fn the_caller_is_read_from_pkexec_then_sudo() {
+    let env = |pairs: &'static [(&'static str, &'static str)]| {
+        move |name: &str| pairs.iter().find(|(key, _)| *key == name).map(|(_, value)| (*value).to_owned())
+    };
+    assert_eq!(caller_uid(env(&[("PKEXEC_UID", "1000"), ("SUDO_UID", "1001")])), Some(1000));
+    assert_eq!(caller_uid(env(&[("SUDO_UID", "1001")])), Some(1001));
+    assert_eq!(caller_uid(env(&[])), None);
+    for bad in ["", "-1", "1000 ", "10a", "99999999999"] {
+        let lookup = |name: &str| (name == "PKEXEC_UID").then(|| bad.to_owned());
+        assert_eq!(caller_uid(lookup), None, "`{bad}`");
+    }
+}
+
+#[test]
+fn the_callers_home_comes_from_the_password_database() {
+    let passwd = "root:x:0:0::/root:/usr/bin/bash\n\
+        broken line\n\
+        relative:x:1002:1002::home/relative:/bin/sh\n\
+        ayse:x:1000:1000:Ayşe:/home/ayse:/usr/bin/zsh\n\
+        again:x:1000:1000::/home/again:/bin/sh\n";
+    assert_eq!(passwd_home(passwd, 1000), Some(PathBuf::from("/home/ayse")), "the first line of the id");
+    assert_eq!(passwd_home(passwd, 0), Some(PathBuf::from("/root")));
+    assert_eq!(passwd_home(passwd, 1002), None, "a relative home is no home");
+    assert_eq!(passwd_home(passwd, 4242), None);
 }

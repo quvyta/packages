@@ -15,13 +15,13 @@ use std::sync::Arc;
 use qframe::prelude::Command;
 use qpackages_core::pacman::command::{self, PACMAN};
 use qpackages_core::pacman::{Package, Problem, read_local_db};
-use qpackages_core::sources::{AurPreference, Sources, detect};
+use qpackages_core::sources::{AurPreference, Availability, Sources, detect};
 
 use crate::app::Msg as AppMsg;
 use crate::installed::apps;
 use crate::installed::table::Foreign;
 use crate::runner::Runner;
-use crate::transaction::list_orphans;
+use crate::transaction::{flathub_added, list_orphans};
 
 /// Finds a program on this machine, as `on_path` does. Shared with the background read, so it
 /// must be safe to call from another thread.
@@ -42,6 +42,9 @@ pub struct Snapshot {
     pub foreign: Foreign,
     /// The orphans: installed as dependencies and needed by nothing now, when pacman could say.
     pub orphans: Foreign,
+    /// Whether the user has Flathub as a Flatpak remote; `None` without Flatpak or when it could
+    /// not say.
+    pub flathub: Option<bool>,
 }
 
 /// Everything a read needs, kept so the read can be repeated after a transaction.
@@ -96,7 +99,11 @@ impl Reload {
         let apps = apps::owners(&self.dbpath, &packages, &apps::launchers(&self.applications));
         let foreign = self.foreign();
         let orphans = list_orphans(self.runner.as_ref()).ok().map(|names| names.into_iter().collect());
-        Snapshot { packages, problems, sources, apps, foreign, orphans }
+        let flathub = match sources.flatpak {
+            Availability::Ready { .. } => flathub_added(self.runner.as_ref()),
+            Availability::Missing => None,
+        };
+        Snapshot { packages, problems, sources, apps, foreign, orphans, flathub }
     }
 
     /// The packages no repository offers, from `pacman -Qqm`; `None` when pacman could not say,

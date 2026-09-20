@@ -73,6 +73,14 @@ pub fn mark_explicit(names: &[impl AsRef<str>]) -> Vec<String> {
     with_names(["-D", "--asexplicit"], names)
 }
 
+/// The arguments that install the package files at `paths`, built from the AUR: `-U
+/// --noconfirm`. The helper hands paths to files it holds open, so what pacman reads is the file
+/// the helper checked.
+#[must_use]
+pub fn install_built(paths: &[impl AsRef<str>]) -> Vec<String> {
+    with_names(["-U", "--noconfirm"], paths)
+}
+
 /// The arguments that list the orphans, one name per line: installed as dependencies and needed
 /// by nothing any more (`-Qtdq`). Read by [`read_orphans`](super::read_orphans).
 #[must_use]

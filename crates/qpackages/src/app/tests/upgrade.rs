@@ -46,6 +46,10 @@ fn screen(recorded: &Arc<Recorded>, settings: &str, root: &Path) -> Harness<Qpac
         root: root.to_path_buf(),
         units: None,
         exe: None,
+        runtime: None,
+        home: None,
+        cache: None,
+        data: None,
     });
     let mut h = Harness::with_env(app, env(), 120, 30);
     h.set_locale("en").set_glyph_mode(GlyphMode::Unicode).set_reduced_motion(true);

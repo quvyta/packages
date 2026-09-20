@@ -7,16 +7,16 @@
 //! icon whatever the terminal can draw.
 //!
 //! The kind and source icons are the application's own icon set (`assets/icons/qpackages.toml`),
-//! given to the runtime like its language files. The framework draws icon keys only from the
-//! set the theme chooses, so the glyphs are looked up here, through the framework's own icon set
-//! reader, in the glyph mode the screen is drawn in.
+//! given to the runtime like its language files. The framework draws the keys of that set
+//! whatever set the theme chose and in the glyph mode in use, so a kind or a source is named by
+//! its key and the widget that draws it resolves it.
 
+use std::collections::HashMap;
 use std::collections::hash_map::Entry;
-use std::collections::{BTreeMap, HashMap};
 use std::sync::LazyLock;
 
 use qframe::diagnostics::{Diagnostic, Location};
-use qframe::icons::{GlyphMode, IconSetRegistry, Icons};
+use qframe::icons::{Glyph, GlyphMode};
 use qpackages_core::catalog::category::Category;
 use qpackages_core::pacman::Package;
 use qpackages_core::sources::Source;
@@ -27,19 +27,8 @@ const TABLE: (&str, &str) = ("packages.toml", include_str!("../assets/icons/pack
 /// The kind and source icons, as an icon set file the runtime is given.
 pub const SET: (&str, &str) = ("qpackages.toml", include_str!("../assets/icons/qpackages.toml"));
 
-/// The set's id: the stem of its file name, the way the framework names sets.
-const SET_ID: &str = "qpackages";
-
 /// The glyph table, read once.
 static GLYPHS: LazyLock<(GlyphTable, Vec<Diagnostic>)> = LazyLock::new(|| GlyphTable::parse(TABLE.0, TABLE.1));
-
-/// The kind and source icons in each glyph mode, built once, in the order of [`MODES`].
-static SET_ICONS: LazyLock<[Icons; 3]> = LazyLock::new(|| {
-    let mut registry = IconSetRegistry::builtin();
-    registry.add_source(SET_ID, SET.0, SET.1);
-    let none = BTreeMap::new();
-    MODES.map(|mode| registry.icons(SET_ID, &none, mode))
-});
 
 /// What went wrong reading the glyph table; empty for the table that ships.
 pub fn diagnostics() -> &'static [Diagnostic] {
@@ -49,38 +38,28 @@ pub fn diagnostics() -> &'static [Diagnostic] {
 /// The icon of an installed pacman package in `mode`. Its kind comes from its groups and its name,
 /// the hints the local database has.
 #[must_use]
-pub fn installed(package: &Package, mode: GlyphMode) -> String {
+pub fn installed(package: &Package, mode: GlyphMode) -> Glyph {
     const NO_CATEGORIES: [&str; 0] = [];
     let kind = Category::classify(&NO_CATEGORIES, &package.groups, &package.name);
     glyph(&package.name, kind, Source::Pacman, mode)
 }
 
-/// The icon of the package or Flatpak id `name`, of `kind`, from `source`, in `mode`.
+/// The icon of the package or Flatpak id `name`, of `kind`, from `source`, in `mode`: the glyph
+/// table's code point where it names one, else the key of the kind, else the key of the source.
+///
+/// The table's glyphs are Nerd Font code points, so they are literals and only in Nerd mode; a
+/// key is left to the widget, which draws it from the set the theme chose.
 #[must_use]
-pub fn glyph(name: &str, kind: Category, source: Source, mode: GlyphMode) -> String {
+pub fn glyph(name: &str, kind: Category, source: Source, mode: GlyphMode) -> Glyph {
     if mode == GlyphMode::Nerd
         && let Some(glyph) = GLYPHS.0.lookup(name)
     {
-        return glyph.to_string();
+        return Glyph::literal(glyph.to_string());
     }
-    let icons = &SET_ICONS[mode_index(mode)];
-    let key = if kind == Category::Unknown {
-        format!("source.{}", crate::sources::name(source))
+    if kind == Category::Unknown {
+        Glyph::key(format!("source.{}", crate::sources::name(source)))
     } else {
-        format!("category.{}", kind.key())
-    };
-    icons.glyph(&key).into_owned()
-}
-
-/// Every glyph mode, in the order of [`mode_index`].
-pub const MODES: [GlyphMode; 3] = [GlyphMode::Nerd, GlyphMode::Unicode, GlyphMode::Ascii];
-
-/// Where `mode` sits in [`MODES`], for anything kept once per mode.
-pub const fn mode_index(mode: GlyphMode) -> usize {
-    match mode {
-        GlyphMode::Nerd => 0,
-        GlyphMode::Unicode => 1,
-        GlyphMode::Ascii => 2,
+        Glyph::key(format!("category.{}", kind.key()))
     }
 }
 
@@ -218,6 +197,8 @@ fn skip_spaces(line: &str, at: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use qframe::prelude::*;
+
     use super::*;
 
     const FIREFOX: char = '\u{e745}';
@@ -305,33 +286,52 @@ mod tests {
     }
 
     #[test]
-    fn the_kind_and_source_icons_load_cleanly_and_are_one_cell_in_every_mode() {
-        let mut registry = IconSetRegistry::builtin();
-        assert!(registry.add_source(SET_ID, SET.0, SET.1));
-        assert!(registry.diagnostics().is_empty(), "{:?}", registry.diagnostics());
+    fn the_kind_and_source_icons_are_drawn_by_every_theme_and_are_one_cell_in_every_mode() {
         let kinds = Category::BROWSABLE.into_iter().chain([Category::Library, Category::Unknown]);
         let keys: Vec<String> = kinds
             .map(|kind| format!("category.{}", kind.key()))
             .chain(crate::sources::ALL.map(|source| format!("source.{}", crate::sources::name(source))))
             .collect();
-        for icons in SET_ICONS.iter() {
-            for key in &keys {
-                assert!(icons.contains(key), "{key}");
-                assert_eq!(qframe::text::width(&icons.glyph(key)), 1, "{key} in {:?}", icons.mode());
+        let env = crate::test_env();
+        // The set qpac gives is not the one any theme names, so this is the layering the
+        // framework promises: its keys are there whatever set is chosen.
+        for (theme, _) in env.themes() {
+            for mode in [GlyphMode::Nerd, GlyphMode::Unicode, GlyphMode::Ascii] {
+                let icons = env_icons(&theme, mode);
+                for key in &keys {
+                    assert!(icons.contains(key), "{key} in {theme}");
+                    assert_eq!(qframe::text::width(&icons.glyph(key)), 1, "{key} in {theme}, {mode:?}");
+                }
             }
         }
+    }
+
+    /// The icons a harness draws with under `theme` in `mode`, qpac's own set among them.
+    fn env_icons(theme: &str, mode: GlyphMode) -> qframe::icons::Icons {
+        struct Nothing;
+        impl App for Nothing {
+            type Msg = ();
+            fn update(&mut self, (): ()) -> Command<()> {
+                Command::none()
+            }
+            fn view(&self, _: &mut View<'_, ()>) {}
+        }
+        let mut h = Harness::with_env(Nothing, crate::test_env(), 10, 2);
+        h.set_theme(theme).set_glyph_mode(mode);
+        h.env().icons().clone()
     }
 
     #[test]
     fn the_table_speaks_only_in_nerd_mode_then_the_kind_then_the_source() {
         use GlyphMode::{Ascii, Nerd, Unicode};
-        let firefox = |mode| glyph("firefox", Category::Internet, Source::Pacman, mode);
+        let drawn = |glyph: Glyph, mode| glyph.resolve(&env_icons("monochrome", mode)).into_owned();
+        let firefox = |mode| drawn(glyph("firefox", Category::Internet, Source::Pacman, mode), mode);
         assert_eq!(firefox(Nerd), FIREFOX.to_string());
         assert_eq!(firefox(Unicode), "◎", "the kind's icon where the font has no Nerd glyphs");
         assert_eq!(firefox(Ascii), "@");
-        let obs = |mode| glyph("obs-vkcapture", Category::AudioVideo, Source::Pacman, mode);
+        let obs = |mode| drawn(glyph("obs-vkcapture", Category::AudioVideo, Source::Pacman, mode), mode);
         assert_eq!([obs(Nerd), obs(Unicode), obs(Ascii)], ["\u{f040c}", "▶", ">"], "not in the table: its kind");
-        let unknown = |source, mode| glyph("obscure-tool", Category::Unknown, source, mode);
+        let unknown = |source, mode| drawn(glyph("obscure-tool", Category::Unknown, source, mode), mode);
         assert_eq!(
             [unknown(Source::Pacman, Nerd), unknown(Source::Pacman, Unicode), unknown(Source::Pacman, Ascii)],
             ["\u{f03d3}", "◉", "o"],
@@ -348,9 +348,11 @@ mod tests {
             groups: groups.iter().map(|group| (*group).to_owned()).collect(),
             ..Package::default()
         };
-        assert_eq!(installed(&package("libxml2", &[]), GlyphMode::Unicode), "▣");
-        assert_eq!(installed(&package("font-misc", &["xorg-fonts"]), GlyphMode::Ascii), "A");
-        assert_eq!(installed(&package("git", &[]), GlyphMode::Nerd), "\u{e702}", "the table first in Nerd mode");
-        assert_eq!(installed(&package("git", &[]), GlyphMode::Unicode), "◉", "unplaced: the repositories' icon");
+        let drawn =
+            |package: Package, mode| installed(&package, mode).resolve(&env_icons("monochrome", mode)).into_owned();
+        assert_eq!(drawn(package("libxml2", &[]), GlyphMode::Unicode), "▣");
+        assert_eq!(drawn(package("font-misc", &["xorg-fonts"]), GlyphMode::Ascii), "A");
+        assert_eq!(drawn(package("git", &[]), GlyphMode::Nerd), "\u{e702}", "the table first in Nerd mode");
+        assert_eq!(drawn(package("git", &[]), GlyphMode::Unicode), "◉", "unplaced: the repositories' icon");
     }
 }

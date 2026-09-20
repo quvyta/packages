@@ -142,7 +142,8 @@ pub fn load() -> Settings {
 #[must_use]
 pub fn load_in(folder: &Path, legacy: &Path) -> Settings {
     let moved = Family::QUVYTA.adopt_in(folder, APP, legacy);
-    checked(Settings::open(folder.join(format!("{APP}.conf")))).with_diagnostics(moved.diagnostics().to_vec())
+    checked(Settings::open(folder.join(format!("{APP}.conf"))).member_of(&Family::QUVYTA))
+        .with_diagnostics(moved.diagnostics().to_vec())
 }
 
 /// `settings` checked against qpackages's keys and healed, with a backup of what the user wrote.

@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use qframe::i18n::{Arg, I18n};
+use qframe::storage::Family;
 use qpackages_core::catalog::aur::{info_urls, parse_response};
 use qpackages_core::catalog::net::{CURL, curl_args};
 use qpackages_core::check::{UpdateState, aur_updates, checked_recently};
@@ -20,12 +21,10 @@ use qpackages_core::pacman::command::{self, FAKEROOT, PACMAN, parsed_env};
 use qpackages_core::pacman::{UpdateCheck, parse_foreign, read_update_check, syncdb};
 
 use crate::runner::{Real, Runner};
+use crate::settings::APP;
 
 /// The flag that runs the check instead of the screen.
 pub const FLAG: &str = "--check";
-
-/// The folder, under the state and cache folders, that holds qpac's files.
-const FOLDER: &str = "quvyta-packages";
 
 /// Where pacman keeps its database.
 const PACMAN_DIR: &str = "/var/lib/pacman";
@@ -42,25 +41,25 @@ pub struct Places {
 }
 
 impl Places {
-    /// The places for a user whose environment `lookup` reads: the state file under
-    /// `$XDG_STATE_HOME` (or `~/.local/state`), the private copy under `$XDG_CACHE_HOME` (or
-    /// `~/.cache`). `None` without a home folder to fall back on.
+    /// The places for the user this process runs as: the state file in the family's state folder
+    /// for qpac, the private copy of the database in its cache folder. `None` without a home
+    /// folder to keep them in, in which case no check can remember anything.
     #[must_use]
-    pub fn for_user(lookup: impl Fn(&str) -> Option<String>) -> Option<Self> {
-        let state = xdg(&lookup, "XDG_STATE_HOME", ".local/state")?;
-        let cache = xdg(&lookup, "XDG_CACHE_HOME", ".cache")?;
-        Some(Self {
-            pacman_dir: PathBuf::from(PACMAN_DIR),
-            private_db: cache.join(FOLDER).join("db"),
-            state_file: state.join(FOLDER).join("state.json"),
-        })
+    pub fn for_user() -> Option<Self> {
+        let family = Family::QUVYTA;
+        Some(Self::under(&family.state_dir(APP)?, &family.cache_dir(APP)?))
     }
-}
 
-/// The folder an XDG variable names when it is an absolute path, else `fallback` under `$HOME`.
-fn xdg(lookup: &impl Fn(&str) -> Option<String>, variable: &str, fallback: &str) -> Option<PathBuf> {
-    let absolute = |value: String| Some(PathBuf::from(value)).filter(|path| path.is_absolute());
-    lookup(variable).and_then(absolute).or_else(|| lookup("HOME").and_then(absolute).map(|home| home.join(fallback)))
+    /// The places with `state` and `cache` as the two folders, for a test or a pretend machine
+    /// that must leave the user's own folders alone.
+    #[must_use]
+    pub fn under(state: &Path, cache: &Path) -> Self {
+        Self {
+            pacman_dir: PathBuf::from(PACMAN_DIR),
+            private_db: cache.join("db"),
+            state_file: state.join("state.json"),
+        }
+    }
 }
 
 /// How a check ended.
@@ -148,8 +147,7 @@ fn write_atomically(path: &Path, text: &str) -> io::Result<()> {
 #[must_use]
 pub fn run() -> i32 {
     let i18n = translator(|name| std::env::var(name).ok());
-    let lookup = |name: &str| std::env::var(name).ok().filter(|value| !value.is_empty());
-    let Some(places) = Places::for_user(lookup) else {
+    let Some(places) = Places::for_user() else {
         eprintln!("{}", i18n.translate("check.no-home", &[]));
         return 1;
     };
@@ -177,10 +175,7 @@ fn report(outcome: &Outcome, i18n: &I18n) -> (String, i32) {
 
 /// The compiled-in language files, speaking the language the environment `lookup` asks for.
 fn translator(lookup: impl Fn(&str) -> Option<String>) -> I18n {
-    let mut i18n = I18n::builtin();
-    for (file, text) in crate::LOCALES {
-        i18n.add_source(file, text);
-    }
+    let mut i18n = crate::i18n();
     if let Some(code) = i18n.detect(lookup) {
         i18n.set_active(&code);
     }
@@ -206,8 +201,8 @@ mod tests {
         fs::create_dir_all(pacman_dir.join("sync")).expect("sync");
         fs::create_dir_all(pacman_dir.join("local")).expect("local");
         fs::write(pacman_dir.join("sync/core.db"), "core").expect("a database");
-        let home = root.join("home").to_string_lossy().into_owned();
-        let places = Places::for_user(|name| (name == "HOME").then(|| home.clone())).expect("a home");
+        let home = root.join("home");
+        let places = Places::under(&home.join("state"), &home.join("cache"));
         (Places { pacman_dir, ..places }, root)
     }
 
@@ -321,19 +316,24 @@ mod tests {
     }
 
     #[test]
-    fn places_follow_the_xdg_variables_and_ignore_relative_ones() {
-        let vars = |pairs: &'static [(&'static str, &'static str)]| {
-            move |name: &str| pairs.iter().find(|(key, _)| *key == name).map(|(_, value)| (*value).to_owned())
-        };
-        let places =
-            Places::for_user(vars(&[("HOME", "/home/ada"), ("XDG_STATE_HOME", "/st"), ("XDG_CACHE_HOME", "/ca")]))
-                .expect("places");
-        assert_eq!(places.state_file, Path::new("/st/quvyta-packages/state.json"));
-        assert_eq!(places.private_db, Path::new("/ca/quvyta-packages/db"));
-        let places = Places::for_user(vars(&[("HOME", "/home/ada"), ("XDG_STATE_HOME", "st")])).expect("places");
-        assert_eq!(places.state_file, Path::new("/home/ada/.local/state/quvyta-packages/state.json"));
-        assert_eq!(places.private_db, Path::new("/home/ada/.cache/quvyta-packages/db"));
-        assert_eq!(Places::for_user(vars(&[])), None);
+    fn the_state_file_and_the_private_copy_are_two_folders_apart() {
+        let places = Places::under(Path::new("/st/quvyta/packages"), Path::new("/ca/quvyta/packages"));
+        assert_eq!(places.state_file, Path::new("/st/quvyta/packages/state.json"));
+        assert_eq!(places.private_db, Path::new("/ca/quvyta/packages/db"));
+        assert_eq!(places.pacman_dir, Path::new(PACMAN_DIR), "pacman's own database is never the private one");
+    }
+
+    #[test]
+    fn the_user_keeps_them_in_the_family_folders() {
+        // Reads the environment, writes nothing: the folders are the family's, under qpac's name.
+        let Some(places) = Places::for_user() else { return };
+        assert!(places.state_file.ends_with("quvyta/packages/state.json"), "{}", places.state_file.display());
+        assert!(places.private_db.ends_with("quvyta/packages/db"), "{}", places.private_db.display());
+        assert_ne!(
+            places.state_file.parent(),
+            places.private_db.parent(),
+            "state is kept and a cache is thrown away, so they never share a folder"
+        );
     }
 
     #[test]

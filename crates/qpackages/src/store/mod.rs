@@ -23,7 +23,7 @@
 
 mod cache;
 mod card;
-mod data;
+pub(crate) mod data;
 mod model;
 mod page;
 mod view;
@@ -49,7 +49,8 @@ use qpackages_core::catalog::search::{Generation, Generations, SearchIndex};
 use qpackages_core::sources::{Availability, Source, Sources};
 
 pub use data::{Cached, Failure, Loaded, Machine, SWCATALOG, flatpak_catalogs};
-use model::{Card, Installed, Kind, Popularity, Sort};
+pub use model::Installed;
+use model::{Card, Kind, Popularity, Sort};
 
 /// The starter list, compiled in: it is what the home page shows before anything is read.
 const FEATURED: &str = include_str!("../../assets/catalog/featured.toml");
@@ -968,18 +969,61 @@ impl Store {
     }
 }
 
-/// The transaction today's flow runs for `request`: an install from the repositories, or a
-/// removal, which pacman does for repository and AUR packages alike. Installing from the AUR or
-/// Flatpak has no flow yet, so those offers are left out; `None` when nothing is left to run.
+/// The actions the transaction flow runs for `request`, in order, each confirmed on its own: the
+/// repositories' part, then Flatpak's for the user, then Flatpak's for the whole system.
+///
+/// pacman installs from the repositories and removes repository and AUR packages alike; paru or
+/// yay builds from the AUR; Flatpak installs for the user. A Flatpak is removed from every
+/// installation `installed` says holds it, by the id Flatpak spells it with: for the user
+/// directly, for the system through the helper. An extra installation configured by name has no
+/// removal; those offers are left out. Nothing is left when none of the offers can run.
 #[must_use]
-pub fn transaction(request: &Request) -> Option<crate::transaction::Action> {
+pub fn transactions(request: &Request, installed: &Installed) -> Vec<crate::transaction::Action> {
+    use crate::transaction::Action;
+    use qpackages_core::catalog::flatpak::Installation;
+
     let names = |offers: &[Offer], sources: &[Source]| -> Vec<String> {
         offers.iter().filter(|offer| sources.contains(&offer.source)).map(|offer| offer.package.clone()).collect()
     };
-    let action = match request {
-        Request::Install(offers) => crate::transaction::Action::Install(names(offers, &[Source::Pacman])),
-        Request::Remove(offers) => crate::transaction::Action::Remove(names(offers, &[Source::Pacman, Source::Aur])),
-        Request::OpenSettings(_) => return None,
-    };
-    (!action.names().is_empty()).then_some(action)
+    let mut actions = Vec::new();
+    match request {
+        Request::Install(offers) => {
+            actions.push(Action::Install(names(offers, &[Source::Pacman])));
+            actions.push(Action::AurInstall(names(offers, &[Source::Aur])));
+            actions.push(Action::FlatpakInstall(names(offers, &[Source::Flatpak])));
+        }
+        Request::Remove(offers) => {
+            actions.push(Action::Remove(names(offers, &[Source::Pacman, Source::Aur])));
+            let (mut user, mut system) = (Vec::new(), Vec::new());
+            let held = offers
+                .iter()
+                .filter(|offer| offer.source == Source::Flatpak)
+                .filter_map(|offer| installed.flatpaks.get(&id_key(&offer.package)))
+                .flatten();
+            for app in held {
+                let list = match app.installation {
+                    Installation::User => &mut user,
+                    Installation::System => &mut system,
+                    Installation::Named(_) => continue,
+                };
+                if !list.contains(&app.app_id) {
+                    list.push(app.app_id.clone());
+                }
+            }
+            actions.push(Action::FlatpakRemove(user));
+            actions.push(Action::FlatpakRemoveSystem(system));
+        }
+        Request::OpenSettings(_) => {}
+    }
+    actions.retain(|action| !action.names().is_empty());
+    actions
+}
+
+impl Store {
+    /// The actions the transaction flow runs for `request` on what this page knows is installed;
+    /// see [`transactions`].
+    #[must_use]
+    pub fn transactions(&self, request: &Request) -> Vec<crate::transaction::Action> {
+        transactions(request, &self.installed)
+    }
 }

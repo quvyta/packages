@@ -18,7 +18,8 @@ pub fn view<Msg: Clone + 'static>(package: Option<&Package>, ui: &mut View<'_, M
         ui.column(|ui| {
             // The icon is quiet beside the name: it helps the eye find the package, the name says
             // what it is.
-            let icon = icons::installed(package, ui.env().icons().mode());
+            let drawing = ui.env().icons();
+            let icon = icons::installed(package, drawing.mode()).resolve(drawing).into_owned();
             ui.add(
                 Text::rich([Span::new(format!("{icon} ")).color("muted"), Span::new(package.name.clone())])
                     .role("title")

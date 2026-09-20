@@ -6,12 +6,17 @@
 //! has already finished the job in hand, because a job runs to its end before the next line is
 //! read: pacman stopped halfway can leave its database broken.
 
-use std::fs;
+use std::fs::{self, File};
 use std::io::{self, BufRead, Read, Write};
-use std::path::Path;
+use std::os::fd::AsRawFd;
+use std::os::unix::fs::MetadataExt;
+use std::path::{Path, PathBuf};
 
 use qframe::runtime::ProcessOutcome;
-use qpackages_core::helper::{PACMAN_PATH, Refusal, Request, Response, VERSION, pacman_env, parse_options};
+use qpackages_core::helper::{
+    PACMAN_PATH, Refusal, Request, Response, VERSION, build_caches, caller_uid, in_build_cache, pacman_env,
+    parse_options, passwd_home,
+};
 use qpackages_core::pacman::{command, read_orphans};
 use qpackages_core::reflector::{BACKUP, CONFIG, MIRRORLIST, Mirrors, REFLECTOR_PATH, has_server};
 
@@ -27,6 +32,29 @@ const MAX_LINE: usize = 1 << 20;
 /// The pseudo-terminal pacman gets before a `size` request says otherwise.
 const DEFAULT_SIZE: (u16, u16) = (80, 24);
 
+/// The user who started the helper, whose build cache is the only place package files are
+/// installed from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Caller {
+    /// Their user id, which every file installed must belong to.
+    pub uid: u32,
+    /// Their home folder, from the password database.
+    pub home: PathBuf,
+}
+
+impl Caller {
+    /// The user pkexec or sudo named in `lookup`, with their home folder from the password
+    /// database under `root`; `None` when either is missing, and then no built package is
+    /// installed.
+    #[must_use]
+    pub fn find(lookup: impl Fn(&str) -> Option<String>, root: &Path) -> Option<Self> {
+        let uid = caller_uid(lookup)?;
+        let passwd = fs::read_to_string(root.join("etc/passwd")).ok()?;
+        let home = passwd_home(&passwd, uid)?;
+        Some(Self { uid, home })
+    }
+}
+
 /// Runs the helper on this process's standard input and output. `args` are the arguments after
 /// the helper flag.
 ///
@@ -34,12 +62,24 @@ const DEFAULT_SIZE: (u16, u16) = (80, 24);
 ///
 /// Returns the error of a read from standard input or a write to standard output that failed.
 pub fn run(args: &[String]) -> io::Result<()> {
-    answer(args, crate::current_uid(), Path::new("/"), io::stdin().lock(), io::stdout().lock(), &Real)
+    let root = Path::new("/");
+    let caller = Caller::find(|name| std::env::var(name).ok(), root);
+    let places = Places { root, caller: caller.as_ref() };
+    answer(args, crate::current_uid(), &places, io::stdin().lock(), io::stdout().lock(), &Real)
 }
 
-/// Runs the helper as user `uid` with arguments `args`, reading `input` and writing `output`.
-/// The files it writes itself, such as the mirror list, are under `root`: `/` on a real
-/// machine.
+/// Where the helper works: the files it writes itself, such as the mirror list, are under
+/// `root` (`/` on a real machine), and built packages come only from `caller`'s build cache.
+#[derive(Debug, Clone, Copy)]
+pub struct Places<'a> {
+    /// The root of the file system.
+    pub root: &'a Path,
+    /// The user who started the helper, when pkexec or sudo said.
+    pub caller: Option<&'a Caller>,
+}
+
+/// Runs the helper as user `uid` with arguments `args` at `places`, reading `input` and writing
+/// `output`.
 ///
 /// Anything that is not root is refused before the first request is read, and so is a start
 /// with arguments other than a valid `--lang`.
@@ -50,7 +90,7 @@ pub fn run(args: &[String]) -> io::Result<()> {
 pub fn answer(
     args: &[String],
     uid: Option<u32>,
-    root: &Path,
+    places: &Places<'_>,
     input: impl BufRead,
     mut output: impl Write,
     runner: &dyn Runner,
@@ -59,7 +99,7 @@ pub fn answer(
         return respond(&mut output, &Response::Refused(Refusal::NotRoot));
     }
     match parse_options(args) {
-        Ok(locale) => serve(root, input, output, runner, &locale),
+        Ok(locale) => serve(places, input, output, runner, &locale),
         Err(refusal) => respond(&mut output, &Response::Refused(refusal)),
     }
 }
@@ -74,7 +114,7 @@ pub fn answer(
 ///
 /// Returns the error of a read from `input` or of a response that could not be written.
 fn serve(
-    root: &Path,
+    places: &Places<'_>,
     mut input: impl BufRead,
     mut output: impl Write,
     runner: &dyn Runner,
@@ -91,7 +131,8 @@ fn serve(
                 continue;
             }
             Ok(Request::RemoveOrphans(expected)) => remove_orphans(&expected, &env, size, runner, &mut output),
-            Ok(Request::Mirrors(mirrors)) => choose_mirrors(root, &mirrors, &env, size, runner, &mut output),
+            Ok(Request::Mirrors(mirrors)) => choose_mirrors(places.root, &mirrors, &env, size, runner, &mut output),
+            Ok(Request::InstallBuilt(paths)) => install_built(&paths, places.caller, &env, size, runner, &mut output),
             Ok(request) => match request.command() {
                 Some((program, args)) => carry_out(program, &args, &env, size, runner, &mut output),
                 None => continue,
@@ -127,6 +168,60 @@ fn remove_orphans(
         return Response::Refused(Refusal::Changed);
     }
     carry_out(PACMAN_PATH, &command::remove(&found), env, size, runner, output)
+}
+
+/// Installs the package files at `paths`, each of them opened and checked first: all of them
+/// pass or none is installed.
+///
+/// pacman is handed `/proc/<helper>/fd/<n>` for each file the helper holds open, so what it
+/// reads is the very file checked, whatever happens to the path in between. The helper's own
+/// process id rather than pacman's `/proc/self` keeps the descriptors out of pacman and the
+/// package scripts it runs: they are opened close-on-exec, and root may open another root
+/// process's descriptors through `/proc`.
+fn install_built(
+    paths: &[String],
+    caller: Option<&Caller>,
+    env: &[(&str, &str)],
+    size: (u16, u16),
+    runner: &dyn Runner,
+    output: &mut impl Write,
+) -> Response {
+    let Some(caller) = caller else { return Response::Refused(Refusal::Built) };
+    let Ok(files) = paths.iter().map(|path| open_built(Path::new(path), caller)).collect::<Result<Vec<File>, _>>()
+    else {
+        return Response::Refused(Refusal::Built);
+    };
+    let pid = std::process::id();
+    let held: Vec<String> = files.iter().map(|file| format!("/proc/{pid}/fd/{}", file.as_raw_fd())).collect();
+    carry_out(PACMAN_PATH, &command::install_built(&held), env, size, runner, output)
+}
+
+/// Opens the package file at `path` when it follows the file rule: below `caller`'s build cache
+/// through no symbolic link, a regular file, and theirs. What was looked at through the path is
+/// compared with what the open descriptor holds, so a file swapped in between is refused.
+fn open_built(path: &Path, caller: &Caller) -> io::Result<File> {
+    let refused = || io::Error::from(io::ErrorKind::PermissionDenied);
+    if !in_build_cache(path, &caller.home) {
+        return Err(refused());
+    }
+    let seen = fs::symlink_metadata(path)?;
+    if !seen.file_type().is_file() {
+        return Err(refused());
+    }
+    // A folder on the way may be a link out of the cache; the resolved path must still be in it.
+    let real = fs::canonicalize(path)?;
+    let caches: Vec<PathBuf> =
+        build_caches(&caller.home).iter().filter_map(|cache| fs::canonicalize(cache).ok()).collect();
+    if !caches.iter().any(|cache| real.starts_with(cache) && real != *cache) {
+        return Err(refused());
+    }
+    let file = File::open(&real)?;
+    let held = file.metadata()?;
+    let same = held.dev() == seen.dev() && held.ino() == seen.ino();
+    if !held.file_type().is_file() || !same || held.uid() != caller.uid {
+        return Err(refused());
+    }
+    Ok(file)
 }
 
 /// Runs reflector into a new file beside pacman's mirror list under `root`, and puts that file in
@@ -243,7 +338,8 @@ mod tests {
     /// Serves `input` with `recorded` and returns what the helper wrote, line by line.
     fn served(recorded: &Recorded, input: &[u8]) -> Vec<String> {
         let mut output = Vec::new();
-        serve(&nowhere(), input, &mut output, recorded, "tr_TR.UTF-8").expect("the helper serves to the end");
+        serve(&Places { root: &nowhere(), caller: None }, input, &mut output, recorded, "tr_TR.UTF-8")
+            .expect("the helper serves to the end");
         String::from_utf8(output).expect("responses are text").lines().map(str::to_owned).collect()
     }
 
@@ -262,7 +358,15 @@ mod tests {
         let answered = |args: &[&str], uid| {
             let args: Vec<String> = args.iter().map(|arg| (*arg).to_owned()).collect();
             let mut output = Vec::new();
-            answer(&args, uid, &nowhere(), &b"install cowsay\n"[..], &mut output, &recorded).expect("answered");
+            answer(
+                &args,
+                uid,
+                &Places { root: &nowhere(), caller: None },
+                &b"install cowsay\n"[..],
+                &mut output,
+                &recorded,
+            )
+            .expect("answered");
             String::from_utf8(output).expect("text")
         };
         assert_eq!(answered(&[], Some(1000)), "refused not-root\n");
@@ -318,6 +422,35 @@ mod tests {
             ]
         );
         assert_eq!(recorded.calls().len(), 1, "only the valid request ran");
+    }
+
+    #[test]
+    fn a_system_flatpak_is_removed_by_flatpaks_path_and_a_bad_id_runs_nothing() {
+        let recorded = Recorded::default();
+        let args = qpackages_core::flatpak::system_uninstall_args(&["org.gimp.GIMP".to_owned()]);
+        let recording = include_str!("../../../qpackages-core/tests/fixtures/flatpak/uninstall-system.out");
+        let lines: Vec<&str> = recording.lines().collect();
+        recorded.play("/usr/bin/flatpak", &args, &lines, ProcessOutcome::Finished { code: Some(0) });
+        let input = b"flatpak-system remove --delete-data\nflatpak-system install org.gimp.GIMP\n\
+            flatpak-system remove org.gimp.GIMP\nflatpak-system remove org.gimp.GIMP";
+        let out = served(&recorded, input);
+        assert_eq!(
+            out,
+            [
+                "ready 1",
+                "refused flatpak-id",
+                "refused values",
+                "line Uninstalling app/net.sourceforge.ExtremeTuxRacer/x86_64/stable",
+                "done 0"
+            ],
+            "the last request lacks its newline and is not carried out"
+        );
+        let calls = recorded.calls();
+        assert_eq!(calls.len(), 1, "only the valid, whole request ran");
+        assert_eq!(calls[0].program, "/usr/bin/flatpak");
+        assert_eq!(calls[0].args, ["--system", "uninstall", "--noninteractive", "--", "org.gimp.GIMP"]);
+        let env: Vec<(&str, &str)> = calls[0].env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        assert_eq!(env, [("PATH", "/usr/bin:/usr/sbin"), ("LANG", "tr_TR.UTF-8"), ("LC_ALL", "tr_TR.UTF-8")]);
     }
 
     #[test]
@@ -453,7 +586,7 @@ mod tests {
 
     fn serve_at(root: &Path, runner: &Reflector, input: &[u8]) -> Vec<String> {
         let mut output = Vec::new();
-        serve(root, input, &mut output, runner, "C").expect("the helper serves to the end");
+        serve(&Places { root, caller: None }, input, &mut output, runner, "C").expect("the helper serves to the end");
         String::from_utf8(output).expect("responses are text").lines().map(str::to_owned).collect()
     }
 
@@ -590,8 +723,184 @@ mod tests {
         }
         let recorded = Recorded::default();
         recorded.play(PACMAN_PATH, &install_args(), &["one", "two"], ProcessOutcome::Finished { code: Some(0) });
-        let result = serve(&nowhere(), &b"install cowsay\n"[..], Closing(1), &recorded, "C");
+        let result =
+            serve(&Places { root: &nowhere(), caller: None }, &b"install cowsay\n"[..], Closing(1), &recorded, "C");
         assert_eq!(result.map_err(|error| error.kind()), Err(io::ErrorKind::BrokenPipe), "the end cannot be said");
         assert_eq!(recorded.calls().len(), 1, "pacman ran to its end all the same");
+    }
+
+    /// Plays pacman from `recorded`, and for `pacman -U` reads every file it is handed, as pacman
+    /// would, keeping what it read: the paths are the helper's open descriptors, whose numbers a
+    /// recording cannot know.
+    #[derive(Default)]
+    struct Upgrade {
+        recorded: Recorded,
+        read: std::sync::Mutex<Vec<(String, Vec<u8>)>>,
+    }
+
+    impl Runner for Upgrade {
+        fn output(&self, program: &str, args: &[String], env: &[(&str, &str)]) -> io::Result<crate::runner::Output> {
+            self.recorded.output(program, args, env)
+        }
+
+        fn stream(
+            &self,
+            program: &str,
+            args: &[String],
+            env: &[(&str, &str)],
+            pty: Option<(u16, u16)>,
+            cancel: &dyn Fn() -> bool,
+            on_line: &mut dyn FnMut(String),
+        ) -> io::Result<ProcessOutcome> {
+            let Some(paths) = args.strip_prefix(&["-U".to_owned(), "--noconfirm".to_owned(), "--".to_owned()]) else {
+                return self.recorded.stream(program, args, env, pty, cancel, on_line);
+            };
+            assert_eq!(program, PACMAN_PATH);
+            for path in paths {
+                let bytes = fs::read(path)?;
+                self.read.lock().expect("not poisoned").push((path.clone(), bytes));
+            }
+            on_line("loading packages...".to_owned());
+            Ok(ProcessOutcome::Finished { code: Some(0) })
+        }
+    }
+
+    /// A home folder with paru's and yay's build caches, under the system's temporary folder.
+    struct Home {
+        root: PathBuf,
+        caller: Caller,
+    }
+
+    impl Home {
+        fn new(name: &str) -> Self {
+            let root = std::env::temp_dir().join(format!("qpackages-helper-built-{name}-{}", std::process::id()));
+            let _ = fs::remove_dir_all(&root);
+            let home = root.join("home/ayse");
+            for cache in [".cache/paru/clone/hello", ".cache/yay/hello"] {
+                fs::create_dir_all(home.join(cache)).expect("a build cache");
+            }
+            let uid = crate::current_uid().expect("the test's own user id");
+            Self { root, caller: Caller { uid, home } }
+        }
+
+        /// Writes `bytes` to `relative` under the home folder and returns its absolute path.
+        fn file(&self, relative: &str, bytes: &[u8]) -> String {
+            let path = self.caller.home.join(relative);
+            fs::create_dir_all(path.parent().expect("a folder")).expect("its folder");
+            fs::write(&path, bytes).expect("the file");
+            path.to_string_lossy().into_owned()
+        }
+
+        fn serve(&self, caller: Option<&Caller>, runner: &Upgrade, input: &str) -> Vec<String> {
+            let mut output = Vec::new();
+            let places = Places { root: &self.root, caller };
+            serve(&places, input.as_bytes(), &mut output, runner, "C").expect("the helper serves to the end");
+            String::from_utf8(output).expect("responses are text").lines().map(str::to_owned).collect()
+        }
+    }
+
+    impl Drop for Home {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    const HELLO: &str = ".cache/paru/clone/hello/hello-1.0-1-x86_64.pkg.tar.zst";
+
+    #[test]
+    fn a_built_package_is_handed_to_pacman_as_the_descriptor_the_helper_checked() {
+        let home = Home::new("good");
+        let paru = home.file(HELLO, b"paru's package");
+        let yay = home.file(".cache/yay/hello/hello-debug-1.0-1-x86_64.pkg.tar.xz", b"yay's debug package");
+        let runner = Upgrade::default();
+        let out = home.serve(Some(&home.caller), &runner, &format!("install-built {paru} {yay}\n"));
+        assert_eq!(out, ["ready 1", "line loading packages...", "done 0"]);
+        let read = runner.read.lock().expect("not poisoned").clone();
+        let pid = std::process::id();
+        assert_eq!(read.len(), 2);
+        for ((path, bytes), expected) in read.iter().zip([&b"paru's package"[..], b"yay's debug package"]) {
+            assert!(path.starts_with(&format!("/proc/{pid}/fd/")), "`{path}` is the helper's descriptor");
+            assert_eq!(bytes, expected);
+        }
+    }
+
+    #[test]
+    fn a_built_package_outside_the_rule_runs_nothing() {
+        let home = Home::new("refused");
+        let good = home.file(HELLO, b"package");
+        let elsewhere = home.file("Downloads/hello-1.0-1-x86_64.pkg.tar.zst", b"package");
+        let beside = home.file(".cache/paru/hello-1.0-1-x86_64.pkg.tar.zst", b"package");
+        // A link inside the cache to a file of the user's outside it.
+        let link = home.caller.home.join(".cache/paru/clone/hello/link-1.0-1-x86_64.pkg.tar.zst");
+        std::os::unix::fs::symlink(&elsewhere, &link).expect("a link");
+        // A folder inside the cache that leads out of it.
+        let outside = home.root.join("outside");
+        fs::create_dir_all(&outside).expect("a folder outside");
+        fs::write(outside.join("hello-1.0-1-x86_64.pkg.tar.zst"), b"package").expect("a file outside");
+        std::os::unix::fs::symlink(&outside, home.caller.home.join(".cache/yay/out")).expect("a folder link");
+        let through = home.caller.home.join(".cache/yay/out/hello-1.0-1-x86_64.pkg.tar.zst");
+        let folder = home.caller.home.join(".cache/yay/hello/folder-1.0-1-x86_64.pkg.tar.zst");
+        fs::create_dir_all(&folder).expect("a folder with a package's name");
+        let missing = home.caller.home.join(".cache/yay/hello/gone-1.0-1-x86_64.pkg.tar.zst");
+        let runner = Upgrade::default();
+        for path in [
+            elsewhere.clone(),
+            beside,
+            link.to_string_lossy().into_owned(),
+            through.to_string_lossy().into_owned(),
+            folder.to_string_lossy().into_owned(),
+            missing.to_string_lossy().into_owned(),
+            format!("{good} {elsewhere}"),
+        ] {
+            let out = home.serve(Some(&home.caller), &runner, &format!("install-built {path}\n"));
+            assert_eq!(out, ["ready 1", "refused built"], "`{path}`");
+        }
+        let spelled = [
+            format!(
+                "{}/../../../Downloads/hello-1.0-1-x86_64.pkg.tar.zst",
+                home.caller.home.join(".cache/yay").display()
+            ),
+            good.replace(".pkg.tar.zst", ".pkg.tar.gz"),
+            ".cache/paru/clone/hello/hello-1.0-1-x86_64.pkg.tar.zst".to_owned(),
+        ];
+        for path in spelled {
+            let out = home.serve(Some(&home.caller), &runner, &format!("install-built {path}\n"));
+            assert_eq!(out, ["ready 1", "refused built"], "`{path}`");
+        }
+        assert!(runner.read.lock().expect("not poisoned").is_empty(), "pacman never ran");
+        assert!(runner.recorded.calls().is_empty());
+    }
+
+    #[test]
+    fn another_users_file_or_an_unknown_caller_is_refused() {
+        let home = Home::new("other");
+        let good = home.file(HELLO, b"package");
+        let runner = Upgrade::default();
+        let someone_else = Caller { uid: home.caller.uid + 1, home: home.caller.home.clone() };
+        let line = format!("install-built {good}\n");
+        assert_eq!(
+            home.serve(Some(&someone_else), &runner, &line),
+            ["ready 1", "refused built"],
+            "not the caller's file"
+        );
+        assert_eq!(home.serve(None, &runner, &line), ["ready 1", "refused built"], "no caller, no cache");
+        let other_home = Caller { uid: home.caller.uid, home: home.root.join("home/mehmet") };
+        assert_eq!(home.serve(Some(&other_home), &runner, &line), ["ready 1", "refused built"], "not their cache");
+        assert!(runner.read.lock().expect("not poisoned").is_empty());
+    }
+
+    #[test]
+    fn the_caller_comes_from_the_variable_pkexec_or_sudo_set_and_the_password_database() {
+        let home = Home::new("passwd");
+        fs::create_dir_all(home.root.join("etc")).expect("etc");
+        let passwd =
+            format!("root:x:0:0::/root:/bin/bash\nayse:x:1000:1000::{}:/bin/zsh\n", home.caller.home.display());
+        fs::write(home.root.join("etc/passwd"), passwd).expect("the password database");
+        let sudo = |name: &str| (name == "SUDO_UID").then(|| "1000".to_owned());
+        assert_eq!(Caller::find(sudo, &home.root), Some(Caller { uid: 1000, home: home.caller.home.clone() }));
+        let stranger = |name: &str| (name == "PKEXEC_UID").then(|| "4242".to_owned());
+        assert_eq!(Caller::find(stranger, &home.root), None, "a user the database does not know");
+        assert_eq!(Caller::find(|_| None, &home.root), None, "started by neither");
+        assert_eq!(Caller::find(sudo, &home.root.join("nowhere")), None, "no password database");
     }
 }

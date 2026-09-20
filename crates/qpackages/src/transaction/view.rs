@@ -6,6 +6,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use qframe::prelude::*;
 use qframe::widgets::{Badge, HoldToConfirm, LogView, Modal, ProgressBar, ScrollView};
 use qpackages_core::backup::{self, Tool};
+use qpackages_core::build::{self as aur_build, Built};
+use qpackages_core::flatpak::{FLATHUB, FLATHUB_REPO};
 use qpackages_core::lock::Owner;
 use qpackages_core::news::NewsItem;
 use qpackages_core::pacman::{Plan, Step, Update};
@@ -25,8 +27,16 @@ const MAX_STEP_ROWS: u16 = 10;
 /// recent Arch news that ask for the user's hand, which an update's confirmation repeats.
 pub fn modal(flow: &Flow, news: &[NewsItem], ui: &mut View<'_, AppMsg>) {
     match flow.state() {
-        State::Confirming { action, plan, granted, backup, pending } => {
-            let facts = Facts { granted: *granted, backup: *backup, pending: *pending, news };
+        State::Confirming { action, plan, granted, backup, pending, then, build } => {
+            let facts = Facts {
+                granted: *granted,
+                backup: *backup,
+                pending: *pending,
+                news,
+                then: then.len(),
+                build: build.as_ref(),
+                helper: flow.builder().map(|builder| builder.helper.program()),
+            };
             confirmation(action, plan, &facts, ui);
         }
         State::Locked { since, owner } => locked(*since, owner.as_ref(), ui),
@@ -44,6 +54,12 @@ struct Facts<'a> {
     backup: backup::Plan,
     pending: usize,
     news: &'a [NewsItem],
+    /// How many actions follow this one, each with its own confirmation.
+    then: usize,
+    /// What an AUR build builds and installs.
+    build: Option<&'a aur_build::Plan>,
+    /// The AUR helper that builds, by its program's name.
+    helper: Option<&'static str>,
 }
 
 /// What happens around a system update under `plan`, for the Updates tab's last line and the
@@ -72,10 +88,12 @@ fn buttons_width(labels: &[&str]) -> u16 {
     DIALOG_WIDTH.max(buttons.saturating_add(gaps).saturating_add(10))
 }
 
-/// The plan as pacman printed it, or the updates the check found, the download it needs and
-/// whether a password will be asked, with Cancel first so the safe answer has focus.
+/// The plan as pacman printed it, or the updates the check found, or the Flatpak applications by
+/// id, the download it needs and whether a password will be asked, with Cancel first so the safe
+/// answer has focus.
 fn confirmation(action: &Action, plan: &Plan, facts: &Facts<'_>, ui: &mut View<'_, AppMsg>) {
     let n = plan.steps.len();
+    let ids = action.names().len();
     let cancel = Button::new(t!("transaction.cancel")).on_press(AppMsg::Transaction(Msg::Cancel));
     let apply =
         |label: String, variant: &str| Button::new(label).variant(variant).on_press(AppMsg::Transaction(Msg::Apply));
@@ -91,10 +109,18 @@ fn confirmation(action: &Action, plan: &Plan, facts: &Facts<'_>, ui: &mut View<'
         Action::Mirrors(_) => (t!("mirrors.apply-title"), t!("mirrors.apply-lead")),
         Action::Timer(true) => (t!("mirrors.timer-on-title"), t!("mirrors.timer-on-lead")),
         Action::Timer(false) => (t!("mirrors.timer-off-title"), t!("mirrors.timer-off-lead")),
+        Action::FlatpakInstall(_) => (t!("flatpak.install-title", n = ids), t!("flatpak.install-lead")),
+        Action::FlatpakRemove(_) => (t!("flatpak.remove-title", n = ids), t!("flatpak.remove-lead")),
+        Action::FlatpakRemoveSystem(_) => (t!("flatpak.remove-title", n = ids), t!("flatpak.remove-system-lead")),
+        Action::AddFlathub => (t!("flatpak.add-title"), t!("flatpak.add-lead")),
+        Action::AurInstall(_) => {
+            let builds = facts.build.map_or(0, |build| build.builds.len());
+            (t!("aur.build-title", n = builds), t!("aur.build-lead", helper = facts.helper.unwrap_or_default()))
+        }
     };
     let mut dialog = Modal::new().title(title).on_close(AppMsg::Transaction(Msg::Cancel)).action(cancel);
     dialog = match action {
-        Action::Remove(_) | Action::RemoveOrphans(_) => {
+        Action::Remove(_) | Action::RemoveOrphans(_) | Action::FlatpakRemove(_) | Action::FlatpakRemoveSystem(_) => {
             dialog.variant("danger").action(apply(t!("transaction.remove"), "danger"))
         }
         Action::Install(_) if facts.pending > 0 => {
@@ -104,7 +130,11 @@ fn confirmation(action: &Action, plan: &Plan, facts: &Facts<'_>, ui: &mut View<'
                 .action(Button::new(only).on_press(AppMsg::Transaction(Msg::Apply)))
                 .action(Button::new(both).variant("primary").on_press(AppMsg::Transaction(Msg::ApplyWithUpgrade)))
         }
-        Action::Install(_) | Action::UpgradeInstall(_) => dialog.action(apply(t!("transaction.install"), "primary")),
+        Action::Install(_) | Action::UpgradeInstall(_) | Action::FlatpakInstall(_) => {
+            dialog.action(apply(t!("transaction.install"), "primary"))
+        }
+        Action::AddFlathub => dialog.action(apply(t!("flatpak.add"), "primary")),
+        Action::AurInstall(_) => dialog.action(apply(t!("aur.build"), "primary")),
         Action::Upgrade(_) => dialog.action(apply(t!("transaction.upgrade"), "primary")),
         Action::Mirrors(_) => dialog.action(apply(t!("mirrors.apply"), "primary")),
         Action::Timer(true) => dialog.action(apply(t!("mirrors.timer-on"), "primary")),
@@ -117,6 +147,14 @@ fn confirmation(action: &Action, plan: &Plan, facts: &Facts<'_>, ui: &mut View<'
             Action::Upgrade(updates) => updates.iter().map(|update| update_item(update, &arrow)).collect(),
             Action::Mirrors(mirrors) => mirror_lines(mirrors).into_iter().map(ListItem::new).collect(),
             Action::Timer(_) => Vec::new(),
+            Action::FlatpakInstall(names) | Action::FlatpakRemove(names) | Action::FlatpakRemoveSystem(names) => {
+                names.iter().map(ListItem::new).collect()
+            }
+            Action::AddFlathub => vec![ListItem::new(FLATHUB).detail(FLATHUB_REPO)],
+            Action::AurInstall(_) => {
+                let builds = facts.build.map(|build| build.builds.as_slice()).unwrap_or_default();
+                builds.iter().map(built_item).chain(plan.steps.iter().map(step_item)).collect()
+            }
             _ => plan.steps.iter().map(step_item).collect(),
         };
         if !items.is_empty() {
@@ -149,10 +187,32 @@ fn confirmation(action: &Action, plan: &Plan, facts: &Facts<'_>, ui: &mut View<'
             Action::Mirrors(_) => {
                 ui.add(Text::new(t!("mirrors.apply-keeps")).role("secondary")).fill_width();
             }
-            Action::Timer(_) => {}
+            Action::Timer(_) | Action::AddFlathub | Action::FlatpakInstall(_) => {}
+            Action::FlatpakRemove(_) => {
+                ui.add(Text::new(t!("flatpak.remove-unused")).color("warning")).fill_width();
+                ui.add(Text::new(t!("flatpak.remove-keeps-data")).role("secondary")).fill_width();
+            }
+            Action::FlatpakRemoveSystem(_) => {
+                ui.add(Text::new(t!("flatpak.remove-keeps-data")).role("secondary")).fill_width();
+            }
+            Action::AurInstall(_) => {
+                if !plan.steps.is_empty() {
+                    ui.add(Text::new(t!("transaction.download", size = size_text(plan.download()))).no_wrap());
+                    ui.add(Text::new(t!("aur.make-removed")).role("secondary")).fill_width();
+                }
+                ui.add(Text::new(t!("aur.warning")).color("warning")).fill_width();
+            }
         }
-        let privilege =
-            if facts.granted { t!("transaction.privilege-granted") } else { t!("transaction.privilege-asked") };
+        if facts.then > 0 {
+            ui.add(Text::new(t!("transaction.then", n = facts.then))).fill_width();
+        }
+        let privilege = if action.as_user() {
+            t!("transaction.privilege-none")
+        } else if facts.granted {
+            t!("transaction.privilege-granted")
+        } else {
+            t!("transaction.privilege-asked")
+        };
         ui.add(Text::new(privilege).role("secondary")).fill_width();
     });
 }
@@ -193,6 +253,11 @@ fn pacnew(files: &[String], ui: &mut View<'_, AppMsg>) {
         .id("pacnew");
         ui.add(Text::new(t!("pacnew.hint")).role("secondary")).fill_width();
     });
+}
+
+/// One package the build makes from the AUR: its name and version, the AUR as its source.
+fn built_item(built: &Built) -> ListItem {
+    ListItem::new(format!("aur/{}  {}", built.name, built.version)).detail(t!("aur.to-build"))
 }
 
 /// One step as pacman planned it: repository and name, the version, the download as the detail.
@@ -268,7 +333,14 @@ pub fn output(flow: &Flow, ui: &mut View<'_, AppMsg>) {
         })
         .gap(2)
         .fill_width();
-        ui.add(LogView::new(&job.output).empty_text(t!("transaction.waiting"))).fill().id("output");
+        let waiting = if job.action.runs_flatpak() {
+            t!("transaction.waiting-flatpak")
+        } else if matches!(job.action, Action::AurInstall(_)) {
+            t!("aur.waiting")
+        } else {
+            t!("transaction.waiting")
+        };
+        ui.add(LogView::new(&job.output).empty_text(waiting)).fill().id("output");
     })
     .padding(Padding::symmetric(0, 1))
     .fill();
@@ -284,5 +356,9 @@ fn finished_label(action: &Action) -> String {
         Action::RemoveOrphans(_) => t!("transaction.finished-orphans"),
         Action::Mirrors(_) => t!("transaction.finished-mirrors"),
         Action::Timer(_) => t!("transaction.finished-timer"),
+        Action::FlatpakInstall(_) => t!("transaction.finished-install", names = names),
+        Action::FlatpakRemove(_) | Action::FlatpakRemoveSystem(_) => t!("transaction.finished-remove", names = names),
+        Action::AddFlathub => t!("flatpak.finished-add"),
+        Action::AurInstall(_) => t!("aur.finished", names = names),
     }
 }

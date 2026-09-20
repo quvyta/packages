@@ -1,9 +1,9 @@
 //! The settings page: every setting qpac reads, one row each under a heading, saved the moment
 //! it changes.
 //!
-//! Each heading is one function that fills its own list, so a new group of settings is a new
-//! function and one line in [`view`]. The page holds no state of its own: the values live in the
-//! application's settings, the row the keyboard is on lives in each list.
+//! Each heading is one function adding its heading and rows to the page's one list, so a new
+//! group of settings is a new function and one line in [`view`]. The page holds no state of its
+//! own: the values live in the application's settings, the row the keyboard is on in the list.
 
 mod backend;
 #[cfg(test)]
@@ -11,10 +11,11 @@ mod backend_tests;
 #[cfg(test)]
 mod tests;
 
-use qframe::icons::{IconMode, PillarStyle};
 use qframe::prelude::*;
 use qframe::storage::Settings;
-use qframe::widgets::{ScrollView, Select, SettingRow, SettingsList, SettingsRows, Switch};
+use qframe::widgets::{
+    Appearance, AppearanceChange, ScrollView, Select, SettingRow, SettingsList, SettingsRows, Switch,
+};
 use qpackages_core::sources::{Availability, Source, Sources};
 
 use crate::helper::pkexec::Tool;
@@ -43,25 +44,12 @@ pub enum Msg {
     PrivilegeTool(usize),
     /// The user asked to install the program a source needs.
     Install(Source),
-    /// A setting every application of the family shares was chosen.
-    Shared(Shared),
+    /// The user asked to add Flathub as a Flatpak remote.
+    AddFlathub,
+    /// An appearance row was changed: a setting the family shares, or motion and the pillar.
+    Appearance(AppearanceChange),
     /// A setting of what happens around the packages changed.
     Backend(BackendMsg),
-}
-
-/// A change to what the framework keeps for every application of the family.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Shared {
-    /// The language, by code.
-    Language(String),
-    /// The theme, by id.
-    Theme(String),
-    /// The icon mode.
-    Icons(IconMode),
-    /// Reduced motion.
-    ReducedMotion(bool),
-    /// The pillar style.
-    Pillar(PillarStyle),
 }
 
 /// What the page needs from the rest of the application to draw itself.
@@ -71,6 +59,8 @@ pub struct Cx<'a> {
     pub settings: &'a Settings,
     /// Which sources this machine has, once the first read has said.
     pub sources: Option<&'a Sources>,
+    /// Whether the user has Flathub as a Flatpak remote, once a read has said.
+    pub flathub: Option<bool>,
     /// Whether qpac runs as root, which rules the AUR out.
     pub root: bool,
     /// Whether an installation is being planned, so the button that asked shows it.
@@ -85,11 +75,12 @@ pub struct Cx<'a> {
     pub reflector: &'a Reflector,
     /// Whether a transaction is under way, so the settings that need the helper wait.
     pub busy: bool,
+    /// The appearance rows, which save themselves.
+    pub appearance: &'a Appearance,
 }
 
 /// Draws the page.
 pub fn view(ui: &mut View<'_, Msg>, cx: Cx<'_>) {
-    let appearance = Appearance::read(ui.env());
     ui.column(|ui| {
         ui.row(|ui| {
             ui.add(Button::new(t!("settings-page.back")).icon("arrow-left").on_press(Msg::Back)).id("settings-back");
@@ -97,22 +88,20 @@ pub fn view(ui: &mut View<'_, Msg>, cx: Cx<'_>) {
         })
         .gap(2)
         .fill_width();
-        // One list per heading: a scroll view reveals a focused widget whole, and a single list
-        // taller than the screen would jump to its end the moment it took focus, moving the row
-        // that was clicked out from under the pointer.
+        // One list for the whole page: the keys walk every setting in order, and a list taller
+        // than the scroll view scrolls just enough to show the row they moved to, never on a click.
         ui.add_with(ScrollView::new(), |ui| {
-            ui.column(|ui| {
-                SettingsList::show(ui, |list| sources_section(list, cx)).fill_width().id("settings-sources");
-                SettingsList::show(ui, |list| backend::updates_section(list, cx)).fill_width().id("settings-updates");
-                SettingsList::show(ui, |list| backend::backup_section(list, cx)).fill_width().id("settings-backup");
-                SettingsList::show(ui, |list| backend::cleanup_section(list, cx)).fill_width().id("settings-cleanup");
-                SettingsList::show(ui, |list| backend::mirrors_section(list, cx)).fill_width().id("settings-mirrors");
-                SettingsList::show(ui, |list| privilege_section(list, cx)).fill_width().id("settings-privilege");
-                SettingsList::show(ui, |list| appearance_section(list, &appearance))
-                    .fill_width()
-                    .id("settings-appearance");
+            SettingsList::show(ui, |list| {
+                sources_section(list, cx);
+                backend::updates_section(list, cx);
+                backend::backup_section(list, cx);
+                backend::cleanup_section(list, cx);
+                backend::mirrors_section(list, cx);
+                privilege_section(list, cx);
+                cx.appearance.section(list, Msg::Appearance);
             })
-            .fill_width();
+            .fill_width()
+            .id("settings-list");
         })
         .fill();
         backend::countries(ui, cx);
@@ -150,6 +139,9 @@ fn sources_section(list: &mut SettingsRows<'_, Msg>, cx: Cx<'_>) {
                 list.row(SettingRow::new(name).description(description), |ui| {
                     ui.add(Switch::new(enabled).on_toggle(move |on| Msg::Source(source, on)));
                 });
+                if source == Source::Flatpak && enabled && cx.flathub == Some(false) {
+                    flathub_row(list, cx.planning);
+                }
             }
         }
     }
@@ -159,6 +151,16 @@ fn sources_section(list: &mut SettingsRows<'_, Msg>, cx: Cx<'_>) {
     let row = SettingRow::new(t!("settings-page.aur-helper")).description(t!("settings-page.aur-helper-text"));
     list.row(row, |ui| {
         ui.add(Select::new(names).selected(chosen).on_select(Msg::AurHelper)).width(Length::Cells(CONTROL_WIDTH));
+    });
+}
+
+/// Flatpak is on but the user has no Flathub remote, so it has nothing to install: an offer to add
+/// it, which needs no permission.
+fn flathub_row(list: &mut SettingsRows<'_, Msg>, planning: bool) {
+    let row = SettingRow::new(t!("flatpak.flathub")).description(t!("flatpak.flathub-missing"));
+    list.row(row, |ui| {
+        let add = Button::new(t!("flatpak.add")).variant("primary").loading(planning).on_press(Msg::AddFlathub);
+        ui.add(add).id("add-flathub");
     });
 }
 
@@ -197,81 +199,5 @@ fn privilege_section(list: &mut SettingsRows<'_, Msg>, cx: Cx<'_>) {
     };
     list.row(SettingRow::new(t!("settings-page.tool")).description(in_use), |ui| {
         ui.add(Select::new(names).selected(chosen).on_select(Msg::PrivilegeTool)).width(Length::Cells(CONTROL_WIDTH));
-    });
-}
-
-/// What the appearance rows show, read from the environment before the list is built.
-struct Appearance {
-    languages: Vec<(String, String)>,
-    language: String,
-    themes: Vec<(String, String)>,
-    theme: String,
-    icons: IconMode,
-    reduced: bool,
-    forced: bool,
-    pillar: PillarStyle,
-}
-
-impl Appearance {
-    fn read(env: &qframe::env::Env) -> Self {
-        Self {
-            languages: env.i18n().list(),
-            language: env.i18n().active().to_owned(),
-            themes: env.themes(),
-            theme: env.theme().id().to_owned(),
-            icons: env.icon_mode(),
-            reduced: env.reduced_motion(),
-            forced: env.reduced_motion_forced(),
-            pillar: env.pillar_style().unwrap_or(PillarStyle::Thick),
-        }
-    }
-}
-
-/// The settings every application of the family shares: language, theme, icons, motion and the
-/// pillar. A change applies at once and is kept in qpac's own file.
-fn appearance_section(list: &mut SettingsRows<'_, Msg>, now: &Appearance) {
-    list.heading(t!("settings-page.appearance"));
-    let codes: Vec<String> = now.languages.iter().map(|(code, _)| code.clone()).collect();
-    let names: Vec<String> = now.languages.iter().map(|(_, name)| name.clone()).collect();
-    let chosen = codes.iter().position(|code| *code == now.language);
-    list.row(SettingRow::new(t!("settings-page.language")), |ui| {
-        let select = Select::new(names)
-            .selected(chosen)
-            .on_select(move |index| Msg::Shared(Shared::Language(codes[index].clone())));
-        ui.add(select).width(Length::Cells(CONTROL_WIDTH));
-    });
-    let ids: Vec<String> = now.themes.iter().map(|(id, _)| id.clone()).collect();
-    let titles: Vec<String> = now.themes.iter().map(|(_, title)| title.clone()).collect();
-    let chosen = ids.iter().position(|id| *id == now.theme);
-    list.row(SettingRow::new(t!("settings-page.theme")), |ui| {
-        let select =
-            Select::new(titles).selected(chosen).on_select(move |index| Msg::Shared(Shared::Theme(ids[index].clone())));
-        ui.add(select).width(Length::Cells(CONTROL_WIDTH));
-    });
-    let modes = IconMode::ALL.map(|mode| t!(&format!("settings-page.icons-{}", mode.name())));
-    let chosen = IconMode::ALL.iter().position(|mode| *mode == now.icons);
-    list.row(SettingRow::new(t!("settings-page.icons")), |ui| {
-        let select =
-            Select::new(modes).selected(chosen).on_select(|index| Msg::Shared(Shared::Icons(IconMode::ALL[index])));
-        ui.add(select).width(Length::Cells(CONTROL_WIDTH));
-    });
-    let note = match (now.forced, now.reduced) {
-        (true, true) => t!("settings-page.forced-on"),
-        (true, false) => t!("settings-page.forced-off"),
-        (false, _) => t!("settings-page.reduce-motion-text"),
-    };
-    let row = SettingRow::new(t!("settings-page.reduce-motion")).description(note).disabled(now.forced);
-    let (reduced, forced) = (now.reduced, now.forced);
-    list.row(row, |ui| {
-        ui.add(Switch::new(reduced).disabled(forced).on_toggle(|on| Msg::Shared(Shared::ReducedMotion(on))));
-    });
-    let styles = PillarStyle::ALL.map(|style| t!(&format!("settings-page.pillar-{}", style.name())));
-    let chosen = PillarStyle::ALL.iter().position(|style| *style == now.pillar).unwrap_or(0);
-    list.row(SettingRow::new(t!("settings-page.pillar")), |ui| {
-        ui.add(
-            qframe::widgets::Segmented::new(styles)
-                .selected(chosen)
-                .on_select(|index| Msg::Shared(Shared::Pillar(PillarStyle::ALL[index]))),
-        );
     });
 }

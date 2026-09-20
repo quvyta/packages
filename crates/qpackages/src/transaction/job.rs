@@ -5,14 +5,17 @@
 //! when the user chose a snapshot tool: one before, the update, and with snapper one after that
 //! is paired with the first. Each step is its own request to the helper, so the screen can say
 //! which one is running and the snapshot's number can be read before the step that needs it.
+//! Removing Flatpak applications for the user is two steps as well: the applications, then the
+//! runtimes no application uses any more.
 
 use qframe::prelude::*;
 use qframe::widgets::{LogBuffer, LogLevel, LogLine};
 use qpackages_core::backup::{self, Snapshot, Tool};
+use qpackages_core::flatpak;
 use qpackages_core::helper::Request;
 use qpackages_core::pacman::pacnew_files;
 
-use super::{Action, OUTPUT_LINES, filter};
+use super::{Action, OUTPUT_LINES, Run, filter};
 
 /// One request of a job.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,6 +26,8 @@ pub enum Step {
     Main,
     /// snapper's snapshot after the update, paired with the one before.
     After,
+    /// The user's Flatpak runtimes no application uses any more, after a removal.
+    Unused,
 }
 
 /// A transaction on its way through the helper.
@@ -48,6 +53,10 @@ pub struct Job {
     /// How many packages the confirmed plan touches, dependencies included; the names alone
     /// where there was no printed plan.
     pub packages: usize,
+    /// The actions that follow once this job went through, each confirmed on its own.
+    pub then: Vec<Action>,
+    /// What an AUR build builds and installs, as the user confirmed it.
+    pub build: Option<qpackages_core::build::Plan>,
 }
 
 impl Job {
@@ -60,6 +69,7 @@ impl Job {
                 Tool::Snapper => vec![Step::Before(tool), Step::Main, Step::After],
                 Tool::Timeshift => vec![Step::Before(tool), Step::Main],
             },
+            _ if matches!(action, Action::FlatpakRemove(_)) => vec![Step::Main, Step::Unused],
             _ => vec![Step::Main],
         };
         let packages = action.names().len();
@@ -73,6 +83,8 @@ impl Job {
             step_lines: Vec::new(),
             pre: None,
             pacnew: Vec::new(),
+            then: Vec::new(),
+            build: None,
         }
     }
 
@@ -82,14 +94,15 @@ impl Job {
         self.steps.get(self.index).copied()
     }
 
-    /// The request of the current step; `None` once every step ran.
+    /// How the current step is carried out; `None` once every step ran.
     #[must_use]
-    pub fn request(&self) -> Option<Request> {
+    pub fn run(&self) -> Option<Run> {
         match self.step()? {
-            Step::Before(Tool::Snapper) => Some(Request::Snapshot(Snapshot::SnapperPre)),
-            Step::Before(Tool::Timeshift) => Some(Request::Snapshot(Snapshot::Timeshift)),
-            Step::Main => Some(self.action.request()),
-            Step::After => self.pre.map(|number| Request::Snapshot(Snapshot::SnapperPost(number))),
+            Step::Before(Tool::Snapper) => Some(Run::Helper(Request::Snapshot(Snapshot::SnapperPre))),
+            Step::Before(Tool::Timeshift) => Some(Run::Helper(Request::Snapshot(Snapshot::Timeshift))),
+            Step::Main => Some(self.action.run()),
+            Step::After => self.pre.map(|number| Run::Helper(Request::Snapshot(Snapshot::SnapperPost(number)))),
+            Step::Unused => Some(Run::Flatpak(flatpak::uninstall_unused_args())),
         }
     }
 
@@ -154,8 +167,10 @@ impl Job {
         };
         let what = match step {
             Step::Before(tool) => t!("transaction.step-before", tool = tool.key()),
+            Step::Main if matches!(self.action, Action::FlatpakRemove(_)) => t!("transaction.step-flatpak-apps"),
             Step::Main => t!("transaction.step-main"),
             Step::After => t!("transaction.step-after"),
+            Step::Unused => t!("transaction.step-unused"),
         };
         format!("{running} · {}/{} · {what}", self.index + 1, self.steps.len())
     }
@@ -176,18 +191,44 @@ mod tests {
         }])
     }
 
+    /// The request line the current step sends the helper, if it goes to the helper.
+    fn helper_line(job: &Job) -> Option<String> {
+        match job.run()? {
+            Run::Helper(request) => Some(request.to_string()),
+            Run::Flatpak(_) | Run::Aur => None,
+        }
+    }
+
+    #[test]
+    fn a_flatpak_removal_for_the_user_clears_the_unused_runtimes_after_it() {
+        let ids = vec!["org.gimp.GIMP".to_owned()];
+        let mut job = Job::new(Action::FlatpakRemove(ids.clone()), backup::Plan::Take(Tool::Snapper));
+        assert_eq!(job.steps, [Step::Main, Step::Unused], "no snapshot, and the runtimes after");
+        assert_eq!(job.run(), Some(Run::Flatpak(flatpak::uninstall_args(&ids))));
+        assert!(job.advance());
+        assert_eq!(job.run(), Some(Run::Flatpak(flatpak::uninstall_unused_args())));
+        assert!(!job.advance());
+        let system = Job::new(Action::FlatpakRemoveSystem(ids.clone()), backup::Plan::Off);
+        assert_eq!(system.steps, [Step::Main]);
+        assert_eq!(helper_line(&system).as_deref(), Some("flatpak-system remove org.gimp.GIMP"));
+        let install = Job::new(Action::FlatpakInstall(ids.clone()), backup::Plan::Off);
+        assert_eq!(install.run(), Some(Run::Flatpak(flatpak::install_args(&ids))));
+        let add = Job::new(Action::AddFlathub, backup::Plan::Off);
+        assert_eq!(add.run(), Some(Run::Flatpak(flatpak::add_flathub_args())));
+    }
+
     #[test]
     fn snapper_wraps_an_update_in_two_snapshots_paired_by_number() {
         let mut job = Job::new(upgrade(), backup::Plan::Take(Tool::Snapper));
-        assert_eq!(job.request().map(|r| r.to_string()).as_deref(), Some("snapshot pre snapper"));
+        assert_eq!(helper_line(&job).as_deref(), Some("snapshot pre snapper"));
         job.line("42");
         assert!(job.took_before());
         assert!(job.advance());
-        assert_eq!(job.request(), Some(Request::Upgrade));
+        assert_eq!(job.run(), Some(Run::Helper(Request::Upgrade)));
         assert!(job.advance());
-        assert_eq!(job.request().map(|r| r.to_string()).as_deref(), Some("snapshot post snapper 42"));
+        assert_eq!(helper_line(&job).as_deref(), Some("snapshot post snapper 42"));
         assert!(!job.advance());
-        assert_eq!(job.request(), None);
+        assert_eq!(job.run(), None);
     }
 
     #[test]
@@ -212,7 +253,7 @@ mod tests {
     fn going_on_without_snapshots_leaves_the_request_alone() {
         let mut job = Job::new(upgrade(), backup::Plan::Take(Tool::Snapper));
         job.without_snapshots();
-        assert_eq!(job.request(), Some(Request::Upgrade));
+        assert_eq!(job.run(), Some(Run::Helper(Request::Upgrade)));
         assert!(!job.advance(), "nothing after the update either");
     }
 

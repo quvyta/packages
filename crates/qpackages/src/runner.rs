@@ -41,6 +41,27 @@ pub trait Runner: Send + Sync {
     /// Returns an I/O error when the program cannot be started.
     fn output(&self, program: &str, args: &[String], env: &[(&str, &str)]) -> io::Result<Output>;
 
+    /// Runs a short query with the variables named in `remove` taken out of the environment
+    /// first, for a program that reads the environment for what to work on: `git` would fetch
+    /// into whatever repository `GIT_DIR` names rather than the one its arguments give.
+    ///
+    /// The default answers as [`output`](Self::output) does, since a runner that plays a
+    /// recording never starts a program that could read those variables.
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O error when the program cannot be started.
+    fn output_without(
+        &self,
+        program: &str,
+        args: &[String],
+        env: &[(&str, &str)],
+        remove: &[&str],
+    ) -> io::Result<Output> {
+        let _ = remove;
+        self.output(program, args, env)
+    }
+
     /// Runs a long command, handing every line it prints to `on_line` as it arrives. With `pty`
     /// the command runs on a pseudo-terminal of that many columns and rows, so it draws progress
     /// as it would on a real one; `cancel` is asked between lines and ends the command early.
@@ -66,8 +87,21 @@ pub struct Real;
 
 impl Runner for Real {
     fn output(&self, program: &str, args: &[String], env: &[(&str, &str)]) -> io::Result<Output> {
+        self.output_without(program, args, env, &[])
+    }
+
+    fn output_without(
+        &self,
+        program: &str,
+        args: &[String],
+        env: &[(&str, &str)],
+        remove: &[&str],
+    ) -> io::Result<Output> {
         let mut command = Command::new(program);
         command.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        for name in remove {
+            command.env_remove(name);
+        }
         for (key, value) in env {
             command.env(key, value);
         }

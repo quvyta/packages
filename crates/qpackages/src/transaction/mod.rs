@@ -2,6 +2,16 @@
 //! on our screen, have the root helper run pacman on a pseudo-terminal while the list stays where
 //! it is, then say how it went.
 //!
+//! Flatpak's work for the user goes the same way without the helper: it needs no privileges, so
+//! flatpak runs as the user and its lines stream into the same pane. Only removing an application
+//! installed for the whole system goes through the helper. A request that needs both, such as
+//! checked cards from the repositories and from Flathub, runs as actions one after another, each
+//! with its own confirmation; one that fails or is cancelled stops the ones after it.
+//!
+//! An AUR package is built by paru or yay as the user, with qpac as their sudo: their root steps
+//! come back to this qpac through a private pair of pipes and go to the same helper, but only the
+//! steps the confirmed build is expected to take (see [`crate::build`]).
+//!
 //! The first transaction of a run starts the helper, which stays up until qpac quits. Where polkit
 //! is installed, pkexec asks for the password while the terminal is handed over and starts the
 //! helper itself; elsewhere sudo asks on the real terminal, then `sudo -n` starts it. Later
@@ -27,16 +37,24 @@ use qframe::runtime::{
 };
 use qframe::widgets::Toast;
 use qpackages_core::backup;
+use qpackages_core::build::plan::Problem;
+use qpackages_core::build::{self as aur_build, Expected};
+use qpackages_core::catalog::flatpak::FLATPAK;
+use qpackages_core::flatpak;
 use qpackages_core::helper::{Refusal, Request};
 use qpackages_core::lock::{LockStatus, Owner, lock_status};
 use qpackages_core::pacman::command::{self, PACMAN, SUDO};
 use qpackages_core::pacman::{Plan, Update, parse_install_plan, parse_remove_plan, read_orphans};
 use qpackages_core::reflector::Mirrors;
+use qpackages_core::sources::AurHelper;
 
 use crate::app::Msg as AppMsg;
+use crate::build::pipes::Pipes;
+use crate::build::relay::{self, Relay};
 use crate::helper::pkexec::{self, Tool};
 use crate::helper::session::{self, Outcome, Session, StartFailure, Wait};
 use crate::reload::Reload;
+use crate::review;
 use crate::runner::Runner;
 pub use job::{Job, Step};
 
@@ -64,6 +82,50 @@ pub enum Action {
     Mirrors(Mirrors),
     /// Turn reflector's timer on or off.
     Timer(bool),
+    /// Install these Flatpak applications from Flathub, for the user.
+    FlatpakInstall(Vec<String>),
+    /// Remove these Flatpak applications installed for the user, then the runtimes no
+    /// application uses any more.
+    FlatpakRemove(Vec<String>),
+    /// Remove these Flatpak applications installed for the whole system, through the helper.
+    FlatpakRemoveSystem(Vec<String>),
+    /// Add Flathub as a remote for the user.
+    AddFlathub,
+    /// Build these packages from the AUR with paru or yay, and install them with what they need.
+    AurInstall(Vec<String>),
+}
+
+/// How one step of a job is carried out.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Run {
+    /// The root helper carries out this request.
+    Helper(Request),
+    /// Flatpak runs as the user with these arguments.
+    Flatpak(Vec<String>),
+    /// paru or yay builds the job's AUR plan as the user, its root steps relayed to the helper.
+    Aur,
+}
+
+/// The AUR helper that builds, as the last read of the machine found it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Builder {
+    /// paru or yay.
+    pub helper: AurHelper,
+    /// Where its program is.
+    pub program: PathBuf,
+}
+
+/// What an AUR build needs to know about the user and qpac itself.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuildPlaces {
+    /// qpac's own absolute path, which paru and yay call in place of sudo.
+    pub exe: PathBuf,
+    /// The user's runtime folder, where each build's private pipes are made.
+    pub runtime: PathBuf,
+    /// The user's home folder, whose build cache the built packages must come from.
+    pub home: PathBuf,
+    /// The user's id, whose the pipes' folder must be.
+    pub uid: u32,
 }
 
 impl Action {
@@ -71,23 +133,57 @@ impl Action {
     #[must_use]
     pub fn names(&self) -> Vec<&str> {
         match self {
-            Self::Install(names) | Self::Remove(names) | Self::UpgradeInstall(names) | Self::RemoveOrphans(names) => {
-                names.iter().map(String::as_str).collect()
-            }
+            Self::Install(names)
+            | Self::Remove(names)
+            | Self::UpgradeInstall(names)
+            | Self::RemoveOrphans(names)
+            | Self::FlatpakInstall(names)
+            | Self::FlatpakRemove(names)
+            | Self::FlatpakRemoveSystem(names)
+            | Self::AurInstall(names) => names.iter().map(String::as_str).collect(),
             Self::Upgrade(updates) => updates.iter().map(|update| update.name.as_str()).collect(),
-            Self::Mirrors(_) | Self::Timer(_) => Vec::new(),
+            Self::Mirrors(_) | Self::Timer(_) | Self::AddFlathub => Vec::new(),
         }
     }
 
     /// Whether there is nothing to do: a package action without packages.
     fn is_empty(&self) -> bool {
-        !matches!(self, Self::Mirrors(_) | Self::Timer(_)) && self.names().is_empty()
+        !matches!(self, Self::Mirrors(_) | Self::Timer(_) | Self::AddFlathub) && self.names().is_empty()
     }
 
     /// Whether the action takes packages away.
     #[must_use]
     pub fn is_removal(&self) -> bool {
-        matches!(self, Self::Remove(_) | Self::RemoveOrphans(_))
+        matches!(self, Self::Remove(_) | Self::RemoveOrphans(_) | Self::FlatpakRemove(_) | Self::FlatpakRemoveSystem(_))
+    }
+
+    /// Whether Flatpak carries the action out as the user, with no helper and no permission.
+    #[must_use]
+    pub fn as_user(&self) -> bool {
+        matches!(self, Self::FlatpakInstall(_) | Self::FlatpakRemove(_) | Self::AddFlathub)
+    }
+
+    /// Whether Flatpak carries the action out, as the user or through the helper, so what is said
+    /// about its run names Flatpak rather than pacman.
+    #[must_use]
+    pub fn runs_flatpak(&self) -> bool {
+        matches!(
+            self,
+            Self::FlatpakInstall(_) | Self::FlatpakRemove(_) | Self::FlatpakRemoveSystem(_) | Self::AddFlathub
+        )
+    }
+
+    /// Whether pacman carries the action out, so it waits for pacman's lock.
+    fn uses_pacman(&self) -> bool {
+        matches!(
+            self,
+            Self::Install(_)
+                | Self::Remove(_)
+                | Self::Upgrade(_)
+                | Self::UpgradeInstall(_)
+                | Self::RemoveOrphans(_)
+                | Self::AurInstall(_)
+        )
     }
 
     /// Whether the action brings the system up to date, which the snapshots are taken around.
@@ -115,20 +211,32 @@ impl Action {
         match self {
             Self::Install(names) | Self::UpgradeInstall(names) => Some(command::print_install(names)),
             Self::Remove(names) | Self::RemoveOrphans(names) => Some(command::print_remove(names)),
-            Self::Upgrade(_) | Self::Mirrors(_) | Self::Timer(_) => None,
+            Self::Upgrade(_)
+            | Self::Mirrors(_)
+            | Self::Timer(_)
+            | Self::FlatpakInstall(_)
+            | Self::FlatpakRemove(_)
+            | Self::FlatpakRemoveSystem(_)
+            | Self::AddFlathub
+            | Self::AurInstall(_) => None,
         }
     }
 
-    /// The request that has the helper carry the action out.
-    fn request(&self) -> Request {
+    /// How the action's own step is carried out: through the helper, or by Flatpak as the user.
+    fn run(&self) -> Run {
         match self {
-            Self::Install(names) => Request::Install(names.clone()),
-            Self::Remove(names) => Request::Remove(names.clone()),
-            Self::Upgrade(_) => Request::Upgrade,
-            Self::UpgradeInstall(names) => Request::UpgradeInstall(names.clone()),
-            Self::RemoveOrphans(names) => Request::RemoveOrphans(names.clone()),
-            Self::Mirrors(mirrors) => Request::Mirrors(mirrors.clone()),
-            Self::Timer(on) => Request::Timer(*on),
+            Self::Install(names) => Run::Helper(Request::Install(names.clone())),
+            Self::Remove(names) => Run::Helper(Request::Remove(names.clone())),
+            Self::Upgrade(_) => Run::Helper(Request::Upgrade),
+            Self::UpgradeInstall(names) => Run::Helper(Request::UpgradeInstall(names.clone())),
+            Self::RemoveOrphans(names) => Run::Helper(Request::RemoveOrphans(names.clone())),
+            Self::Mirrors(mirrors) => Run::Helper(Request::Mirrors(mirrors.clone())),
+            Self::Timer(on) => Run::Helper(Request::Timer(*on)),
+            Self::FlatpakRemoveSystem(ids) => Run::Helper(Request::FlatpakSystemRemove(ids.clone())),
+            Self::FlatpakInstall(ids) => Run::Flatpak(flatpak::install_args(ids)),
+            Self::FlatpakRemove(ids) => Run::Flatpak(flatpak::uninstall_args(ids)),
+            Self::AddFlathub => Run::Flatpak(flatpak::add_flathub_args()),
+            Self::AurInstall(_) => Run::Aur,
         }
     }
 
@@ -147,6 +255,10 @@ pub struct Planned {
     /// Whether the helper is up, so no password will be asked.
     granted: bool,
     lock: LockStatus,
+    /// Flatpak said the user has no Flathub remote, so an installation from it cannot run.
+    no_flathub: bool,
+    /// What an AUR build does, or why that could not be worked out; `None` for other actions.
+    build: Option<Result<aur_build::Plan, Problem>>,
 }
 
 /// What the application does once the packages were read again after a transaction.
@@ -163,6 +275,8 @@ pub struct Done {
 pub enum Msg {
     /// The user asked for an action; planning starts.
     Begin(Action),
+    /// The user asked for these actions, to run one after another, each confirmed on its own.
+    Queue(Vec<Action>),
     /// Carries out an action the user already agreed to, without asking again: the orphans the
     /// user chose to have removed on their own.
     BeginConfirmed(Action),
@@ -210,6 +324,8 @@ pub enum Msg {
     Close,
     /// The user dragged the output pane to this many rows.
     OutputHeight(u16),
+    /// Something happened on the recipe review that stands before an AUR build.
+    Review(review::Msg),
 }
 
 /// Where the flow is.
@@ -217,8 +333,8 @@ pub enum Msg {
 pub enum State {
     /// Nothing is going on.
     Idle,
-    /// pacman is being asked what the action would do.
-    Planning(Action),
+    /// pacman is being asked what the action would do; the actions after it wait for its end.
+    Planning(Action, Vec<Action>),
     /// The plan is on screen, waiting for the user.
     Confirming {
         /// The action planned.
@@ -231,6 +347,11 @@ pub enum State {
         backup: backup::Plan,
         /// How many updates wait, which an installation offers to bring along.
         pending: usize,
+        /// The actions that follow this one once it went through.
+        then: Vec<Action>,
+        /// What an AUR build builds and installs; `None` for other actions. Its `builds` are the
+        /// packages whose recipes are reviewed.
+        build: Option<aur_build::Plan>,
     },
     /// Another transaction holds pacman's database; nothing can start.
     Locked {
@@ -254,6 +375,14 @@ pub enum State {
     },
     /// A step ended without success; the output stays on screen until closed.
     Finished(Job),
+    /// The build was confirmed and its recipes are being read; nothing runs until the user
+    /// approves them.
+    Reviewing {
+        /// The build, held until the recipes are approved.
+        job: Box<Job>,
+        /// The screen the user reads them on.
+        screen: review::Screen,
+    },
 }
 
 /// The flow's state and what it needs to run programs.
@@ -284,6 +413,13 @@ pub struct Flow {
     pacnew: Option<Vec<String>>,
     /// What to do once the packages were read again after the last transaction.
     done: Option<Done>,
+    /// The AUR helper that builds, when the AUR is in use and the machine has one.
+    builder: Option<Builder>,
+    /// What an AUR build needs to know about the user; `None` when it could not be told.
+    build_places: Option<BuildPlaces>,
+    /// Where the recipe review keeps its clones and its approvals; `None` without a home folder,
+    /// and then nothing is built from the AUR, since an unrecorded review asks again every time.
+    review_places: Option<review::Places>,
 }
 
 impl fmt::Debug for Flow {
@@ -324,6 +460,39 @@ impl Flow {
             pending_updates: 0,
             pacnew: None,
             done: None,
+            builder: None,
+            build_places: None,
+            review_places: None,
+        }
+    }
+
+    /// Builds AUR packages with `builder` from now on; `None` when there is none to use.
+    pub fn set_builder(&mut self, builder: Option<Builder>) {
+        self.builder = builder;
+    }
+
+    /// The AUR helper that builds, if any.
+    #[must_use]
+    pub fn builder(&self) -> Option<&Builder> {
+        self.builder.as_ref()
+    }
+
+    /// Builds AUR packages at `places` from now on.
+    pub fn set_build_places(&mut self, places: Option<BuildPlaces>) {
+        self.build_places = places;
+    }
+
+    /// Reads and records AUR recipes at `places` from now on.
+    pub fn set_review_places(&mut self, places: Option<review::Places>) {
+        self.review_places = places;
+    }
+
+    /// The recipe review standing before a build, while the user is on it.
+    #[must_use]
+    pub fn reviewing(&self) -> Option<&review::Screen> {
+        match &self.state {
+            State::Reviewing { screen, .. } => Some(screen),
+            _ => None,
         }
     }
 
@@ -398,7 +567,7 @@ impl Flow {
     /// Whether an action is being planned, so the control that asked can show it.
     #[must_use]
     pub fn is_planning(&self) -> bool {
-        matches!(self.state, State::Planning(_))
+        matches!(self.state, State::Planning(..))
     }
 
     /// Rows the output pane takes.
@@ -412,7 +581,14 @@ impl Flow {
     /// where the pane does.
     pub fn update(&mut self, msg: Msg, pty: (u16, u16)) -> Command<AppMsg> {
         match msg {
-            Msg::Begin(action) => return self.begin(action),
+            Msg::Begin(action) => return self.begin(action, Vec::new()),
+            Msg::Queue(mut actions) => {
+                if actions.is_empty() {
+                    return Command::none();
+                }
+                let first = actions.remove(0);
+                return self.begin(first, actions);
+            }
             Msg::BeginConfirmed(action) => {
                 if self.is_idle() && !action.is_empty() {
                     self.state = State::Idle;
@@ -472,16 +648,26 @@ impl Flow {
                 }
             }
             Msg::OutputHeight(rows) => self.output_height = rows,
+            Msg::Review(message) => return self.reviewed(message, pty),
         }
         Command::none()
     }
 
-    /// Starts planning `action` in the background, unless something is already going on.
-    fn begin(&mut self, action: Action) -> Command<AppMsg> {
+    /// Starts planning `action` in the background, unless something is already going on; `then`
+    /// follows it once it went through.
+    fn begin(&mut self, action: Action, then: Vec<Action>) -> Command<AppMsg> {
         if !self.is_idle() || action.is_empty() {
             return Command::none();
         }
-        self.state = State::Planning(action.clone());
+        if matches!(action, Action::AurInstall(_)) {
+            if self.builder.is_none() {
+                return self.toast(Toast::warning(t!("aur.no-helper")).body(t!("aur.no-helper-body")));
+            }
+            if self.build_places.is_none() {
+                return self.toast(Toast::danger(t!("aur.could-not-start")).body(t!("aur.no-places")));
+            }
+        }
+        self.state = State::Planning(action.clone(), then);
         let runner = Arc::clone(&self.runner);
         let session = self.session.clone();
         let lock_dir = self.lock_dir.clone();
@@ -490,14 +676,35 @@ impl Flow {
 
     /// Shows the plan, the lock notice, or why there is no plan.
     fn planned(&mut self, planned: Planned) -> Command<AppMsg> {
-        if !matches!(&self.state, State::Planning(action) if *action == planned.action) {
+        let State::Planning(action, then) = std::mem::replace(&mut self.state, State::Idle) else {
+            return Command::none();
+        };
+        if action != planned.action {
+            self.state = State::Planning(action, then);
             return Command::none();
         }
         self.granted = planned.granted;
+        if planned.no_flathub {
+            // The installation cannot run without Flathub; the notice offers to add it first.
+            let mut both = vec![Action::AddFlathub, action];
+            both.extend(then);
+            let add = Toast::warning(t!("flatpak.no-flathub"))
+                .body(t!("flatpak.no-flathub-body"))
+                .action(t!("flatpak.add-and-install"), wrap(Msg::Queue(both)));
+            return self.toast(add);
+        }
         if let LockStatus::Held { since, owner } = planned.lock {
             self.state = State::Locked { since, owner };
             return Command::none();
         }
+        let build = match planned.build {
+            Some(Err(problem)) => {
+                self.state = State::Idle;
+                return self.toast(Toast::danger(t!("aur.plan-failed")).body(problem_text(&problem)));
+            }
+            Some(Ok(build)) => Some(build),
+            None => None,
+        };
         match planned.plan {
             Ok(plan) => {
                 // Only an installation offers to bring the updates along; the others either are
@@ -509,6 +716,8 @@ impl Flow {
                     granted: planned.granted,
                     backup: self.backup,
                     pending,
+                    then,
+                    build,
                 };
                 Command::none()
             }
@@ -522,7 +731,9 @@ impl Flow {
     /// Carries out the confirmed plan, with the pending updates when `with_upgrade`. A snapshot
     /// tool that is chosen but missing is said before anything is asked or run.
     fn apply(&mut self, with_upgrade: bool, pty: (u16, u16)) -> Command<AppMsg> {
-        let State::Confirming { action, backup, plan, .. } = std::mem::replace(&mut self.state, State::Idle) else {
+        let State::Confirming { action, backup, plan, then, build, .. } =
+            std::mem::replace(&mut self.state, State::Idle)
+        else {
             return Command::none();
         };
         let action = match action {
@@ -530,8 +741,13 @@ impl Flow {
             action => action,
         };
         let mut job = Job::new(action, backup);
+        job.then = then;
         if !plan.steps.is_empty() {
             job.packages = plan.steps.len();
+        }
+        if let Some(build) = build {
+            job.packages = build.builds.len() + build.repo.steps.len();
+            job.build = Some(build);
         }
         if let backup::Plan::Unavailable(tool) = backup
             && job.action.upgrades()
@@ -539,13 +755,61 @@ impl Flow {
             let reason = t!("backup.not-installed", tool = tool.key());
             return self.ask_without_backup(job, reason);
         }
+        // An AUR build runs scripts the user did not write, so the confirmation is not the last
+        // word: its recipes are read first, and only their approval starts the build.
+        if matches!(job.action, Action::AurInstall(_))
+            && let Some(plan) = job.build.as_ref()
+        {
+            let wanted = review::Wanted::of(&plan.builds);
+            return self.begin_review(wanted, job);
+        }
         self.start_job(job, pty)
     }
 
-    /// Runs `job` through the helper, starting the helper first when there is none.
+    /// Holds `job` while the recipes of its bases are fetched and read.
+    fn begin_review(&mut self, wanted: Vec<review::Wanted>, job: Job) -> Command<AppMsg> {
+        let Some(places) = self.review_places.clone() else {
+            return self.toast(Toast::warning(t!("review.no-place")).body(t!("review.no-place-body")));
+        };
+        let screen = review::Screen::new(wanted);
+        let reading = screen.read(&self.runner, &places).map(|message| wrap(Msg::Review(message)));
+        self.state = State::Reviewing { job: Box::new(job), screen };
+        reading
+    }
+
+    /// Takes in what happened on the review screen: the build starts once every recipe shown was
+    /// approved and recorded, and nothing runs if the user leaves instead.
+    fn reviewed(&mut self, message: review::Msg, pty: (u16, u16)) -> Command<AppMsg> {
+        let State::Reviewing { screen, .. } = &mut self.state else { return Command::none() };
+        match screen.update(message) {
+            review::Decision::Stay => Command::none(),
+            review::Decision::Cancelled => {
+                self.state = State::Idle;
+                Command::none()
+            }
+            review::Decision::Approved if screen.is_read() => {
+                let State::Reviewing { job, screen } = std::mem::replace(&mut self.state, State::Idle) else {
+                    return Command::none();
+                };
+                let unwritten = self.review_places.as_ref().map(|places| screen.approve(places)).unwrap_or_default();
+                let started = self.start_job(*job, pty);
+                if unwritten.is_empty() {
+                    return started;
+                }
+                // The build still goes ahead: an approval that was not written means the recipe
+                // is read again next time, which errs towards asking.
+                let toast = self.toast(Toast::warning(t!("review.not-recorded")).body(unwritten.join("\n")));
+                Command::batch([toast, started])
+            }
+            review::Decision::Approved => Command::none(),
+        }
+    }
+
+    /// Runs `job` through the helper, starting the helper first when there is none. A job Flatpak
+    /// carries out as the user needs no helper and starts at once.
     fn start_job(&mut self, job: Job, pty: (u16, u16)) -> Command<AppMsg> {
         self.granted = self.session.is_alive();
-        if self.granted {
+        if self.granted || job.action.as_user() {
             return self.execute(job, pty);
         }
         if let Tool::Pkexec(program) = &self.tool {
@@ -698,8 +962,11 @@ impl Flow {
     /// toast says so to the user, and the lock check before the next transaction catches a
     /// pacman still at work.
     fn execute(&mut self, job: Job, pty: (u16, u16)) -> Command<AppMsg> {
-        let Some(request) = job.request() else {
-            return self.succeeded(&job, None);
+        let request = match job.run() {
+            None => return self.succeeded(&job, None),
+            Some(Run::Flatpak(args)) => return self.run_flatpak(job, args),
+            Some(Run::Aur) => return self.run_build(job, pty),
+            Some(Run::Helper(request)) => request,
         };
         let session = self.session.clone();
         let task = Task::new(job.heading(), move |cx| {
@@ -709,6 +976,65 @@ impl Flow {
                 Outcome::Refused(refusal) => Msg::Refused(refusal),
                 Outcome::Lost(reason) => Msg::Lost(reason),
             }))
+        })
+        .on_event(|event| wrap(Msg::Event(event)));
+        self.state = State::Running { job, task: task.id() };
+        Command::task(task)
+    }
+
+    /// Has Flatpak run as the user with `args` and streams its lines into the pane. Flatpak's own
+    /// work is transactional, so stopping it ends it: what it finished stays, the rest is not
+    /// put in place.
+    ///
+    /// Its output is shown, never parsed, so it keeps the user's language. Without a terminal it
+    /// prints one line per part it installs or removes and no progress bar, the same as on one,
+    /// so it runs on pipes.
+    fn run_flatpak(&mut self, job: Job, args: Vec<String>) -> Command<AppMsg> {
+        let runner = Arc::clone(&self.runner);
+        let task = Task::new(job.heading(), move |cx| {
+            let outcome = runner
+                .stream(FLATPAK, &args, &[], None, &|| cx.is_cancelled(), &mut |line| cx.send(wrap(Msg::Line(line))))
+                .map_err(|error| error.to_string())?;
+            Ok(wrap(Msg::Ended(outcome)))
+        })
+        .on_event(|event| wrap(Msg::Event(event)));
+        self.state = State::Running { job, task: task.id() };
+        Command::task(task)
+    }
+
+    /// Has paru or yay build the job's AUR plan as the user on a `pty`-sized pseudo-terminal and
+    /// streams their lines into the pane. They call qpac for every root step; those steps come
+    /// through the build's own pipes and go to the helper only when the plan expects them.
+    ///
+    /// Stopping stops paru or yay. A step already handed to pacman runs to its end, and the build
+    /// ends after it; its pipes go with it.
+    fn run_build(&mut self, job: Job, pty: (u16, u16)) -> Command<AppMsg> {
+        let (Some(plan), Some(builder), Some(places)) =
+            (job.build.clone(), self.builder.clone(), self.build_places.clone())
+        else {
+            return self.toast(Toast::warning(t!("aur.no-helper")).body(t!("aur.no-helper-body")));
+        };
+        let setup = relay::Setup {
+            session: self.session.clone(),
+            expected: Expected::new(&places.home, &plan),
+            size: pty,
+            refusals: Refusal::ALL.iter().map(|refusal| (*refusal, refusal_text(*refusal))).collect(),
+        };
+        // Said here: the task's thread has no language.
+        let spaced = t!("aur.folder-spaced");
+        let runner = Arc::clone(&self.runner);
+        let task = Task::new(job.heading(), move |cx| {
+            let pipes = Pipes::create(&places.runtime, places.uid).map_err(|error| error.to_string())?;
+            let args = aur_build::command::build_args(builder.helper, &places.exe, pipes.folder(), &plan.targets)
+                .ok_or(spaced)?;
+            let relay = Relay::start(&pipes, setup).map_err(|error| error.to_string())?;
+            let program = builder.program.to_string_lossy();
+            let outcome = runner.stream(&program, &args, &[], Some(pty), &|| cx.is_cancelled(), &mut |line| {
+                cx.send(wrap(Msg::Line(line)));
+            });
+            relay.stop();
+            drop(pipes);
+            Ok(wrap(Msg::Ended(outcome.map_err(|error| error.to_string())?)))
         })
         .on_event(|event| wrap(Msg::Event(event)));
         self.state = State::Running { job, task: task.id() };
@@ -736,7 +1062,7 @@ impl Flow {
                 };
                 self.ask_without_backup(job, reason)
             }
-            Some(Step::Main) if success => {
+            Some(Step::Main | Step::Unused) if success => {
                 if job.advance() {
                     self.execute(job, pty)
                 } else {
@@ -755,7 +1081,8 @@ impl Flow {
 
     /// Reports a job that went through, keeps its `.pacnew` files for their list and reads the
     /// packages again: what was just installed may be a source's own program. `warning` is
-    /// added when something beside the job did not work.
+    /// added when something beside the job did not work. The actions queued after the job are
+    /// planned next.
     fn succeeded(&mut self, job: &Job, warning: Option<String>) -> Command<AppMsg> {
         self.state = State::Idle;
         if !job.pacnew.is_empty() {
@@ -771,6 +1098,12 @@ impl Flow {
             Action::Mirrors(_) => Toast::success(t!("transaction.done-mirrors")),
             Action::Timer(true) => Toast::success(t!("transaction.done-timer-on")),
             Action::Timer(false) => Toast::success(t!("transaction.done-timer-off")),
+            Action::FlatpakInstall(_) => Toast::success(t!("transaction.done-install", names = names)),
+            Action::FlatpakRemove(_) | Action::FlatpakRemoveSystem(_) => {
+                Toast::success(t!("transaction.done-remove", names = names))
+            }
+            Action::AddFlathub => Toast::success(t!("flatpak.done-add")),
+            Action::AurInstall(_) => Toast::success(t!("transaction.done-install", names = names)),
         };
         let toast = match warning {
             Some(warning) => Toast::warning(warning).body(t!("backup.after-failed-body")),
@@ -783,24 +1116,52 @@ impl Flow {
             upgraded: job.action.upgrades(),
             orphans: matches!(job.action, Action::Remove(_) | Action::Upgrade(_) | Action::UpgradeInstall(_)),
         });
-        Command::batch([self.toast(toast), self.reload.command()])
+        let next = match job.then.split_first() {
+            Some((first, rest)) => self.begin(first.clone(), rest.to_vec()),
+            None => Command::none(),
+        };
+        Command::batch([self.toast(toast), self.reload.command(), next])
     }
 
     /// Keeps the output of a step that did not go through on screen and says how it ended.
     fn failed(&mut self, job: Job, outcome: &ProcessOutcome) -> Command<AppMsg> {
+        let as_user = job.action.as_user();
+        let flatpak = job.action.runs_flatpak();
+        let aur = matches!(job.action, Action::AurInstall(_));
         if !job.pacnew.is_empty() {
             self.pacnew = Some(job.pacnew.clone());
         }
         self.state = State::Finished(job);
         match outcome {
             ProcessOutcome::Finished { code: Some(code) } => {
-                self.toast(Toast::danger(t!("transaction.failed", code = *code)).body(t!("transaction.failed-body")))
+                let title = if flatpak {
+                    t!("transaction.failed-flatpak", code = *code)
+                } else if aur {
+                    t!("aur.failed", code = *code)
+                } else {
+                    t!("transaction.failed", code = *code)
+                };
+                self.toast(Toast::danger(title).body(t!("transaction.failed-body")))
             }
             ProcessOutcome::Finished { code: None } => {
-                self.toast(Toast::danger(t!("transaction.killed")).body(t!("transaction.failed-body")))
+                let title = if flatpak {
+                    t!("transaction.killed-flatpak")
+                } else if aur {
+                    t!("aur.killed")
+                } else {
+                    t!("transaction.killed")
+                };
+                self.toast(Toast::danger(title).body(t!("transaction.failed-body")))
             }
             ProcessOutcome::Cancelled => {
-                self.toast(Toast::info(t!("transaction.cancelled")).body(t!("transaction.cancelled-body")))
+                let body = if as_user {
+                    t!("transaction.cancelled-flatpak-body")
+                } else if aur {
+                    t!("aur.cancelled-body")
+                } else {
+                    t!("transaction.cancelled-body")
+                };
+                self.toast(Toast::info(t!("transaction.cancelled")).body(body))
             }
         }
     }
@@ -827,7 +1188,7 @@ impl Flow {
     /// the fresh list, or nothing when there are none left.
     fn orphans_again(&mut self, found: Result<Vec<String>, String>) -> Command<AppMsg> {
         match found {
-            Ok(names) if !names.is_empty() => self.begin(Action::RemoveOrphans(names)),
+            Ok(names) if !names.is_empty() => self.begin(Action::RemoveOrphans(names), Vec::new()),
             Ok(_) => self.toast(Toast::info(t!("orphans.none-left"))),
             Err(reason) => self.toast(Toast::danger(t!("orphans.unreadable")).body(reason)),
         }
@@ -861,8 +1222,15 @@ impl Flow {
                     return Command::none();
                 };
                 self.granted = self.session.is_alive();
+                let title = if job.action.runs_flatpak() {
+                    t!("transaction.could-not-start-flatpak")
+                } else if matches!(job.action, Action::AurInstall(_)) {
+                    t!("aur.could-not-start")
+                } else {
+                    t!("transaction.could-not-start")
+                };
                 self.state = State::Finished(job);
-                self.toast(Toast::danger(t!("transaction.could-not-start")).body(reason))
+                self.toast(Toast::danger(title).body(reason))
             }
         }
     }
@@ -899,17 +1267,37 @@ fn running_label(action: &Action) -> String {
         Action::Mirrors(_) => t!("transaction.running-mirrors"),
         Action::Timer(true) => t!("transaction.running-timer-on"),
         Action::Timer(false) => t!("transaction.running-timer-off"),
+        Action::FlatpakInstall(_) => t!("transaction.running-install", names = names),
+        Action::FlatpakRemove(_) | Action::FlatpakRemoveSystem(_) => t!("transaction.running-remove", names = names),
+        Action::AddFlathub => t!("flatpak.running-add"),
+        Action::AurInstall(_) => t!("aur.running", names = names),
     }
 }
 
 /// qpac's first line on the terminal pkexec is handed: who asks and for what.
 fn polkit_asks(action: &Action, n: usize) -> String {
     match action {
-        Action::Install(_) => t!("transaction.polkit-asks-install", n = n),
-        Action::Remove(_) | Action::RemoveOrphans(_) => t!("transaction.polkit-asks-remove", n = n),
+        Action::Install(_) | Action::FlatpakInstall(_) | Action::AddFlathub => {
+            t!("transaction.polkit-asks-install", n = n)
+        }
+        Action::Remove(_) | Action::RemoveOrphans(_) | Action::FlatpakRemove(_) | Action::FlatpakRemoveSystem(_) => {
+            t!("transaction.polkit-asks-remove", n = n)
+        }
         Action::Upgrade(_) | Action::UpgradeInstall(_) => t!("transaction.polkit-asks-upgrade"),
         Action::Mirrors(_) => t!("transaction.polkit-asks-mirrors"),
         Action::Timer(_) => t!("transaction.polkit-asks-timer"),
+        Action::AurInstall(_) => t!("aur.polkit-asks", n = n),
+    }
+}
+
+/// Why no AUR build could be planned, in the user's words.
+fn problem_text(problem: &Problem) -> String {
+    match problem {
+        Problem::NotInAur(name) => t!("aur.not-in-aur", name = name.as_str()),
+        Problem::Missing(name) => t!("aur.missing", name = name.as_str()),
+        Problem::Query(said) => said.clone(),
+        Problem::AurUnanswered => t!("aur.unanswered"),
+        Problem::TooDeep => t!("aur.too-deep"),
     }
 }
 
@@ -925,6 +1313,7 @@ fn refusal_text(refusal: Refusal) -> String {
 /// only root may write. Its confirmation lists what the update check found instead.
 fn plan(runner: &dyn Runner, session: &Session, lock_dir: &Path, action: Action) -> Planned {
     let env = command::parsed_env();
+    let no_flathub = matches!(action, Action::FlatpakInstall(_)) && lacks_flathub(runner);
     let plan = match action.print_args() {
         None => Ok(Plan::default()),
         Some(args) => match runner.output(PACMAN, &args, &env) {
@@ -933,8 +1322,29 @@ fn plan(runner: &dyn Runner, session: &Session, lock_dir: &Path, action: Action)
             Err(error) => Err(error.to_string()),
         },
     };
-    let lock = if action.changes_packages() { lock_status(lock_dir) } else { LockStatus::Free };
-    Planned { action, plan, granted: session.is_alive(), lock }
+    let build = match &action {
+        Action::AurInstall(names) => Some(crate::build::lookup::plan(runner, names)),
+        _ => None,
+    };
+    let plan = match &build {
+        Some(Ok(build)) => Ok(build.repo.clone()),
+        _ => plan,
+    };
+    let lock = if action.uses_pacman() { lock_status(lock_dir) } else { LockStatus::Free };
+    Planned { action, plan, granted: session.is_alive(), lock, no_flathub, build }
+}
+
+/// Whether Flatpak says for certain that the user has no Flathub remote. A list that could not
+/// be read says nothing, and the installation is tried: Flatpak's own error is then shown.
+fn lacks_flathub(runner: &dyn Runner) -> bool {
+    flathub_added(runner) == Some(false)
+}
+
+/// Whether the user has Flathub as a remote: `None` when Flatpak could not say.
+#[must_use]
+pub fn flathub_added(runner: &dyn Runner) -> Option<bool> {
+    let output = runner.output(FLATPAK, &flatpak::remotes_args(), &command::parsed_env()).ok()?;
+    output.succeeded().then(|| flatpak::has_flathub(&output.stdout))
 }
 
 /// The orphans as pacman lists them now, without privileges.
@@ -965,13 +1375,13 @@ mod tests {
             install.print_args().expect("a printed plan"),
             ["-S", "--print", "--print-format", "%r|%n|%v|%s", "--", "paru"]
         );
-        assert_eq!(install.request(), Request::Install(vec!["paru".to_owned()]));
+        assert_eq!(install.run(), Run::Helper(Request::Install(vec!["paru".to_owned()])));
         let remove = Action::Remove(vec!["yay".to_owned(), "bash".to_owned()]);
         assert_eq!(
             remove.print_args().expect("a printed plan"),
             ["-Rns", "--print", "--print-format", "%n|%v", "--", "yay", "bash"]
         );
-        assert_eq!(remove.request().to_string(), "remove yay bash");
+        assert_eq!(remove.run(), Run::Helper(Request::Remove(vec!["yay".to_owned(), "bash".to_owned()])));
         assert!(remove.is_removal());
         assert_eq!(remove.names_text(), "yay, bash");
     }

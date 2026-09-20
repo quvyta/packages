@@ -141,6 +141,51 @@ fn a_task_that_could_not_start_pacman_says_why() {
     assert!(matches!(h.app().0.state(), State::Finished { .. }));
 }
 
+/// A flow in the middle of removing a Flatpak for the user, as `run_flatpak` leaves it.
+fn removing_flatpak() -> (Flow, TaskId) {
+    let mut flow = idle();
+    let task: Task<AppMsg> = Task::new("never started", |_| Ok(wrap(Msg::Cancel)));
+    let id = task.id();
+    let job = Job::new(Action::FlatpakRemove(vec!["org.gimp.GIMP".to_owned()]), backup::Plan::Off);
+    flow.state = State::Running { job, task: id };
+    (flow, id)
+}
+
+#[test]
+fn a_flatpak_run_names_flatpak_its_steps_and_its_stop_in_both_languages() {
+    let (flow, id) = removing_flatpak();
+    let mut h = harness(flow, 100, 12);
+    let screen = h.screen();
+    for text in ["Removing org.gimp.GIMP · 1/2 · removing the apps", "Waiting for Flatpak"] {
+        assert!(screen.contains(text), "`{text}`:\n{screen}");
+    }
+    h.set_locale("tr");
+    let screen = h.screen();
+    for text in ["org.gimp.GIMP kaldırılıyor · 1/2 · uygulamalar kaldırılıyor", "Flatpak bekleniyor"] {
+        assert!(screen.contains(text), "`{text}`:\n{screen}");
+    }
+    h.set_locale("en");
+    h.send(line("Uninstalling app/org.gimp.GIMP/x86_64/stable"));
+    h.send(wrap(Msg::Event(TaskEvent::Finished { id, outcome: TaskOutcome::Cancelled })));
+    h.advance(Duration::from_millis(50));
+    let screen = h.screen();
+    for text in ["Stopped", "Flatpak was stopped", "Uninstalling app/org.gimp.GIMP"] {
+        assert!(screen.contains(text), "`{text}`:\n{screen}");
+    }
+    assert!(!screen.contains("pacman"), "{screen}");
+}
+
+#[test]
+fn a_flatpak_that_could_not_start_says_so() {
+    let (flow, id) = removing_flatpak();
+    let mut h = harness(flow, 80, 12);
+    let outcome = TaskOutcome::Failed("No such file or directory (os error 2)".to_owned());
+    h.send(wrap(Msg::Event(TaskEvent::Finished { id, outcome })));
+    h.advance(Duration::from_millis(50));
+    let screen = h.screen();
+    assert!(screen.contains("Flatpak could not be started"), "{screen}");
+}
+
 #[test]
 fn events_of_another_task_and_lines_after_the_end_are_ignored() {
     let (flow, _) = running();
@@ -177,7 +222,15 @@ fn confirming(action: Action, granted: bool) -> Flow {
     } else {
         qpackages_core::pacman::parse_install_plan("extra|paru|2.1.0-1|1258291\n")
     };
-    flow.state = State::Confirming { action, plan, granted, backup: backup::Plan::Off, pending: 0 };
+    flow.state = State::Confirming {
+        action,
+        plan,
+        granted,
+        backup: backup::Plan::Off,
+        pending: 0,
+        then: Vec::new(),
+        build: None,
+    };
     flow
 }
 

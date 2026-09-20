@@ -6,9 +6,10 @@
 //! to read in one sitting, and every value is checked before anything runs.
 
 use std::fmt;
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 
 use crate::backup::Snapshot;
+use crate::flatpak::{self, FLATPAK_PATH, is_app_id};
 use crate::pacman::command;
 use crate::reflector::Mirrors;
 
@@ -42,6 +43,22 @@ const MAX_NAME: usize = 255;
 /// The longest locale name passed with [`LANG_FLAG`], in bytes.
 const MAX_LOCALE: usize = 64;
 
+/// The longest path of a built package, in bytes: Linux's own limit on a path.
+const MAX_PATH: usize = 4096;
+
+/// The endings of the package files paru and yay build: makepkg's default compression and the
+/// one it used before.
+pub const BUILT_ENDINGS: [&str; 2] = [".pkg.tar.zst", ".pkg.tar.xz"];
+
+/// Where paru and yay keep what they build, under the calling user's home folder. Only a file
+/// under one of these is installed with [`Request::InstallBuilt`].
+pub const BUILD_CACHES: [&str; 2] = [".cache/paru/clone", ".cache/yay"];
+
+/// The variables that name the user who started the helper: pkexec sets the first, sudo the
+/// second. Both are set by the program that grants root, not by the user, so the helper can
+/// believe them.
+pub const CALLER_VARIABLES: [&str; 2] = ["PKEXEC_UID", "SUDO_UID"];
+
 /// What the helper is asked to do.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Request {
@@ -60,12 +77,19 @@ pub enum Request {
     MarkDeps(Vec<String>),
     /// Mark these packages as installed on purpose.
     MarkExplicit(Vec<String>),
+    /// Install these package files, which paru or yay built as the user. Each is checked against
+    /// the file rule where it is opened, so this carries only paths that pass
+    /// [`is_built_path`].
+    InstallBuilt(Vec<String>),
     /// Start and enable [`REFLECTOR_TIMER`] (`true`), or stop and disable it (`false`).
     Timer(bool),
     /// Take a snapshot before or after an update.
     Snapshot(Snapshot),
     /// Choose pacman's mirrors with reflector and save the choice for reflector's timer.
     Mirrors(Mirrors),
+    /// Remove these Flatpak applications, installed for the whole system. Installing always
+    /// happens for the user and needs no helper.
+    FlatpakSystemRemove(Vec<String>),
     /// Run later commands on a pseudo-terminal of this many columns and rows.
     Size {
         /// Columns.
@@ -95,10 +119,19 @@ pub enum Refusal {
     NoMirrors,
     /// A file could not be written; nothing was replaced.
     File,
+    /// A Flatpak application id breaks the id rule.
+    FlatpakId,
+    /// A built package file is not one the helper may install: not a regular file of the calling
+    /// user's in their own build cache.
+    Built,
+    /// The request is not one the AUR build in progress was expected to make, so qpac did not
+    /// pass it on.
+    NotThisBuild,
 }
 
 impl Refusal {
-    const ALL: [Self; 8] = [
+    /// Every refusal, for tables that name each one.
+    pub const ALL: [Self; 11] = [
         Self::NotRoot,
         Self::Unknown,
         Self::Values,
@@ -107,6 +140,9 @@ impl Refusal {
         Self::Changed,
         Self::NoMirrors,
         Self::File,
+        Self::FlatpakId,
+        Self::Built,
+        Self::NotThisBuild,
     ];
 
     /// The word that names the refusal on the wire and in the language files.
@@ -121,6 +157,9 @@ impl Refusal {
             Self::Changed => "changed",
             Self::NoMirrors => "no-mirrors",
             Self::File => "file",
+            Self::FlatpakId => "flatpak-id",
+            Self::Built => "built",
+            Self::NotThisBuild => "not-this-build",
         }
     }
 
@@ -150,6 +189,7 @@ impl Request {
             "remove-orphans" => names(&values).map(Self::RemoveOrphans),
             "mark-deps" => names(&values).map(Self::MarkDeps),
             "mark-explicit" => names(&values).map(Self::MarkExplicit),
+            "install-built" => built_paths(&values).map(Self::InstallBuilt),
             "timer" => match values.as_slice() {
                 ["on", REFLECTOR_TIMER] => Ok(Self::Timer(true)),
                 ["off", REFLECTOR_TIMER] => Ok(Self::Timer(false)),
@@ -163,6 +203,10 @@ impl Request {
                 ["pre", "timeshift"] => Ok(Self::Snapshot(Snapshot::Timeshift)),
                 _ => Err(Refusal::Values),
             },
+            "flatpak-system" => match values.split_first() {
+                Some((&"remove", ids)) => app_ids(ids).map(Self::FlatpakSystemRemove),
+                _ => Err(Refusal::Values),
+            },
             "mirrors" => Mirrors::from_values(&values).map(Self::Mirrors).ok_or(Refusal::Values),
             "size" => match values.as_slice() {
                 [cols, rows] => Ok(Self::Size { cols: dimension(cols)?, rows: dimension(rows)? }),
@@ -174,8 +218,8 @@ impl Request {
 
     /// The program, by its absolute path, and the fixed arguments that carry the request out;
     /// `None` for a request that runs nothing ([`Request::Size`]) or whose command depends on
-    /// what the helper finds first ([`Request::RemoveOrphans`]) or that is followed by file work
-    /// ([`Request::Mirrors`]).
+    /// what the helper finds first ([`Request::RemoveOrphans`], [`Request::InstallBuilt`]) or
+    /// that is followed by file work ([`Request::Mirrors`]).
     #[must_use]
     pub fn command(&self) -> Option<(&'static str, Vec<String>)> {
         let pacman = |args| Some((PACMAN_PATH, args));
@@ -191,7 +235,8 @@ impl Request {
                 Some((SYSTEMCTL_PATH, [verb, "--now", "--", REFLECTOR_TIMER].map(str::to_owned).to_vec()))
             }
             Self::Snapshot(snapshot) => Some(snapshot.command()),
-            Self::RemoveOrphans(_) | Self::Mirrors(_) | Self::Size { .. } => None,
+            Self::FlatpakSystemRemove(ids) => Some((FLATPAK_PATH, flatpak::system_uninstall_args(ids))),
+            Self::RemoveOrphans(_) | Self::InstallBuilt(_) | Self::Mirrors(_) | Self::Size { .. } => None,
         }
     }
 }
@@ -206,11 +251,13 @@ impl fmt::Display for Request {
             Self::RemoveOrphans(names) => write!(f, "remove-orphans {}", names.join(" ")),
             Self::MarkDeps(names) => write!(f, "mark-deps {}", names.join(" ")),
             Self::MarkExplicit(names) => write!(f, "mark-explicit {}", names.join(" ")),
+            Self::InstallBuilt(paths) => write!(f, "install-built {}", paths.join(" ")),
             Self::Timer(on) => write!(f, "timer {} {REFLECTOR_TIMER}", if *on { "on" } else { "off" }),
             Self::Snapshot(Snapshot::SnapperPre) => f.write_str("snapshot pre snapper"),
             Self::Snapshot(Snapshot::SnapperPost(number)) => write!(f, "snapshot post snapper {number}"),
             Self::Snapshot(Snapshot::Timeshift) => f.write_str("snapshot pre timeshift"),
             Self::Mirrors(mirrors) => write!(f, "mirrors {}", mirrors.values().join(" ")),
+            Self::FlatpakSystemRemove(ids) => write!(f, "flatpak-system remove {}", ids.join(" ")),
             Self::Size { cols, rows } => write!(f, "size {cols} {rows}"),
         }
     }
@@ -323,6 +370,79 @@ fn names(values: &[&str]) -> Result<Vec<String>, Refusal> {
         return Err(Refusal::Name);
     }
     Ok(values.iter().map(|name| (*name).to_owned()).collect())
+}
+
+/// Whether `path` may name a package paru or yay built, by its spelling alone: absolute, without
+/// a `.` or `..` part or an empty one, ending in one of [`BUILT_ENDINGS`], at most 4096 bytes and
+/// without control characters. Where the file lies and what it is are checked where it is opened.
+#[must_use]
+pub fn is_built_path(path: &str) -> bool {
+    let Some(rest) = path.strip_prefix('/') else { return false };
+    path.len() <= MAX_PATH
+        && !path.chars().any(char::is_control)
+        && BUILT_ENDINGS.iter().any(|ending| path.len() > ending.len() + 1 && path.ends_with(ending))
+        && rest.split('/').all(|part| !part.is_empty() && part != "." && part != "..")
+}
+
+/// The build caches of the user whose home folder is `home`, as [`BUILD_CACHES`] names them.
+#[must_use]
+pub fn build_caches(home: &Path) -> Vec<PathBuf> {
+    BUILD_CACHES.iter().map(|cache| home.join(cache)).collect()
+}
+
+/// Whether `path` lies inside one of the build caches of the user whose home folder is `home`,
+/// by its spelling: below the cache folder, never the folder itself.
+#[must_use]
+pub fn in_build_cache(path: &Path, home: &Path) -> bool {
+    !path.components().any(|part| matches!(part, Component::ParentDir | Component::CurDir))
+        && build_caches(home).iter().any(|cache| path.starts_with(cache) && path != cache)
+}
+
+/// The user who started the helper, from the first of [`CALLER_VARIABLES`] that `lookup` finds:
+/// digits only, as pkexec and sudo write it.
+#[must_use]
+pub fn caller_uid(lookup: impl Fn(&str) -> Option<String>) -> Option<u32> {
+    CALLER_VARIABLES.iter().find_map(|name| {
+        let value = lookup(name)?;
+        let digits = !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit());
+        digits.then(|| value.parse().ok()).flatten()
+    })
+}
+
+/// The home folder of user `uid` in `passwd`, the password database's text: the sixth field of
+/// the first line whose third field is the id. Only an absolute path counts.
+#[must_use]
+pub fn passwd_home(passwd: &str, uid: u32) -> Option<PathBuf> {
+    let wanted = uid.to_string();
+    passwd.lines().find_map(|line| {
+        let fields: Vec<&str> = line.split(':').collect();
+        match fields[..] {
+            [_, _, id, _, _, home, _] if id == wanted && home.starts_with('/') => Some(PathBuf::from(home)),
+            _ => None,
+        }
+    })
+}
+
+/// At least one path, every one following [`is_built_path`].
+fn built_paths(values: &[&str]) -> Result<Vec<String>, Refusal> {
+    if values.is_empty() {
+        return Err(Refusal::Values);
+    }
+    if !values.iter().all(|path| is_built_path(path)) {
+        return Err(Refusal::Built);
+    }
+    Ok(values.iter().map(|path| (*path).to_owned()).collect())
+}
+
+/// At least one Flatpak application id, every one following [`is_app_id`].
+fn app_ids(values: &[&str]) -> Result<Vec<String>, Refusal> {
+    if values.is_empty() {
+        return Err(Refusal::Values);
+    }
+    if !values.iter().all(|id| is_app_id(id)) {
+        return Err(Refusal::FlatpakId);
+    }
+    Ok(values.iter().map(|id| (*id).to_owned()).collect())
 }
 
 /// No value at all.

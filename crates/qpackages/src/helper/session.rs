@@ -379,16 +379,18 @@ mod in_process {
     use std::thread::{self, JoinHandle};
 
     use super::{Connection, Host, Start};
-    use crate::helper::root;
-    use crate::runner::Recorded;
+    use crate::helper::root::{self, Caller, Places};
+    use crate::runner::{Recorded, Runner};
 
     /// The input of one helper, shared with [`InProcess`] so a test can close it.
     type Input = Arc<Mutex<Option<PipeWriter>>>;
 
     /// Starts helpers on threads and can make them die.
     pub struct InProcess {
-        runner: Arc<Recorded>,
+        runner: Arc<dyn Runner>,
         uid: u32,
+        /// The user who started the helpers, whose build cache they install packages from.
+        caller: Option<Caller>,
         inputs: Mutex<Vec<Input>>,
         threads: Mutex<Vec<JoinHandle<()>>>,
         starts: AtomicUsize,
@@ -397,9 +399,16 @@ mod in_process {
     impl InProcess {
         /// Helpers that run as user `uid` and play pacman from `runner`.
         pub fn new(runner: &Arc<Recorded>, uid: u32) -> Arc<Self> {
+            Self::building(Arc::clone(runner) as Arc<dyn Runner>, uid, None)
+        }
+
+        /// Helpers that run as user `uid`, started by `caller`, and run their programs through
+        /// `runner`: for tests of AUR builds, whose package files a runner of their own checks.
+        pub fn building(runner: Arc<dyn Runner>, uid: u32, caller: Option<Caller>) -> Arc<Self> {
             Arc::new(Self {
-                runner: Arc::clone(runner),
+                runner,
                 uid,
+                caller,
                 inputs: Mutex::new(Vec::new()),
                 threads: Mutex::new(Vec::new()),
                 starts: AtomicUsize::new(0),
@@ -433,12 +442,14 @@ mod in_process {
             let (response_reader, response_writer) = io::pipe()?;
             let ended = Arc::new(AtomicBool::new(false));
             let (runner, uid, flag) = (Arc::clone(&self.runner), self.uid, Arc::clone(&ended));
+            let caller = self.caller.clone();
             let thread = thread::spawn(move || {
                 let input = BufReader::new(request_reader);
                 // No request these helpers get writes a file; a root that does not exist makes
                 // sure one never could.
                 let nowhere = std::env::temp_dir().join("qpackages-in-process-helper-root");
-                let _ = root::answer(&[], Some(uid), &nowhere, input, response_writer, runner.as_ref());
+                let places = Places { root: &nowhere, caller: caller.as_ref() };
+                let _ = root::answer(&[], Some(uid), &places, input, response_writer, runner.as_ref());
                 flag.store(true, Ordering::SeqCst);
             });
             let input: Input = Arc::new(Mutex::new(Some(request_writer)));

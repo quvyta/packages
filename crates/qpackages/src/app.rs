@@ -16,12 +16,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use qframe::icons::GlyphMode;
 use qframe::prelude::*;
-use qframe::storage::Settings;
-use qframe::widgets::{Badge, Splitter, Tabs, Toast, Tooltip};
+use qframe::storage::{self, Family, Settings};
+use qframe::widgets::{Appearance, Badge, IconButton, Splitter, Tabs, Toast, Tooltip};
 use qpackages_core::backup;
 use qpackages_core::catalog::net::{CURL, curl_args};
 use qpackages_core::news::{NEWS_URL, NewsItem, parse_news, recent};
-use qpackages_core::sources::{AurPreference, Source};
+use qpackages_core::sources::{AurPreference, Availability, Source};
 
 use crate::backend_settings::{self, Orphans};
 use crate::helper::pkexec::Tool;
@@ -29,9 +29,10 @@ use crate::helper::session::{Session, Start};
 use crate::installed::table::Foreign;
 use crate::installed::{self, Installed, Library, Show};
 use crate::reload::{Lookup, Reload, Snapshot};
+use crate::review;
 use crate::runner::Runner;
 use crate::settings::{self, AUR_HELPERS, PRIVILEGE_TOOLS};
-use crate::settings_page::{self, Reflector, Shared};
+use crate::settings_page::{self, Reflector};
 use crate::transaction::{self, Action, Flow};
 use crate::updates::check::Checker;
 use crate::updates::{self, Updates};
@@ -75,6 +76,9 @@ pub struct Machine<'a> {
     pub app_catalog: &'a Path,
     /// The folders Flatpak keeps its remotes' AppStream catalogs in.
     pub flatpak_catalogs: &'a [PathBuf],
+    /// The appearance rows of the settings page, over the family folder they save into: the
+    /// user's own in `run`, a folder of the test's own in a test.
+    pub appearance: Appearance,
 }
 
 /// Where the application reads the system's files and keeps the user's own, beside what the
@@ -87,9 +91,17 @@ pub struct Places {
     /// The user's systemd unit folder, where the background check's timer is written; `None`
     /// without a home folder.
     pub units: Option<PathBuf>,
-    /// qpac's own absolute path, which the background check's service runs; `None` when it
-    /// cannot be told.
+    /// qpac's own absolute path, which the background check's service runs and paru or yay call
+    /// in place of sudo while they build; `None` when it cannot be told.
     pub exe: Option<PathBuf>,
+    /// The user's runtime folder, where an AUR build's private pipes are made.
+    pub runtime: Option<PathBuf>,
+    /// The user's home folder, whose build cache paru and yay build in.
+    pub home: Option<PathBuf>,
+    /// The user's cache folder, where the AUR recipes to review are cloned; `None` without one.
+    pub cache: Option<PathBuf>,
+    /// The user's data folder, where the approved recipes are kept; `None` without one.
+    pub data: Option<PathBuf>,
 }
 
 impl Places {
@@ -100,8 +112,36 @@ impl Places {
             root: PathBuf::from("/"),
             units: crate::autostart::unit_dir(|name| std::env::var(name).ok()),
             exe: std::env::current_exe().ok(),
+            runtime: Some(runtime_dir()),
+            home: std::env::var_os("HOME").map(PathBuf::from).filter(|home| home.is_absolute()),
+            cache: storage::cache_dir(Family::QUVYTA.id()),
+            data: storage::data_dir(Family::QUVYTA.id()),
         }
     }
+
+    /// Where the AUR recipe review reads and writes, when the user has both folders.
+    fn review(&self) -> Option<review::Places> {
+        review::Places::new(self.cache.as_deref(), self.data.as_deref())
+    }
+
+    /// What an AUR build run by the user `uid` needs, when everything is known.
+    fn build(&self, uid: Option<u32>) -> Option<transaction::BuildPlaces> {
+        Some(transaction::BuildPlaces {
+            exe: self.exe.clone()?,
+            runtime: self.runtime.clone()?,
+            home: self.home.clone()?,
+            uid: uid?,
+        })
+    }
+}
+
+/// `$XDG_RUNTIME_DIR` when it is an absolute path, which only the user may enter; otherwise the
+/// system's temporary folder, where the build's folder is still the user's alone.
+fn runtime_dir() -> PathBuf {
+    std::env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .filter(|dir| dir.is_absolute())
+        .unwrap_or_else(std::env::temp_dir)
 }
 
 /// The application's state.
@@ -118,6 +158,8 @@ pub struct Qpackages {
     lookup: Arc<Lookup>,
     /// Whether the application runs as root, which makes the AUR unusable.
     root: bool,
+    /// The user id the application runs as, when it could be read.
+    uid: Option<u32>,
     /// The settings, changed and saved by the settings page.
     settings: Settings,
     /// The open tab.
@@ -140,6 +182,8 @@ pub struct Qpackages {
     detected: backup::Detected,
     /// What the settings page knows about reflector.
     reflector: Reflector,
+    /// The appearance rows and the shared preferences behind them.
+    appearance: Appearance,
 }
 
 impl std::fmt::Debug for Qpackages {
@@ -220,7 +264,7 @@ impl Qpackages {
             swcatalog: machine.app_catalog.to_path_buf(),
             flatpak: machine.flatpak_catalogs.to_vec(),
         };
-        Self {
+        let mut app = Self {
             library: None,
             // The rankings are kept beside the update check's copy of pacman's database.
             discover: store::Store::new(store_machine, store_sources(settings, root))
@@ -229,6 +273,7 @@ impl Qpackages {
             checked_once: false,
             lookup: Arc::clone(&machine.lookup),
             root,
+            uid: machine.uid,
             settings: settings.clone(),
             tab: TABS[0],
             settings_open: false,
@@ -248,7 +293,11 @@ impl Qpackages {
                 machine.lock_dir,
             ),
             reload,
-        }
+            appearance: machine.appearance,
+        };
+        app.transaction.set_build_places(app.places.build(app.uid));
+        app.transaction.set_review_places(app.places.review());
+        app
     }
 
     /// The same application with `tab` open, for tests that start from another tab.
@@ -274,8 +323,24 @@ impl Qpackages {
     /// real ones.
     #[must_use]
     pub fn with_places(mut self, places: Places) -> Self {
+        self.transaction.set_build_places(places.build(self.uid));
+        self.transaction.set_review_places(places.review());
         self.places = places;
         self
+    }
+
+    /// Tells the flow which AUR helper builds: the one the last read found, while the AUR is in
+    /// use.
+    fn update_builder(&mut self) {
+        let builder = self.library.as_ref().filter(|_| self.aur_in_use()).and_then(|found| {
+            match (found.sources.aur_helper, found.sources.get(Source::Aur)) {
+                (Some(helper), Availability::Ready { program }) => {
+                    Some(transaction::Builder { helper, program: program.clone() })
+                }
+                _ => None,
+            }
+        });
+        self.transaction.set_builder(builder);
     }
 
     /// What happens around a system update: the snapshot setting on what this machine has.
@@ -371,15 +436,18 @@ impl Qpackages {
         Command::batch([check, orphans])
     }
 
-    /// Does what Discover asked: an install or a removal goes to the transaction flow when the
-    /// flow can run it, the sources to the settings page.
+    /// Does what Discover asked: an install or a removal goes to the transaction flow as the
+    /// actions it takes, one after another, the sources to the settings page.
     fn discover_message(&mut self, msg: store::Msg) -> Command<Msg> {
         match msg {
             store::Msg::Request(store::Request::OpenSettings(_)) => self.update(Msg::OpenSettings),
-            store::Msg::Request(request) => match store::transaction(&request) {
-                Some(action) => self.update(Msg::Transaction(transaction::Msg::Begin(action))),
-                None => Command::none(),
-            },
+            store::Msg::Request(request) => {
+                let actions = self.discover.transactions(&request);
+                if actions.is_empty() {
+                    return Command::none();
+                }
+                self.update(Msg::Transaction(transaction::Msg::Queue(actions)))
+            }
             msg => self.discover.update(msg).map(Msg::Discover),
         }
     }
@@ -407,6 +475,7 @@ impl Qpackages {
             settings_page::Msg::Source(source, on) => {
                 let changed = settings::set_source_enabled(&mut self.settings, source, on);
                 self.discover.set_enabled(store_sources(&self.settings, self.root));
+                self.update_builder();
                 self.saved_if(changed)
             }
             settings_page::Msg::AurHelper(index) => {
@@ -434,25 +503,13 @@ impl Qpackages {
                 }
                 None => Command::none(),
             },
-            settings_page::Msg::Backend(msg) => self.backend_setting(msg),
-            settings_page::Msg::Shared(change) => {
-                let (changed, apply) = match change {
-                    Shared::Language(code) => {
-                        (self.settings.set(Settings::LANGUAGE, code.clone()), Command::set_locale(code))
-                    }
-                    Shared::Theme(id) => (self.settings.set(Settings::THEME, id.clone()), Command::set_theme(id)),
-                    Shared::Icons(mode) => {
-                        (self.settings.set(Settings::ICONS, mode.name().to_owned()), Command::set_icon_mode(mode))
-                    }
-                    Shared::ReducedMotion(on) => {
-                        (self.settings.set(Settings::REDUCED_MOTION, on), Command::set_reduced_motion(on))
-                    }
-                    Shared::Pillar(style) => {
-                        (self.settings.set(Settings::PILLAR, style.name().to_owned()), Command::set_pillar(style))
-                    }
-                };
-                Command::batch([apply, self.saved_if(changed)])
+            settings_page::Msg::AddFlathub => {
+                self.update(Msg::Transaction(transaction::Msg::Begin(Action::AddFlathub)))
             }
+            settings_page::Msg::Backend(msg) => self.backend_setting(msg),
+            // The appearance rows save themselves, each file read again right before it is
+            // written, and keep the settings held here in step; there is nothing to save after.
+            settings_page::Msg::Appearance(change) => self.appearance.update(change, &mut self.settings),
         }
     }
 
@@ -472,8 +529,8 @@ impl Qpackages {
         if changed { self.save() } else { Command::none() }
     }
 
-    /// The header: the name, the tabs with the number of waiting updates, and on the right the
-    /// root warning, the administrator badge and the settings button.
+    /// The header: the name, the tabs with the number of waiting updates on the Updates tab, and
+    /// on the right the root warning, the administrator badge and the settings button.
     fn header(&self, ui: &mut View<'_, Msg>) {
         let pending = self.updates.pending(self.aur_in_use());
         ui.row(|ui| {
@@ -483,12 +540,11 @@ impl Qpackages {
             ui.row(|ui| {
                 ui.add(Text::new("qpac").color("accent").bold().no_wrap());
                 let labels = TABS.map(Tab::label);
-                ui.add(Tabs::new(labels).active(self.tab.index()).on_select(Msg::Tab)).id("tabs");
-                // The Updates tab is the last one, so the count stands right after its label.
-                if pending > 0 {
-                    let count = u32::try_from(pending).unwrap_or(u32::MAX);
-                    ui.add(Badge::new("").variant("accent").count(count)).id("pending");
-                }
+                let count = u32::try_from(pending).unwrap_or(u32::MAX);
+                // The count belongs to the Updates tab, so it keeps its place whatever tab is
+                // last and a narrow strip cuts the tab's name before its count.
+                let tabs = Tabs::new(labels).active(self.tab.index()).badge(Tab::Updates.index(), count);
+                ui.add(tabs.on_select(Msg::Tab)).id("tabs");
             })
             .gap(2)
             .fill_width();
@@ -504,11 +560,8 @@ impl Qpackages {
                     ui.add(end).id("helper");
                 });
             }
-            let gear = ui.env().icons().glyph("settings").into_owned();
-            let open = Button::new(gear).selected(self.settings_open).on_press(Msg::OpenSettings);
-            ui.add_with(Tooltip::new(t!("tabs.settings-tip")), |ui| {
-                ui.add(open).id("open-settings");
-            });
+            let open = IconButton::new("settings").tooltip(t!("tabs.settings-tip")).on_press(Msg::OpenSettings);
+            ui.add(open).id("open-settings");
         })
         .gap(2)
         .padding(Padding::symmetric(0, 2))
@@ -537,10 +590,19 @@ impl Qpackages {
     /// The settings page when it is open, the open tab's page otherwise. Every tab's page keeps
     /// its widgets' state (scroll, the keyboard's place) while another is shown.
     fn page(&self, ui: &mut View<'_, Msg>) {
+        // The recipes of a confirmed AUR build are read in place of the open tab: it is the one
+        // decision the user is on, and the page under it has nothing to add to it.
+        if let Some(screen) = self.transaction.reviewing() {
+            ui.page("review", |ui| {
+                ui.map(|msg| Msg::Transaction(transaction::Msg::Review(msg)), |ui| review::view(screen, ui)).fill();
+            });
+            return;
+        }
         if self.settings_open {
             let cx = settings_page::Cx {
                 settings: &self.settings,
                 sources: self.library.as_ref().map(|found| &found.sources),
+                flathub: self.library.as_ref().and_then(|found| found.flathub),
                 root: self.root,
                 planning: self.transaction.is_planning(),
                 tool: self.transaction.tool(),
@@ -548,6 +610,7 @@ impl Qpackages {
                 background: self.places.units.is_some() && self.places.exe.is_some(),
                 reflector: &self.reflector,
                 busy: !self.transaction.is_idle(),
+                appearance: &self.appearance,
             };
             ui.page("settings", |ui| {
                 ui.map(Msg::Settings, |ui| settings_page::view(ui, cx)).fill();
@@ -687,6 +750,7 @@ impl App for Qpackages {
                     .machine_read(&snapshot.sources, snapshot.packages.iter().map(|p| p.name.clone()))
                     .map(Msg::Discover);
                 self.library = Some(snapshot);
+                self.update_builder();
                 self.installed.reloaded(library_of(self.library.as_ref()));
                 self.detect_backup();
                 // An installation may have brought reflector.
@@ -738,6 +802,9 @@ impl App for Qpackages {
             "settings" => Some(Msg::OpenSettings),
             "tab-next" => Some(Msg::NextTab),
             "tab-prev" => Some(Msg::PrevTab),
+            "back" if self.transaction.reviewing().is_some() => {
+                Some(Msg::Transaction(transaction::Msg::Review(review::Msg::Cancel)))
+            }
             "back" if self.settings_open => Some(Msg::Settings(settings_page::Msg::Back)),
             "back" if self.tab == Tab::Installed && self.installed.detail_open() => {
                 Some(Msg::Installed(installed::Msg::CloseDetail))

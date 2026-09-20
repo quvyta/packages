@@ -23,6 +23,11 @@ fn page(width: u16, height: u16) -> (Harness<Qpackages>, Scratch, Arc<Recorded>)
     (h, scratch, recorded)
 }
 
+/// What the family's shared file says.
+fn shared_file(scratch: &Scratch) -> String {
+    fs::read_to_string(scratch.root().join("quvyta.conf")).unwrap_or_default()
+}
+
 /// What the settings file says after the background save ran.
 fn written(h: &mut Harness<Qpackages>, scratch: &Scratch) -> String {
     h.advance(Duration::from_millis(20));
@@ -91,13 +96,30 @@ fn choosing_the_aur_helper_reads_the_sources_again() {
 }
 
 #[test]
-fn an_appearance_choice_applies_and_is_kept_in_qpac_s_file() {
+fn an_appearance_choice_applies_and_goes_to_the_family_s_file() {
     let (mut h, scratch, _) = page(100, 40);
-    h.send(AppMsg::Settings(Msg::Shared(Shared::Icons(IconMode::Ascii))));
-    h.send(AppMsg::Settings(Msg::Shared(Shared::Language("tr".to_owned()))));
-    let text = written(&mut h, &scratch);
-    assert!(text.contains("icons = \"ascii\"") && text.contains("language = \"tr\""), "{text}");
+    h.send(AppMsg::Settings(Msg::Appearance(AppearanceChange::Icons(IconMode::Ascii))));
+    h.send(AppMsg::Settings(Msg::Appearance(AppearanceChange::Language("tr".to_owned()))));
     assert!(h.screen().contains("Ayarlar"), "the language changed at once:\n{}", h.screen());
+    // The rows open following the family, so the value goes to the shared file and qpac's own
+    // file says that it follows.
+    let shared = shared_file(&scratch);
+    assert!(shared.contains("icons = \"ascii\"") && shared.contains("language = \"tr\""), "{shared}");
+    let own = written(&mut h, &scratch);
+    assert!(own.contains("icons = \"quvyta\"") && own.contains("language = \"quvyta\""), "{own}");
+}
+
+#[test]
+fn a_choice_made_here_only_goes_to_qpac_s_own_file() {
+    let (mut h, scratch, _) = page(100, 40);
+    let icons = AppearanceChange::Everywhere(qframe::storage::Shared::Icons, false);
+    h.send(AppMsg::Settings(Msg::Appearance(icons)));
+    // What the family said before the change; the machine's own detection decides what that is.
+    let before = shared_file(&scratch);
+    h.send(AppMsg::Settings(Msg::Appearance(AppearanceChange::Icons(IconMode::Nerd))));
+    let own = written(&mut h, &scratch);
+    assert!(own.contains("icons = \"nerd\""), "{own}");
+    assert_eq!(shared_file(&scratch), before, "the family is left alone");
 }
 
 #[test]
@@ -110,5 +132,36 @@ fn a_narrow_page_keeps_the_offers_and_the_rules() {
         for forbidden in ['[', ']', '{', '}', '|'] {
             assert!(!screen.contains(forbidden), "`{forbidden}` at {width}:\n{screen}");
         }
+    }
+}
+
+#[test]
+fn a_page_taller_than_the_screen_stays_put_on_a_click_and_follows_the_keys() {
+    let (mut h, _scratch, _) = page(100, 20);
+    let sources = h.screen().find("Sources").expect("the first heading is on screen");
+    let (x, y) = h.find("AUR helper").expect("a row of the first section");
+    h.click(x, y);
+    assert_eq!(h.screen().find("Sources"), Some(sources), "a click does not scroll:\n{}", h.screen());
+    // Walking down far enough reaches the last section, which no screen this short can show at once.
+    for _ in 0..40 {
+        h.press("down");
+    }
+    let screen = h.screen();
+    assert!(screen.contains("Pillar"), "the keys reached the last row:\n{screen}");
+    assert!(!screen.contains("Sources"), "and the list scrolled to it:\n{screen}");
+}
+
+#[test]
+fn the_appearance_rows_read_in_both_languages_and_offer_the_family() {
+    let (mut h, _scratch, _) = page(100, 80);
+    for (locale, heading, everywhere) in
+        [("en", "Appearance", "In every Quvyta application"), ("tr", "Görünüm", "Tüm Quvyta uygulamalarında")]
+    {
+        h.set_locale(locale);
+        let screen = h.screen();
+        assert!(screen.contains(heading), "{locale}:\n{screen}");
+        // One box under each of the three shared rows, none under motion or the pillar.
+        assert_eq!(screen.matches(everywhere).count(), 3, "{locale}:\n{screen}");
+        assert!(!screen.contains('⟦'), "no key is missing in {locale}:\n{screen}");
     }
 }

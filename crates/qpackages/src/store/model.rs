@@ -10,7 +10,7 @@ use qpackages_core::catalog::appstream::Localized;
 use qpackages_core::catalog::aur::AurPackage;
 use qpackages_core::catalog::category::Category;
 use qpackages_core::catalog::featured::FeaturedApp;
-use qpackages_core::catalog::flatpak::{Installation, InstalledApp};
+use qpackages_core::catalog::flatpak::InstalledApp;
 use qpackages_core::catalog::merge::{App, Offer, TRUST_ORDER, id_key};
 use qpackages_core::catalog::popularity::FlathubUpdate;
 use qpackages_core::sources::Source;
@@ -71,8 +71,9 @@ impl Kind {
 pub struct Installed {
     /// The names of the installed pacman packages.
     pub packages: HashSet<String>,
-    /// The installed Flatpak applications, by [`id_key`] of their id.
-    pub flatpaks: HashMap<String, Vec<Installation>>,
+    /// The installed Flatpak applications, by [`id_key`] of their id: one entry for each
+    /// installation that holds the application, with the id as Flatpak spells it.
+    pub flatpaks: HashMap<String, Vec<InstalledApp>>,
 }
 
 impl Installed {
@@ -80,7 +81,7 @@ impl Installed {
     pub fn set_flatpaks(&mut self, apps: &[InstalledApp]) {
         self.flatpaks.clear();
         for app in apps {
-            self.flatpaks.entry(id_key(&app.app_id)).or_default().push(app.installation.clone());
+            self.flatpaks.entry(id_key(&app.app_id)).or_default().push(app.clone());
         }
     }
 
@@ -388,6 +389,8 @@ pub fn compact(count: u64) -> String {
 
 #[cfg(test)]
 mod tests {
+    use qpackages_core::catalog::flatpak::Installation;
+
     use super::*;
 
     fn app(name: &str, offers: &[(Source, &str)]) -> App {

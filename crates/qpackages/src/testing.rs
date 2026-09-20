@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use qframe::prelude::{App, Harness};
 use qframe::storage::Settings;
+use qframe::widgets::Appearance;
 
 use crate::app::{Machine, Places, Qpackages};
 use crate::helper::session::InProcess;
@@ -51,13 +52,30 @@ pub fn app_with(
         // computer's.
         app_catalog: &scratch.catalog(),
         flatpak_catalogs: &[],
+        // The family folder is the machine's own, so no test reads or writes the user's.
+        appearance: crate::appearance_in(scratch.root()),
     };
     let places = Places {
         root: scratch.root().to_path_buf(),
         units: Some(scratch.units()),
         exe: Some(PathBuf::from("/usr/bin/qpac")),
+        runtime: Some(scratch.runtime()),
+        home: Some(scratch.home()),
+        cache: Some(scratch.root().join("cache")),
+        data: Some(scratch.root().join("data")),
     };
     Qpackages::new(machine, &settings.schema(settings::schema())).with_places(places).on_tab(crate::app::Tab::Installed)
+}
+
+/// [`crate::appearance_in`] over a family folder of its own that is taken away again as soon as it
+/// has been read, for a test that never changes an appearance row: nothing is left behind.
+pub fn appearance_apart() -> Appearance {
+    static TAKEN: AtomicUsize = AtomicUsize::new(0);
+    let serial = TAKEN.fetch_add(1, Ordering::Relaxed);
+    let folder = std::env::temp_dir().join(format!("qpackages-family-{}-{serial}", std::process::id()));
+    let rows = crate::appearance_in(&folder);
+    let _ = fs::remove_dir_all(&folder);
+    rows
 }
 
 /// One package of a pretend machine.
@@ -103,7 +121,7 @@ impl Scratch {
         let root = std::env::temp_dir().join(format!("qpackages-scratch-{name}-{}-{serial}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let scratch = Self { root };
-        for folder in [scratch.local(), scratch.applications(), scratch.sync(), scratch.lock()] {
+        for folder in [scratch.local(), scratch.applications(), scratch.sync(), scratch.lock(), scratch.runtime()] {
             fs::create_dir_all(folder).expect("a scratch folder");
         }
         for sample in samples {
@@ -145,6 +163,16 @@ impl Scratch {
     /// Where pacman's lock would be.
     pub fn lock(&self) -> PathBuf {
         self.root.join("lock")
+    }
+
+    /// The user's runtime folder, where an AUR build's pipes are made.
+    pub fn runtime(&self) -> PathBuf {
+        self.root.join("runtime")
+    }
+
+    /// The user's home folder, whose build cache paru and yay build in.
+    pub fn home(&self) -> PathBuf {
+        self.root.join("home/builder")
     }
 
     fn install(&self, sample: &Sample) {

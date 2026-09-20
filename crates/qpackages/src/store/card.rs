@@ -6,7 +6,6 @@
 
 use std::rc::Rc;
 
-use qframe::icons::GlyphMode;
 use qframe::prelude::*;
 use qframe::widgets::{CardGrid, EmptyState};
 use qpackages_core::sources::Source;
@@ -65,7 +64,6 @@ pub fn columns(width: u16) -> usize {
 /// The words cards share, in the language on screen.
 struct Words {
     turkish: bool,
-    mode: GlyphMode,
     detail: Detail,
     /// Each card's source line, in the order of the cards.
     lines: Vec<String>,
@@ -125,7 +123,6 @@ pub fn grid(
     let detail = Detail::for_width(ui.size().width);
     let words = Rc::new(Words {
         turkish: ui.env().i18n().active().starts_with("tr"),
-        mode: ui.env().icons().mode(),
         detail,
         lines: if detail == Detail::NameOnly {
             Vec::new()
@@ -153,7 +150,10 @@ pub fn grid(
 
 /// One card's content.
 fn draw(ui: &mut View<'_, Msg>, card: &Card, index: usize, selected: bool, words: &Words) {
-    let icon = icons::glyph(card.icon_name(), card.app.category, card.first_source(), words.mode);
+    let drawing = ui.env().icons();
+    let icon = icons::glyph(card.icon_name(), card.app.category, card.first_source(), drawing.mode())
+        .resolve(drawing)
+        .into_owned();
     // The icon is quiet beside the name, and joins the text's colour on the lit card.
     let icon_color = if selected { "text" } else { "muted" };
     let mut name = vec![Span::new(format!("{icon} ")).color(icon_color), Span::new(card.name(words.turkish)).bold()];

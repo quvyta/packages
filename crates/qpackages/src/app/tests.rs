@@ -12,6 +12,8 @@ use crate::runner::Recorded;
 use crate::testing::{Sample, Scratch, app_in};
 use crate::updates::check::Found;
 
+mod aur;
+mod flatpak;
 mod flow;
 mod orphans;
 mod polkit;
@@ -62,9 +64,18 @@ fn app_on(
         utc_offset: 0,
         app_catalog: &nowhere(),
         flatpak_catalogs: &[],
+        appearance: crate::testing::appearance_apart(),
     };
     // Nothing of the machine running the tests is looked at: no snapshot tool, no unit folder.
-    Qpackages::new(machine, &settings).with_places(Places { root: nowhere(), units: None, exe: None })
+    Qpackages::new(machine, &settings).with_places(Places {
+        root: nowhere(),
+        units: None,
+        exe: None,
+        runtime: None,
+        home: None,
+        cache: None,
+        data: None,
+    })
 }
 
 /// The calls a test's actions made, without those the application makes on its own when it
@@ -278,29 +289,60 @@ fn the_settings_button_and_its_key_open_the_page_and_escape_and_back_close_it() 
 }
 
 #[test]
-fn the_settings_button_brightens_under_the_pointer() {
+fn the_settings_button_is_three_cells_and_brightens_under_the_pointer() {
+    for mode in [GlyphMode::Unicode, GlyphMode::Nerd, GlyphMode::Ascii] {
+        let mut h = harness(100, 24);
+        h.set_glyph_mode(mode);
+        let glyph = h.env().icons().glyph("settings").into_owned();
+        let (x, y) = h.find(&glyph).unwrap_or_else(|| panic!("the settings button in {mode:?}:\n{}", h.screen()));
+        let x = u16::try_from(x).expect("on screen");
+        assert_eq!(y, 0, "in the header, {mode:?}");
+        // A space, the glyph and a space, in every glyph mode; the whole three cells are the
+        // target, and all three light together.
+        let rest = [h.bg(x - 1, 0), h.bg(x, 0), h.bg(x + 1, 0)];
+        h.hover(i32::from(x) - 1, 0);
+        let lit = [h.bg(x - 1, 0), h.bg(x, 0), h.bg(x + 1, 0)];
+        assert_ne!(lit, rest, "hovering the first space lights the button in {mode:?}");
+        assert!(lit.iter().all(|cell| *cell == lit[0]), "all three cells light together in {mode:?}");
+        h.click(i32::from(x) + 1, 0);
+        assert!(h.app().settings_open, "the last of the three cells presses it in {mode:?}");
+    }
+}
+
+#[test]
+fn the_settings_button_says_what_it_does_when_the_keyboard_reaches_it() {
     let mut h = harness(100, 24);
-    let header = h.screen().lines().next().expect("a header").to_owned();
-    let x = u16::try_from(header.chars().position(|c| c == '▤').expect("the settings button")).unwrap();
-    let rest = h.bg(x, 0);
-    h.hover(i32::from(x), 0);
-    assert_ne!(h.bg(x, 0), rest, "hover raises the button");
+    h.set_locale("tr");
+    // The button carries its own words, so a lone glyph is never a mystery; the keyboard gets
+    // them at once, without waiting for a pointer to rest.
+    let said = |h: &Harness<Qpackages>| h.screen().lines().nth(1).unwrap_or_default().contains("Ayarlar");
+    assert!(!said(&h), "nothing is said while nothing is focused:\n{}", h.screen());
+    let mut reached = false;
+    for _ in 0..60 {
+        h.press("tab");
+        if said(&h) {
+            reached = true;
+            break;
+        }
+    }
+    assert!(reached, "the keyboard never reached the button, or it said nothing:\n{}", h.screen());
+    h.press("enter");
+    assert!(h.app().settings_open, "enter on the focused button opens the page");
 }
 
 #[test]
 fn the_updates_tab_carries_the_number_of_waiting_updates() {
     let mut h = harness(120, 24);
-    assert!(!h.screen().lines().next().unwrap_or_default().contains('●'), "no updates, no badge");
+    let quiet = h.screen().lines().next().unwrap_or_default().to_owned();
+    assert!(!quiet.contains('3'), "no updates, no count:\n{quiet}");
     h.send(Msg::Updates(updates::Msg::Checked(three_updates())));
     let header = h.screen().lines().next().unwrap_or_default().to_owned();
     let updates = header.find("Updates").expect("the tab");
-    let badge = header.find('●').expect("the badge");
-    assert!(
-        badge > updates && header[badge..].split_whitespace().nth(1) == Some("3"),
-        "the count follows the tab:\n{header}"
-    );
-    let before_badge = header[updates + "Updates".len()..badge].trim();
-    assert!(before_badge.is_empty(), "nothing stands between the tab and its count:\n{header}");
+    let count = header[updates..].find('3').map(|at| updates + at).expect("the count");
+    assert!(header[updates + "Updates".len()..count].trim().is_empty(), "the count follows its tab:\n{header}");
+    // The count is part of the tab, a step quieter than its name.
+    let at = |x: usize| h.fg(u16::try_from(x).expect("on screen"), 0);
+    assert_ne!(at(count), at(updates), "the count is quieter than the name:\n{header}");
 }
 
 #[test]

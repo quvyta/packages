@@ -1,0 +1,90 @@
+name: Bug report
+description: Something in qpac does not work the way it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Thank you for reporting. Please check that nothing private (host names, user names, keys, addresses, package names you would rather not share) is visible in what you paste or attach.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to make it happen again
+      placeholder: |
+        1. Open qpac
+        2. Search for obs in Discover
+        3. Open the card and press Install
+        4. ...
+  - type: input
+    id: version
+    attributes:
+      label: qpac version
+      description: What `qpac --version` prints, or the version your package manager shows.
+    validations:
+      required: true
+  - type: dropdown
+    id: source
+    attributes:
+      label: Source
+      description: The sources involved, if any.
+      multiple: true
+      options:
+        - None, it is not about one source
+        - The repositories (pacman)
+        - The AUR
+        - Flatpak
+        - Snap
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where on the screen
+      multiple: true
+      options:
+        - Discover, or an application's page
+        - Installed
+        - Updates
+        - The confirmation before something runs
+        - While it was running
+        - Settings
+        - Somewhere else
+  - type: dropdown
+    id: doing
+    attributes:
+      label: What it was doing
+      options:
+        - Only looking, nothing was changed
+        - Installing
+        - Removing
+        - Updating
+        - Building from the AUR
+        - Installing a source (Flatpak, Snap, an AUR helper)
+  - type: input
+    id: system
+    attributes:
+      label: Distribution
+      description: The NAME and ID_LIKE lines of /etc/os-release.
+      placeholder: Arch Linux, EndeavourOS, Manjaro, CachyOS, ...
+    validations:
+      required: true
+  - type: input
+    id: helpers
+    attributes:
+      label: Versions of the tools involved
+      description: Only the ones the problem touches.
+      placeholder: pacman 7.0.0, paru 2.1.0, flatpak 1.16, snapd 2.68, polkit installed
+  - type: input
+    id: terminal
+    attributes:
+      label: Terminal and language
+      placeholder: kitty 0.44 with LANG=de_DE.UTF-8, ...
+  - type: textarea
+    id: output
+    attributes:
+      label: Screenshot or output
+      description: A screenshot, the text qpac showed, or the output of the package manager in the pane below the list. Drag an image here to attach it.

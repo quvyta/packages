@@ -1,5 +1,13 @@
 # qpac
 
+**Find, install, update and remove software from the Arch repositories, the AUR and Flatpak in one terminal app that shows exactly what will change before anything does.**
+
+[![crates.io](https://img.shields.io/crates/v/quvyta-packages.svg)](https://crates.io/crates/quvyta-packages)
+[![Downloads](https://img.shields.io/crates/d/quvyta-packages.svg)](https://crates.io/crates/quvyta-packages)
+[![Licence: MIT](https://img.shields.io/crates/l/quvyta-packages.svg)](LICENSE)
+[![Arch Linux](https://img.shields.io/badge/Arch_Linux-and_derivatives-1793d1?logo=archlinux&logoColor=white)](#requirements)
+[![Status: beta](https://img.shields.io/badge/status-beta-orange.svg)](CHANGELOG.md)
+
 ![qpac: Discover, the store page, with popular apps and popular AUR packages as cards, the kinds of software on the left and the sources below them](https://raw.githubusercontent.com/quvyta/packages/main/docs/screenshots/discover.png)
 
 **quvyta-packages**, or **qpac** for short, is a package manager for Arch Linux that runs in the
@@ -8,14 +16,18 @@ that feels like an app store, and shows exactly what will change before anything
 of the Quvyta family of terminal applications, is built on
 [quvyta-framework](https://github.com/quvyta/framework) and is open source under the MIT licence.
 
-> **Beta.** qpac is new. It finds software in the repositories, the AUR and Flatpak, and installs
-> and removes packages from the repositories; building from the AUR, Flatpak installs and Snap
-> come in later releases. The interface may still change between releases. Please report anything
-> that looks wrong at <https://github.com/quvyta/packages/issues>.
+> **Beta.** qpac is new. It finds software in the repositories, the AUR and Flatpak, installs and
+> removes packages from the repositories and Flatpak, and builds AUR packages with `paru` or
+> `yay` after you have read their recipes; Snap comes in a later release. The interface may still
+> change between releases. Please report anything that looks wrong at
+> <https://github.com/quvyta/packages/issues>.
 
 <p>
   <img src="https://raw.githubusercontent.com/quvyta/packages/main/docs/screenshots/discover-search.png" alt="A search for obs: one card per application across the repositories, Flatpak and the AUR, with counts per kind on the left" width="49%">
   <img src="https://raw.githubusercontent.com/quvyta/packages/main/docs/screenshots/discover-app.png" alt="OBS Studio's page: description, version, licence, download and installed sizes, repository, website, dependencies and an Install button" width="49%">
+</p>
+<p>
+  <img src="https://raw.githubusercontent.com/quvyta/packages/main/docs/screenshots/review.png" alt="An AUR recipe review: the PKGBUILD with a line a rule points at for downloading and running code, and the Reviewed, install button" width="49%">
 </p>
 <p>
   <img src="https://raw.githubusercontent.com/quvyta/packages/main/docs/screenshots/installed.png" alt="The Installed tab: every package with its source, version and size, neovim selected with its details beside the list, neovim and tmux checked for removal" width="49%">
@@ -57,6 +69,16 @@ of the Quvyta family of terminal applications, is built on
   you choose.
 - **Mirrors.** With reflector installed, the settings choose pacman's mirrors by country, count,
   age and speed, keep the old list beside the new one, and can turn on reflector's weekly timer.
+- **Flatpak, installed and removed.** An application installed for you needs no password; a
+  system-wide one goes through the helper, and a mix of the two is confirmed once and then run
+  step by step. Without Flathub, the settings say so and offer to add it.
+- **AUR packages, built and read first.** `paru` or `yay` does the building as you, never as
+  root; the root steps it asks for are relayed to qpac's helper through a private pair of pipes,
+  so a build never gets a shell with privileges, and the packages the build wants to install are
+  worked out beforehand and checked against what the helper is asked for. Before any of it, the
+  recipes are fetched, compared with the ones you approved last time and read through rules that
+  point at the risky lines; the whole build is one screen, and only **Reviewed, install** starts
+  it.
 - **Changes you can see.** Install from the store, or check packages and remove them. Before
   anything runs, pacman is asked what the change would do, and the full list, dependencies
   included, is shown for you to confirm. Cancel has the focus, so the safe answer is the default.
@@ -69,22 +91,23 @@ of the Quvyta family of terminal applications, is built on
 - **A locked database is explained, never forced.** If another transaction holds pacman's lock,
   qpac says so, and by which process when it can tell. It never removes the lock.
 - **Settings.** The gear at the top right (or `ctrl+,`) opens them: which sources are on, the AUR
-  helper, who asks for permission, and the language, theme and icons. A missing source is shown
-  with the reason, and where its program is in the official repositories (`paru` for the AUR,
+  helper, who asks for permission, and the appearance rows the family shares: language, theme,
+  icons, reduced motion and the pillar, each shared one with a box under it that says whether the
+  change applies in every Quvyta application or here only. A missing source is shown with the
+  reason, and where its program is in the official repositories (`paru` for the AUR,
   `flatpak` for Flatpak) it can be installed from there, through the same confirmation. The AUR
   is refused when qpac runs as root, because packages are never built as root.
 - **A check in the background, if you want one.** Turned on in the settings, a systemd user
   timer runs `qpac --check` every few hours (6 by default, never more often than hourly): it
   looks for updates without opening the screen and without privileges, and writes what it found
-  to `~/.local/state/quvyta-packages/state.json`. Nothing runs as root and nothing is installed.
+  to `~/.local/state/quvyta/packages/state.json`. Nothing runs as root and nothing is installed.
 
 The interface follows your system language (English and Turkish are included) and uses the
 family's themes, icons, keys and mouse behaviour.
 
 ### Not yet
 
-- Building from the AUR (through `paru` or `yay`, with a look at the recipe first), Flatpak
-  installs and Snap.
+- Snap.
 
 ## Requirements
 

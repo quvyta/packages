@@ -1,0 +1,33 @@
+name: Feature request
+description: Something qpac could do, or could do better.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: What you are trying to do
+      description: What you do by hand today, or what gets in your way, in your own words.
+    validations:
+      required: true
+  - type: dropdown
+    id: source
+    attributes:
+      label: Which source it concerns
+      multiple: true
+      options:
+        - All of them
+        - The repositories (pacman)
+        - The AUR
+        - Flatpak
+        - Snap
+        - Not about a source
+  - type: textarea
+    id: shows
+    attributes:
+      label: What you would expect to see before it happens
+      description: qpac shows everything that will change and asks once before anything runs. If your idea changes something on the machine, say what you would want listed first.
+  - type: textarea
+    id: now
+    attributes:
+      label: What you do today instead
+      description: The commands or the other program you use for this now.

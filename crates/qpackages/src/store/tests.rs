@@ -192,18 +192,62 @@ fn the_language_files_carry_the_store_in_both_languages() {
 }
 
 #[test]
-fn only_what_the_flow_runs_today_becomes_a_transaction() {
+fn a_request_becomes_the_actions_the_flow_runs_each_part_in_its_turn() {
+    use crate::transaction::Action;
+    use qpackages_core::catalog::flatpak::{Installation, InstalledApp};
+
     let offer = |source, package: &str| Offer { source, package: package.to_owned() };
+    let owned = |names: &[&str]| names.iter().map(|name| (*name).to_owned()).collect::<Vec<_>>();
+    let nothing = Installed::default();
     let install = Request::Install(vec![
         offer(Source::Pacman, "gimp"),
         offer(Source::Aur, "spotify"),
-        offer(Source::Flatpak, "x"),
+        offer(Source::Flatpak, "org.videolan.VLC"),
+        offer(Source::Flatpak, "net.sourceforge.ExtremeTuxRacer"),
     ]);
-    assert_eq!(transaction(&install), Some(crate::transaction::Action::Install(vec![String::from("gimp")])));
-    assert_eq!(transaction(&Request::Install(vec![offer(Source::Aur, "spotify")])), None, "nothing it can run");
+    assert_eq!(
+        transactions(&install, &nothing),
+        [
+            Action::Install(owned(&["gimp"])),
+            Action::AurInstall(owned(&["spotify"])),
+            Action::FlatpakInstall(owned(&["org.videolan.VLC", "net.sourceforge.ExtremeTuxRacer"]))
+        ],
+        "the repositories first, then the AUR, whose build needs them, then Flathub"
+    );
+    assert_eq!(
+        transactions(&Request::Install(vec![offer(Source::Aur, "spotify")]), &nothing),
+        [Action::AurInstall(owned(&["spotify"]))]
+    );
     let remove = Request::Remove(vec![offer(Source::Aur, "spotify")]);
-    assert_eq!(transaction(&remove), Some(crate::transaction::Action::Remove(vec![String::from("spotify")])));
-    assert_eq!(transaction(&Request::OpenSettings(None)), None);
+    assert_eq!(transactions(&remove, &nothing), [Action::Remove(owned(&["spotify"]))]);
+    assert_eq!(transactions(&Request::OpenSettings(None), &nothing), []);
+
+    let mut installed = Installed::default();
+    let held = |id: &str, installation| InstalledApp { app_id: id.to_owned(), installation };
+    installed.set_flatpaks(&[
+        held("org.gimp.GIMP", Installation::System),
+        held("org.gimp.GIMP", Installation::User),
+        held("org.videolan.VLC", Installation::User),
+        held("com.spotify.Client", Installation::System),
+        held("org.kde.krita", Installation::Named("steamdeck".to_owned())),
+    ]);
+    let flatpak = |id: &str| Request::Remove(vec![offer(Source::Flatpak, id)]);
+    assert_eq!(
+        transactions(&flatpak("org.videolan.vlc.desktop"), &installed),
+        [Action::FlatpakRemove(owned(&["org.videolan.VLC"]))],
+        "the id is the one Flatpak spells, whatever the catalog wrote"
+    );
+    assert_eq!(
+        transactions(&flatpak("com.spotify.Client"), &installed),
+        [Action::FlatpakRemoveSystem(owned(&["com.spotify.Client"]))]
+    );
+    assert_eq!(
+        transactions(&flatpak("org.gimp.GIMP"), &installed),
+        [Action::FlatpakRemove(owned(&["org.gimp.GIMP"])), Action::FlatpakRemoveSystem(owned(&["org.gimp.GIMP"]))],
+        "removed from both installations, the user's first"
+    );
+    assert_eq!(transactions(&flatpak("org.kde.krita"), &installed), [], "a named installation has no removal");
+    assert_eq!(transactions(&flatpak("org.example.NotHere"), &installed), [], "nothing installed, nothing to remove");
 }
 
 #[test]

@@ -42,7 +42,10 @@ pub fn show(store: &Store, ui: &mut View<'_, Msg>) {
 /// Icon, name and summary on the left; the source choice and the main button on the right.
 fn header(store: &Store, open: &OpenApp, turkish: bool, ui: &mut View<'_, Msg>) {
     let card = &open.card;
-    let icon = icons::glyph(card.icon_name(), card.app.category, card.first_source(), ui.env().icons().mode());
+    let drawing = ui.env().icons();
+    let icon = icons::glyph(card.icon_name(), card.app.category, card.first_source(), drawing.mode())
+        .resolve(drawing)
+        .into_owned();
     ui.row(|ui| {
         ui.column(|ui| {
             ui.add(
@@ -73,10 +76,17 @@ fn header(store: &Store, open: &OpenApp, turkish: bool, ui: &mut View<'_, Msg>) 
     .fill_width();
 }
 
-/// Install, or Remove in the danger tone when the chosen source's package is installed.
+/// Install, or Remove in the danger tone when the chosen source's package is installed. An AUR
+/// package this machine has no paru or yay to build says so in place of the button, and which to
+/// install.
 fn main_button(store: &Store, open: &OpenApp, ui: &mut View<'_, Msg>) {
     let Some(offer) = open.card.app.offers.get(open.offer) else { return };
     let installed = store.installed.has(offer);
+    let no_builder = store.sources.as_ref().is_some_and(|sources| sources.aur_helper.is_none());
+    if offer.source == Source::Aur && !installed && no_builder {
+        ui.add(Text::new(t!("store.app.aur-needs-helper")).color("warning")).fill_width().id("store-main");
+        return;
+    }
     let button = if installed {
         Button::new(t!("store.app.remove"))
             .variant("danger")

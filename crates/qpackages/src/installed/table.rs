@@ -128,8 +128,8 @@ pub fn shown(packages: &[Package], scope: Scope<'_>, query: &Query, col: Col, di
 /// are built again.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RowsKey {
-    /// The glyph mode, as [`icons::mode_index`] numbers it.
-    pub mode: usize,
+    /// The glyph mode, which decides whether the glyph table speaks.
+    pub mode: GlyphMode,
     /// Whether the source column is left out.
     pub narrow: bool,
     /// The words for the two origins and the orphans' mark, in the active language.
@@ -140,11 +140,7 @@ impl RowsKey {
     /// The key for drawing in `mode`, `narrow` or not, with the active language's words.
     #[must_use]
     pub fn new(mode: GlyphMode, narrow: bool) -> Self {
-        Self {
-            mode: icons::mode_index(mode),
-            narrow,
-            labels: [t!("installed.origin-repo"), t!("installed.origin-aur"), t!("installed.orphan")],
-        }
+        Self { mode, narrow, labels: [t!("installed.origin-repo"), t!("installed.origin-aur"), t!("installed.orphan")] }
     }
 }
 
@@ -175,15 +171,14 @@ impl Rows {
 
 /// The table rows for `shown` of `library`, in that order, as `key` asks.
 ///
-/// The name starts with the package's icon and a space. The icon is written into the text, not
-/// given as an icon key: the table draws keys only from the theme's icon set, and most of these
-/// glyphs come from the package table instead. It therefore takes the row's text colour.
+/// The name starts with the package's icon: a quiet glyph one space before the name, which takes
+/// the row's text colour while the row is selected, and stays whole when the column is too narrow
+/// for the name.
 ///
 /// An orphan's row is faint and says so where a package asked for would have its check: an
 /// orphan is never asked for, so the column is free.
 #[must_use]
 pub fn rows(library: Library<'_>, shown: &[usize], key: &RowsKey) -> Arc<[TableRow]> {
-    let mode = icons::MODES[key.mode];
     let cols = visible(key.narrow);
     let (packages, foreign) = (library.packages, library.foreign);
     shown
@@ -192,7 +187,7 @@ pub fn rows(library: Library<'_>, shown: &[usize], key: &RowsKey) -> Arc<[TableR
             let package = &packages[i];
             let orphan = library.orphans.as_ref().is_some_and(|orphans| orphans.contains(&package.name));
             TableRow::new(cols.iter().map(|col| match col {
-                Col::Name => TableCell::new(format!("{} {}", icons::installed(package, mode), package.name)),
+                Col::Name => TableCell::new(package.name.clone()).icon(icons::installed(package, key.mode), None),
                 Col::Version => TableCell::new(package.version.clone()),
                 Col::Source => TableCell::new(match origin(foreign, &package.name) {
                     Some(Origin::Repo) => key.labels[0].clone(),
@@ -318,18 +313,26 @@ mod tests {
             built.set(built.get() + 1);
             Arc::from([])
         };
-        let _ = rows.get(key(0), build);
-        let _ = rows.get(key(0), build);
+        let _ = rows.get(key(GlyphMode::Nerd), build);
+        let _ = rows.get(key(GlyphMode::Nerd), build);
         assert_eq!(built.get(), 1, "the same key keeps the rows");
-        let _ = rows.get(key(1), build);
+        let _ = rows.get(key(GlyphMode::Ascii), build);
         assert_eq!(built.get(), 2, "another glyph mode builds them again");
         rows.clear();
-        let _ = rows.get(key(1), build);
+        let _ = rows.get(key(GlyphMode::Ascii), build);
         assert_eq!(built.get(), 3, "cleared rows are built again");
     }
 
-    /// The package table alone, drawn the way the Installed tab draws it.
-    struct Installed(Vec<Package>, Foreign);
+    /// The package table alone, drawn the way the Installed tab draws it; the third field is the
+    /// row the table shows as chosen.
+    struct Installed(Vec<Package>, Foreign, Option<usize>);
+
+    impl Installed {
+        /// The table with nothing chosen.
+        fn new(packages: Vec<Package>, foreign: Foreign) -> Self {
+            Self(packages, foreign, None)
+        }
+    }
 
     impl App for Installed {
         type Msg = ();
@@ -345,8 +348,36 @@ mod tests {
             let apps = BTreeSet::new();
             let library = Library { packages: &self.0, apps: &apps, foreign: &self.1, orphans: &None };
             let rows = rows(library, &shown, &key);
-            ui.add(Table::new(columns(visible(narrow)), rows)).fill();
+            ui.add(Table::new(columns(visible(narrow)), rows).selected(self.2)).fill();
         }
+    }
+
+    #[test]
+    fn a_name_icon_is_quiet_and_takes_the_name_colour_on_the_chosen_row() {
+        let packages = vec![package("bash", 1024, true, ""), package("zsh", 1024, true, "")];
+        let colours = |selected| {
+            let app = Installed(packages.clone(), None, selected);
+            let mut h = Harness::with_env(app, crate::test_env(), 80, 8);
+            h.set_locale("en").set_glyph_mode(GlyphMode::Unicode);
+            let (x, y) = h.find("bash").expect("the first row");
+            let (x, y) = (u16::try_from(x).expect("on screen"), u16::try_from(y).expect("on screen"));
+            // The glyph sits one space before the name it was found by.
+            (h.fg(x - 2, y), h.fg(x, y))
+        };
+        let (icon, name) = colours(None);
+        assert_ne!(icon, name, "at rest the glyph is quieter than the name");
+        let (icon, name) = colours(Some(0));
+        assert_eq!(icon, name, "on the chosen row a muted glyph would look disabled");
+    }
+
+    #[test]
+    fn a_name_column_too_narrow_cuts_the_name_and_keeps_the_glyph() {
+        let long = package("a-very-long-package-name-indeed", 1024, true, "");
+        let mut h = Harness::with_env(Installed::new(vec![long], None), crate::test_env(), 36, 6);
+        h.set_locale("en").set_glyph_mode(GlyphMode::Unicode);
+        let screen = h.screen();
+        assert!(screen.contains('…'), "the name gives way:\n{screen}");
+        assert!(screen.contains("◉ a-very"), "the glyph and its space stay:\n{screen}");
     }
 
     #[test]
@@ -355,7 +386,7 @@ mod tests {
             .into_iter()
             .map(|name| package(name, 1024, true, ""))
             .collect();
-        let mut h = Harness::with_env(Installed(packages, None), crate::test_env(), 80, 8);
+        let mut h = Harness::with_env(Installed::new(packages, None), crate::test_env(), 80, 8);
         h.set_locale("en").set_glyph_mode(GlyphMode::Nerd);
         let screen = h.screen();
         for line in [
@@ -380,7 +411,7 @@ mod tests {
     fn the_source_reads_in_the_active_language_and_leaves_a_very_narrow_screen() {
         let packages = vec![package("paru", 1024, true, ""), package("bash", 1024, true, "")];
         let foreign: Foreign = Some(BTreeSet::from(["paru".to_owned()]));
-        let mut h = Harness::with_env(Installed(packages, foreign), crate::test_env(), 70, 6);
+        let mut h = Harness::with_env(Installed::new(packages, foreign), crate::test_env(), 70, 6);
         h.set_locale("en").set_glyph_mode(GlyphMode::Unicode);
         let screen = h.screen();
         assert!(screen.contains("Source") && screen.contains("AUR") && screen.contains("Repo"), "{screen}");

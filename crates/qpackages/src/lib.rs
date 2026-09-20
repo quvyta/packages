@@ -9,12 +9,14 @@
 pub mod app;
 pub mod autostart;
 pub mod backend_settings;
+mod build;
 pub mod check;
 mod detail;
 mod helper;
 mod icons;
 mod installed;
 mod reload;
+mod review;
 mod runner;
 mod settings;
 mod settings_page;
@@ -33,10 +35,13 @@ pub use settings_page::Msg as SettingsMsg;
 pub use transaction::Msg as TransactionMsg;
 
 use std::os::unix::fs::MetadataExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
+use qframe::i18n::I18n;
 use qframe::runtime::Runtime;
+use qframe::storage::Family;
+use qframe::widgets::Appearance;
 use qpackages_core::sources::on_path;
 
 /// The language files, compiled in so an installed binary needs nothing beside it.
@@ -58,15 +63,18 @@ const SYNC_DB: &str = "/var/lib/pacman/sync";
 /// Where the application menu's launchers are.
 const APPLICATIONS: &str = "/usr/share/applications";
 
-/// The folder, under the user's cache folder, that holds the private copy of the repository
-/// databases the update check refreshes.
-const CHECK_DIR: &str = "quvyta/packages/check";
+/// The folder, in qpac's cache folder, that holds the private copy of the repository databases
+/// the update check refreshes.
+const CHECK_DIR: &str = "check";
 
-/// The user's cache folder: `$XDG_CACHE_HOME` when it is an absolute path, else `~/.cache`;
-/// `None` without a usable home folder, in which case no update check can keep its copy.
-fn cache_dir() -> Option<PathBuf> {
-    let absolute = |name: &str| std::env::var_os(name).map(PathBuf::from).filter(|path| path.is_absolute());
-    absolute("XDG_CACHE_HOME").or_else(|| absolute("HOME").map(|home| home.join(".cache")))
+/// The compiled-in language files as a translator, for the parts that answer before or without a
+/// screen: the shared preferences' language detection and `--check`'s report.
+fn i18n() -> I18n {
+    let mut i18n = I18n::builtin();
+    for (file, text) in LOCALES {
+        i18n.add_source(file, text);
+    }
+    i18n
 }
 
 /// The user id this process runs as, read from the owner of its own `/proc` entry: root when
@@ -79,7 +87,9 @@ fn current_uid() -> Option<u32> {
 /// and key bindings, and runs the screen until the user quits.
 ///
 /// Started with `--privileged-helper` as its first argument, the program is the root helper
-/// instead: it draws nothing and answers requests on its standard input until that ends.
+/// instead: it draws nothing and answers requests on its standard input until that ends. Started
+/// with `--elevate-shim`, it is what paru and yay call in place of sudo while qpac builds an AUR
+/// package: it passes one pacman call to the qpac running the build and exits as pacman would.
 ///
 /// Whatever the settings reported when they were read (a file left in the old folder, a value
 /// that was repaired) is written to standard error once the screen is gone, where the user reads
@@ -91,13 +101,21 @@ fn current_uid() -> Option<u32> {
 /// its input or output fails.
 pub fn run() -> std::io::Result<()> {
     let args: Vec<String> = std::env::args_os().skip(1).map(|arg| arg.to_string_lossy().into_owned()).collect();
-    if let Some((first, rest)) = args.split_first()
-        && first == qpackages_core::helper::FLAG
-    {
-        return helper::root::run(rest);
+    if qpackages_core::build::shim::is_bare_validate(&args) {
+        return Ok(());
+    }
+    if let Some((first, rest)) = args.split_first() {
+        if first == qpackages_core::helper::FLAG {
+            return helper::root::run(rest);
+        }
+        if first == qpackages_core::build::shim::FLAG {
+            std::process::exit(build::shim::run(rest));
+        }
     }
     let settings = settings::load();
-    let check_dir = cache_dir().map(|cache| cache.join(CHECK_DIR));
+    let family = Family::QUVYTA;
+    let preferences = family.preferences(settings::APP, &i18n());
+    let check_dir = family.cache_dir(settings::APP).map(|cache| cache.join(CHECK_DIR));
     let machine = app::Machine {
         dbpath: Path::new(LOCAL_DB),
         sync_dir: Path::new(SYNC_DB),
@@ -111,6 +129,7 @@ pub fn run() -> std::io::Result<()> {
         utc_offset: qframe::date::local_offset_minutes(),
         app_catalog: Path::new(store::SWCATALOG),
         flatpak_catalogs: &store::flatpak_catalogs(),
+        appearance: Appearance::new(family, settings::APP, preferences.clone()),
     };
     let app = app::Qpackages::new(machine, &settings);
     let result = LOCALES
@@ -119,8 +138,12 @@ pub fn run() -> std::io::Result<()> {
         .keymap_source(KEYMAP.0, KEYMAP.1)
         .icon_source(icons::SET.0, icons::SET.1)
         .settings(&settings)
+        .preferences(&preferences)
         .run();
     for diagnostic in settings.diagnostics() {
+        eprintln!("{diagnostic}");
+    }
+    for diagnostic in preferences.diagnostics() {
         eprintln!("{diagnostic}");
     }
     for diagnostic in icons::diagnostics() {
@@ -140,6 +163,16 @@ pub fn asset_dirs() -> qframe::env::AssetDirs {
         icon_sources: vec![(icons::SET.0.to_owned(), icons::SET.1.to_owned())],
         ..qframe::env::AssetDirs::default()
     }
+}
+
+/// The appearance rows of the settings page with `folder` as the family's settings folder, for
+/// building the screen outside a terminal: a test or a picture then never reads or writes the
+/// user's own settings. [`run`] uses the user's own family folder.
+#[must_use]
+pub fn appearance_in(folder: &Path) -> Appearance {
+    let family = Family::QUVYTA;
+    let preferences = family.preferences_in(folder, settings::APP, &i18n());
+    Appearance::new(family, settings::APP, preferences).in_folder(folder)
 }
 
 /// The built-in files plus the compiled-in locales, keymap and icon set, as the runtime loads

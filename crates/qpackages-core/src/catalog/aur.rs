@@ -108,6 +108,8 @@ pub struct AurPackage {
     pub depends: Vec<String>,
     /// What it needs to build. Only `info` answers carry this.
     pub make_depends: Vec<String>,
+    /// What it needs to run its own tests while it is built. Only `info` answers carry this.
+    pub check_depends: Vec<String>,
     /// What it can use, each entry as the package writes it. Only `info` answers carry this.
     pub opt_depends: Vec<String>,
     /// Its licences, as the recipe names them. Only `info` answers carry this.
@@ -169,6 +171,7 @@ fn package(entry: &JsonValue) -> Option<AurPackage> {
         url: text("URL"),
         depends: json::strings(entry, "Depends"),
         make_depends: json::strings(entry, "MakeDepends"),
+        check_depends: json::strings(entry, "CheckDepends"),
         opt_depends: json::strings(entry, "OptDepends"),
         licenses: json::strings(entry, "License"),
     })
@@ -281,6 +284,14 @@ mod tests {
     }
 
     #[test]
+    fn the_dependencies_a_build_runs_its_tests_with_are_read() {
+        let json = r#"{"type":"multiinfo","results":[{"Name":"a","Version":"1-1","CheckDepends":["python-pytest"]}]}"#;
+        let packages = parse_response(json).expect("readable");
+        assert_eq!(packages[0].check_depends, ["python-pytest"]);
+        assert!(parse_response(INFO).expect("a real answer")[0].check_depends.is_empty(), "absent is empty");
+    }
+
+    #[test]
     fn no_results_is_an_empty_answer() {
         assert_eq!(parse_response(EMPTY), Ok(Vec::new()));
     }
@@ -308,5 +319,12 @@ mod tests {
         assert_eq!(packages[0].name, "b");
         assert_eq!(packages[0].votes, 0, "a field of the wrong type takes its empty value");
         assert_eq!(packages[0].base, "b", "without a base the package is its own");
+    }
+
+    #[test]
+    fn reads_what_the_tests_need_to_build() {
+        let json = r#"{"type":"multiinfo","results":[{"Name":"a","Version":"1","CheckDepends":["python-pytest"]}]}"#;
+        let packages = parse_response(json).expect("readable");
+        assert_eq!(packages[0].check_depends, ["python-pytest"]);
     }
 }

@@ -282,3 +282,24 @@ fn more_than_fifty_results_ask_about_the_first_fifty_only() {
     assert_eq!(first[0], "obs-plugin-79", "the most popular first among equal matches");
     assert_eq!(aur::info_urls(&first).len(), 1);
 }
+
+#[test]
+fn an_aur_page_without_paru_or_yay_names_what_to_install_in_place_of_the_button() {
+    let recorded = online();
+    answer_obs(&recorded);
+    let url = aur::info_urls(&["obs-vkcapture"]).remove(0);
+    answer_url(&recorded, &url, &fixture("aur-info-row.json").replace("visual-studio-code-bin", "obs-vkcapture"));
+    let mut store = Store::new(machine(&recorded, true), crate::sources::ALL.to_vec());
+    let bare = Sources { aur: Availability::Missing, aur_helper: None, ..sources() };
+    let read = store.machine_read(&bare, ["firefox".to_owned()]);
+    let page = Page { store, requests: Vec::new(), held: false, init: true, read: Some(read) };
+    let mut h = harness(page, 110, 34, GlyphMode::Unicode);
+    search_for(&mut h, "obs");
+    h.click_text("obs-vkcapture");
+    h.render();
+    h.advance(Duration::from_secs(1));
+    let screen = h.screen();
+    for text in ["Building this needs paru or yay.", "not paru-bin"] {
+        assert!(screen.contains(text), "`{text}` is missing:\n{screen}");
+    }
+}

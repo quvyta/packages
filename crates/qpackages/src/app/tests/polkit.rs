@@ -42,6 +42,7 @@ fn screen(settings: &str) -> (Harness<Qpackages>, Arc<InProcess>, Arc<Recorded>)
         utc_offset: 0,
         app_catalog: &nowhere(),
         flatpak_catalogs: &[],
+        appearance: crate::testing::appearance_apart(),
     };
     let mut h = Harness::with_env(Qpackages::new(machine, &settings), env(), 120, 30);
     h.set_locale("en").set_glyph_mode(GlyphMode::Unicode).set_reduced_motion(true);

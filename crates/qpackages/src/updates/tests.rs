@@ -214,7 +214,8 @@ fn machine(settings: &str) -> (Harness<Qpackages>, Scratch, Arc<Recorded>) {
 fn the_application_checks_once_it_knows_its_sources_and_counts_on_the_tab() {
     let (mut h, scratch, recorded) = machine("");
     let header = h.screen().lines().next().unwrap_or_default().to_owned();
-    assert!(header.contains('●') && header.contains(" 3 "), "{header}");
+    let updates = header.find("Updates").expect("the tab");
+    assert!(header[updates..].contains('3'), "the count stands on the Updates tab:\n{header}");
     h.send(AppMsg::Tab(crate::app::Tab::Updates.index()));
     let screen = h.screen();
     for text in ["3 updates · last checked", "Repositories", "linux", "mesa", "AUR", "visual-studio-code-bin"] {
