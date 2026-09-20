@@ -398,6 +398,48 @@ fn every_page_keeps_the_rules_in_ascii_and_on_narrow_screens() {
     }
 }
 
+/// The words only each language can produce, on the screens they stand on: the name of the tab
+/// that lists every package, the size column beside it, the button that looks for updates, and
+/// the title of the settings page. None of them is the English word, so none of them can be
+/// drawn by a file whose texts never reached the screen.
+const OWN_WORDS: &[(&str, [&str; 4])] = &[
+    ("en", ["All packages", "Size", "Check now", "Settings"]),
+    ("tr", ["Bütün paketler", "Boyut", "Şimdi kontrol et", "Ayarlar"]),
+    ("de", ["Alle Pakete", "Größe", "Jetzt suchen", "Einstellungen"]),
+    ("es", ["Todos", "Tamaño", "Buscar ahora", "Ajustes"]),
+    ("fr", ["Tous", "Taille", "Vérifier", "Réglages"]),
+    ("pt-BR", ["Todos os pacotes", "Tamanho", "Verificar agora", "Configurações"]),
+    ("ru", ["Все пакеты", "Размер", "Проверить сейчас", "Настройки"]),
+    ("zh-Hans", ["全部软件包", "大小", "立即检查", "设置"]),
+    ("ja", ["すべて", "サイズ", "今すぐ確認", "設定"]),
+];
+
+#[test]
+fn every_language_shows_its_own_words() {
+    // Counting keys says nothing about what reaches the screen: a file whose texts are all English
+    // carries every key, keeps every placeholder and holds the right plural forms, so it passes
+    // every other check and the screen still comes out English in all nine languages. Each
+    // language is therefore asked for four words written out here rather than read from its own
+    // file, because a word read from the file would be produced by the broken case just as well.
+    assert_eq!(OWN_WORDS.len(), crate::locales::LOCALES.len(), "every language qpac speaks is asked for its own words");
+    for (code, words) in OWN_WORDS {
+        assert!(crate::locales::tests::codes().iter().any(|here| here == code), "`{code}` is not compiled in");
+        let mut h = harness(120, 40);
+        h.set_locale(code);
+        let [all, size, check, settings] = *words;
+        let installed = h.screen();
+        for text in [all, size] {
+            assert!(installed.contains(text), "`{code}` should say `{text}` on the Installed tab:\n{installed}");
+        }
+        h.send(Msg::Tab(Tab::Updates.index()));
+        let updates = h.screen();
+        assert!(updates.contains(check), "`{code}` should say `{check}` on the Updates tab:\n{updates}");
+        h.send(Msg::OpenSettings);
+        let page = h.screen();
+        assert!(page.contains(settings), "`{code}` should say `{settings}` on the settings page:\n{page}");
+    }
+}
+
 /// The fixed labels each page must show whole, by the page's own name. They are the words that
 /// tell the user where they are and what a row is for: a cut heading leaves a settings section
 /// nameless. Values, package names and the counts beside them are left out on purpose, because
