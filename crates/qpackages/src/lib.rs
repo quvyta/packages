@@ -20,6 +20,7 @@ mod review;
 mod runner;
 mod settings;
 mod settings_page;
+mod snap;
 mod sources;
 mod store;
 #[cfg(test)]
@@ -130,6 +131,7 @@ pub fn run() -> std::io::Result<()> {
         app_catalog: Path::new(store::SWCATALOG),
         flatpak_catalogs: &store::flatpak_catalogs(),
         appearance: Appearance::new(family, settings::APP, preferences.clone()),
+        snap_socket: Path::new(qpackages_core::snap::SOCKET),
     };
     let app = app::Qpackages::new(machine, &settings);
     let result = LOCALES

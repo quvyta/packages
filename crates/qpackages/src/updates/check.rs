@@ -10,12 +10,15 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use qframe::prelude::t;
 use qpackages_core::pacman::command::{self, FAKEROOT, PACMAN};
 use qpackages_core::pacman::syncdb;
 use qpackages_core::pacman::{Update, UpdateCheck, read_update_check};
+use qpackages_core::snap;
 
 use crate::reload::Lookup;
 use crate::runner::Runner;
+use crate::snap::Snapd;
 
 /// Why a part of the check did not run to its end.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,6 +42,9 @@ pub struct Found {
     /// The AUR's updates, or why they are unknown; `None` when the AUR was not asked, because it
     /// is turned off, has no helper, or qpac runs as root.
     pub aur: Option<Result<Vec<Update>, Failure>>,
+    /// The snaps with a newer version waiting, or why they are unknown; `None` when Snap was not
+    /// asked, because it is turned off or snapd is not answering.
+    pub snap: Option<Result<Vec<Update>, Failure>>,
 }
 
 /// Everything a check needs, kept so it can run again whenever the user asks.
@@ -72,14 +78,46 @@ impl Checker {
         Self { runner, lookup, local: local.to_path_buf(), sync: sync.to_path_buf(), work: work.map(Path::to_path_buf) }
     }
 
-    /// Checks here and now; `aur_helper` is the program asked about the AUR, if it is to be
-    /// asked. Meant for a background thread: the refresh downloads the repository databases.
+    /// Checks here and now; `aur_helper` is the program asked about the AUR and `snapd` the snapd
+    /// asked about snaps, each if it is to be asked. Meant for a background thread: the refresh
+    /// downloads the repository databases.
     #[must_use]
-    pub fn run(&self, aur_helper: Option<&str>) -> Found {
+    pub fn run(&self, aur_helper: Option<&str>, snapd: Option<&Snapd>) -> Found {
         let repo = self.repositories();
         let aur = aur_helper.map(|helper| self.query(helper, &command::aur_update_check()));
+        let snap = snapd.map(|snapd| self.snaps(snapd));
         let at = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs());
-        Found { at: i64::try_from(at).unwrap_or(i64::MAX), repo, aur }
+        Found { at: i64::try_from(at).unwrap_or(i64::MAX), repo, aur, snap }
+    }
+
+    /// The snaps with a newer version waiting.
+    ///
+    /// `snap refresh --list` names each snap and the version that would be installed; the version
+    /// it has now comes from snapd's own list of what is installed, which is read on the socket.
+    /// Both run as the user: snapd asks for no permission to be asked about anything.
+    ///
+    /// Nothing to update prints one line on the error stream and ends with 0, so an empty answer
+    /// is the usual case, not a failure.
+    fn snaps(&self, snapd: &Snapd) -> Result<Vec<Update>, Failure> {
+        let installed = snapd.installed().map_err(|_| Failure::Said(t!("snap.unreachable")))?;
+        let listed = self
+            .runner
+            .output(snap::SNAP, &snap::refresh_list_args(), &command::parsed_env())
+            .map_err(|error| Failure::Said(error.to_string()))?;
+        if !listed.succeeded() && snap::trouble(&listed.stderr) != Some(snap::Trouble::NoUpdates) {
+            return Err(Failure::Said(first_line(&listed.stderr, &listed.stdout)));
+        }
+        Ok(snap::parse_refresh_list(&listed.stdout)
+            .into_iter()
+            .map(|waiting| {
+                let from = installed
+                    .iter()
+                    .find(|snap| snap.name == waiting.name)
+                    .map(|snap| snap.version.clone())
+                    .unwrap_or_default();
+                Update { name: waiting.name, from, to: waiting.version, ignored: false }
+            })
+            .collect())
     }
 
     fn repositories(&self) -> Result<Vec<Update>, Failure> {
@@ -152,7 +190,7 @@ mod tests {
         recorded.answer(PACMAN, &command::update_check(&work), "linux 6.18.1-1 -> 6.18.2-1\n", 0);
         recorded.answer("paru", &command::aur_update_check(), "brave-bin 1:1.95.101-1 -> 1:1.95.102-1\n", 0);
 
-        let found = checker(&dir, &recorded, Arc::new(with_fakeroot)).run(Some("paru"));
+        let found = checker(&dir, &recorded, Arc::new(with_fakeroot)).run(Some("paru"), None);
 
         assert_eq!(found.repo.expect("the repositories answered").len(), 1);
         assert_eq!(found.aur.expect("the AUR was asked").expect("and answered")[0].name, "brave-bin");
@@ -174,12 +212,12 @@ mod tests {
     fn nothing_runs_without_fakeroot_or_a_place_for_the_copy() {
         let dir = scratch("missing");
         let recorded = Arc::new(Recorded::default());
-        let found = checker(&dir, &recorded, Arc::new(|_| None)).run(None);
+        let found = checker(&dir, &recorded, Arc::new(|_| None)).run(None, None);
         assert_eq!(found.repo, Err(Failure::NoFakeroot));
         assert_eq!(found.aur, None, "the AUR is not asked when no helper is given");
         let placeless =
             Checker::new(Arc::clone(&recorded) as Arc<dyn Runner>, Arc::new(with_fakeroot), &dir, &dir, None);
-        assert_eq!(placeless.run(None).repo, Err(Failure::NoPlace));
+        assert_eq!(placeless.run(None, None).repo, Err(Failure::NoPlace));
         assert!(recorded.calls().is_empty());
         fs::remove_dir_all(dir).expect("cleanup");
     }
@@ -193,7 +231,7 @@ mod tests {
         recorded.fail(FAKEROOT, &command::refresh(&work), stderr, 1);
         recorded.answer("paru", &command::aur_update_check(), "", 1);
 
-        let found = checker(&dir, &recorded, Arc::new(with_fakeroot)).run(Some("paru"));
+        let found = checker(&dir, &recorded, Arc::new(with_fakeroot)).run(Some("paru"), None);
 
         assert_eq!(
             found.repo,
@@ -202,6 +240,68 @@ mod tests {
             ))
         );
         assert_eq!(found.aur, Some(Ok(Vec::new())), "the AUR is asked all the same, and is up to date");
+        fs::remove_dir_all(dir).expect("cleanup");
+    }
+
+    /// The snap recordings the container produced.
+    fn snap_fixture(name: &str) -> String {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../qpackages-core/tests/fixtures/snap").join(name);
+        fs::read_to_string(path).expect("the recording is readable")
+    }
+
+    #[test]
+    fn the_snaps_with_an_update_pair_the_new_version_with_the_one_installed() {
+        let dir = scratch("snaps");
+        let socket = dir.join("snapd.socket");
+        let fake = crate::testing::FakeSnapd::start(&socket);
+        fake.answer(qpackages_core::snap::api::SNAPS, &snap_fixture("api-snaps.json"));
+        let recorded = Arc::new(Recorded::default());
+        recorded.answer(snap::SNAP, &snap::refresh_list_args(), &snap_fixture("refresh-list.out"), 0);
+        let snapd = Snapd::new(true, &socket);
+
+        let found = checker(&dir, &recorded, Arc::new(with_fakeroot)).run(None, Some(&snapd));
+
+        let snaps = found.snap.expect("snapd was asked").expect("and answered");
+        assert_eq!(snaps.len(), 1);
+        assert_eq!(snaps[0].name, "hello");
+        assert_eq!(snaps[0].to, "2.10", "the version waiting comes from the list");
+        assert_eq!(snaps[0].from, "2.10", "the one installed comes from snapd's own list");
+        assert!(!snaps[0].ignored, "snapd holds nothing back");
+        assert!(recorded.command_lines().contains(&format!("{} refresh --list", snap::SNAP)));
+        fs::remove_dir_all(dir).expect("cleanup");
+    }
+
+    #[test]
+    fn nothing_to_update_is_an_empty_answer_rather_than_a_failure() {
+        let dir = scratch("snaps-none");
+        let socket = dir.join("snapd.socket");
+        let fake = crate::testing::FakeSnapd::start(&socket);
+        fake.answer(qpackages_core::snap::api::SNAPS, "{\"result\":[]}");
+        let recorded = Arc::new(Recorded::default());
+        // `All snaps up to date.` goes to the error stream, and snap still ends with 0.
+        recorded.answer_full(snap::SNAP, &snap::refresh_list_args(), "", &snap_fixture("refresh-list-none.err"), 0);
+        let snapd = Snapd::new(true, &socket);
+
+        let found = checker(&dir, &recorded, Arc::new(with_fakeroot)).run(None, Some(&snapd));
+
+        assert_eq!(found.snap.expect("snapd was asked").expect("and answered"), Vec::<Update>::new());
+        fs::remove_dir_all(dir).expect("cleanup");
+    }
+
+    #[test]
+    fn a_snapd_that_cannot_be_reached_is_a_failure_and_never_runs_the_snap_program() {
+        let dir = scratch("snaps-mute");
+        let recorded = Arc::new(Recorded::default());
+        // Nothing listens on this path, so reading what is installed fails at once.
+        let snapd = Snapd::new(true, dir.join("snapd.socket"));
+
+        let found = checker(&dir, &recorded, Arc::new(with_fakeroot)).run(None, Some(&snapd));
+
+        assert!(found.snap.expect("snapd was asked").is_err(), "the list is left as it was");
+        assert!(
+            !recorded.command_lines().iter().any(|line| line.starts_with(snap::SNAP)),
+            "the program is never run without a snapd to talk to"
+        );
         fs::remove_dir_all(dir).expect("cleanup");
     }
 }

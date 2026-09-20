@@ -33,6 +33,7 @@ use crate::review;
 use crate::runner::Runner;
 use crate::settings::{self, AUR_HELPERS, PRIVILEGE_TOOLS};
 use crate::settings_page::{self, Reflector};
+use crate::snap::Snapd;
 use crate::transaction::{self, Action, Flow};
 use crate::updates::check::Checker;
 use crate::updates::{self, Updates};
@@ -79,6 +80,8 @@ pub struct Machine<'a> {
     /// The appearance rows of the settings page, over the family folder they save into: the
     /// user's own in `run`, a folder of the test's own in a test.
     pub appearance: Appearance,
+    /// snapd's socket, which Discover reads the snaps and a job's progress from as the user.
+    pub snap_socket: &'a Path,
 }
 
 /// Where the application reads the system's files and keeps the user's own, beside what the
@@ -264,6 +267,7 @@ impl Qpackages {
             swcatalog: machine.app_catalog.to_path_buf(),
             flatpak: machine.flatpak_catalogs.to_vec(),
         };
+        let snapd = Snapd::new(false, machine.snap_socket);
         let mut app = Self {
             library: None,
             // The rankings are kept beside the update check's copy of pacman's database.
@@ -297,6 +301,9 @@ impl Qpackages {
         };
         app.transaction.set_build_places(app.places.build(app.uid));
         app.transaction.set_review_places(app.places.review());
+        // Both sides read the same socket: Discover for the snaps, the flow for a job's progress.
+        app.discover.set_snapd(snapd.clone());
+        app.transaction.set_snapd(snapd);
         app
     }
 
@@ -325,6 +332,7 @@ impl Qpackages {
     pub fn with_places(mut self, places: Places) -> Self {
         self.transaction.set_build_places(places.build(self.uid));
         self.transaction.set_review_places(places.review());
+        self.discover.set_snap_link(places.root.join(qpackages_core::snap::SNAP_LINK.trim_start_matches('/')));
         self.places = places;
         self
     }
@@ -380,7 +388,15 @@ impl Qpackages {
             .filter(|_| self.aur_in_use())
             .map(qpackages_core::sources::AurHelper::program);
         let checker = self.checker.clone();
-        let check = Command::perform(move || Msg::Updates(updates::Msg::Checked(checker.run(helper))));
+        // snapd is asked only when Snap is on and it is really answering: without that the `snap`
+        // program would retry for two minutes before saying anything.
+        let snapd = self
+            .discover
+            .snap_state()
+            .is_ready()
+            .then(|| self.discover.snapd().clone())
+            .filter(|_| settings::source_enabled(&self.settings, Source::Snap));
+        let check = Command::perform(move || Msg::Updates(updates::Msg::Checked(checker.run(helper, snapd.as_ref()))));
         Command::batch([check, self.fetch_news()])
     }
 
@@ -393,8 +409,16 @@ impl Qpackages {
         }
         match request {
             Some(updates::Request::Check) => self.check(),
-            Some(updates::Request::UpdateAll(list)) => {
-                self.update(Msg::Transaction(transaction::Msg::Begin(Action::Upgrade(list))))
+            Some(updates::Request::UpdateAll(list, snaps)) => {
+                // Two steps, each confirmed for itself: pacman's transaction, then snapd's.
+                let mut actions = Vec::new();
+                if !list.is_empty() {
+                    actions.push(Action::Upgrade(list));
+                }
+                if !snaps.is_empty() {
+                    actions.push(Action::SnapRefresh(snaps));
+                }
+                self.update(Msg::Transaction(transaction::Msg::Queue(actions)))
             }
             None => Command::none(),
         }
@@ -503,6 +527,23 @@ impl Qpackages {
                 }
                 None => Command::none(),
             },
+            settings_page::Msg::BuildFromAur(source) => match sources::aur_package(source) {
+                Some(package) => {
+                    let build = Action::AurInstall(vec![package.to_owned()]);
+                    self.update(Msg::Transaction(transaction::Msg::Begin(build)))
+                }
+                None => Command::none(),
+            },
+            // The socket and the `/snap` link go one after another, each with its own
+            // confirmation: without the link a snap with classic confinement cannot install, and
+            // both are the same kind of one-off setting of the machine.
+            settings_page::Msg::SnapSocket(on) => {
+                let mut actions = vec![Action::SnapdSocket(on)];
+                if on {
+                    actions.push(Action::SnapLink);
+                }
+                self.update(Msg::Transaction(transaction::Msg::Queue(actions)))
+            }
             settings_page::Msg::AddFlathub => {
                 self.update(Msg::Transaction(transaction::Msg::Begin(Action::AddFlathub)))
             }
@@ -603,6 +644,7 @@ impl Qpackages {
                 settings: &self.settings,
                 sources: self.library.as_ref().map(|found| &found.sources),
                 flathub: self.library.as_ref().and_then(|found| found.flathub),
+                snap: Some(self.discover.snap_state()),
                 root: self.root,
                 planning: self.transaction.is_planning(),
                 tool: self.transaction.tool(),

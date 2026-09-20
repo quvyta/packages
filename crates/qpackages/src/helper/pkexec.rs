@@ -180,7 +180,7 @@ mod tests {
         sender.send(Ok("done 0".to_owned())).expect("sent");
         let request = Request::Install(vec!["cowsay".to_owned()]);
         let mut lines = Vec::new();
-        let outcome = session.run(&request, (70, 9), &|| false, &mut |line| lines.push(line));
+        let outcome = session.run(&request, (70, 9), &|| false, &mut |line| lines.push(line), &mut |_| {});
         assert_eq!(outcome, Outcome::Finished(ProcessOutcome::Finished { code: Some(0) }));
         assert_eq!(lines, ["hello"]);
         assert_eq!(program.written(), ["size 70 9", "install cowsay"]);

@@ -46,7 +46,12 @@ use qpackages_core::catalog::merge::{Offer, RepoPackage, id_key, merge};
 use qpackages_core::catalog::popularity::{FlathubInstalls, FlathubUpdate, PackageShare};
 use qpackages_core::catalog::repo::RepoInfo;
 use qpackages_core::catalog::search::{Generation, Generations, SearchIndex};
+use qpackages_core::snap::api::Snap as SnapRecord;
 use qpackages_core::sources::{Availability, Source, Sources};
+
+use crate::transaction::Action;
+
+use crate::snap::{Snapd, State as SnapState};
 
 pub use data::{Cached, Failure, Loaded, Machine, SWCATALOG, flatpak_catalogs};
 pub use model::Installed;
@@ -144,6 +149,8 @@ pub enum Found {
         /// The packages the AUR's `info` answered about.
         detailed: Arc<HashSet<String>>,
     },
+    /// The store's snaps, as snapd's search answered.
+    Snap(Arc<[SnapRecord]>),
 }
 
 /// What is known about one offer of an open application, beyond its card.
@@ -153,6 +160,8 @@ pub enum Details {
     Repo(Box<RepoInfo>),
     /// The AUR's full record.
     Aur(Box<AurPackage>),
+    /// What snapd's store says about one snap: its channel, its size and how it is confined.
+    Snap(Box<SnapRecord>),
 }
 
 /// Everything that can happen on the page.
@@ -202,6 +211,13 @@ pub enum Msg {
     AurStats(Result<Arc<[AurPackage]>, Failure>),
     /// `flatpak list` said which applications are installed.
     Flatpaks(Result<Arc<[InstalledApp]>, Failure>),
+    /// snapd said what it is and, when it answered, which snaps are installed.
+    Snaps {
+        /// What snapd is now.
+        state: Box<SnapState>,
+        /// The installed snaps, or why snapd said nothing.
+        snaps: Result<Arc<[SnapRecord]>, Failure>,
+    },
     /// A source answered a search.
     Found {
         /// The search it answers.
@@ -236,6 +252,7 @@ struct Search {
     aur: Arc<[AurPackage]>,
     /// The AUR packages whose full record is in `aur`, so their page needs no other request.
     aur_detailed: Arc<HashSet<String>>,
+    snap: Arc<[SnapRecord]>,
     /// Every result, in the order shown.
     ranked: Vec<Card>,
     /// Whether the search has run long enough to show that it is running.
@@ -267,6 +284,12 @@ pub struct Store {
     enabled: Vec<Source>,
     /// Which sources this machine has, once the application looked.
     sources: Option<Sources>,
+    /// snapd on its socket, and what it last said it is.
+    snapd: Snapd,
+    snap_state: SnapState,
+    /// Where the link a snap with classic confinement needs would be, `/snap` on a real machine.
+    /// It is looked at when a plan is made, so a link qpac just made is seen at once.
+    snap_link: PathBuf,
     /// The installed pacman packages and Flatpak applications.
     installed: Installed,
     featured: Vec<FeaturedApp>,
@@ -328,6 +351,9 @@ impl Store {
             cache: None,
             enabled,
             sources: None,
+            snapd: Snapd::new(false, qpackages_core::snap::SOCKET),
+            snap_state: SnapState::NotInstalled,
+            snap_link: PathBuf::from(qpackages_core::snap::SNAP_LINK),
             installed: Installed::default(),
             featured,
             loaded: None,
@@ -358,6 +384,29 @@ impl Store {
         };
         store.rebuild_home();
         store
+    }
+
+    /// Reads snapd on `snapd`'s socket from now on: the machine's own, or a test's stand-in.
+    pub fn set_snapd(&mut self, snapd: Snapd) {
+        self.snapd = snapd;
+    }
+
+    /// Looks for the link a classic snap needs at `link` from now on: `/snap` on a real machine,
+    /// a path of the test's own otherwise.
+    pub fn set_snap_link(&mut self, link: PathBuf) {
+        self.snap_link = link;
+    }
+
+    /// snapd on its socket, for the update check, which asks it the same way this page does.
+    #[must_use]
+    pub fn snapd(&self) -> &Snapd {
+        &self.snapd
+    }
+
+    /// What snapd last said it is, for the settings row and for deciding whether to offer snaps.
+    #[must_use]
+    pub fn snap_state(&self) -> &SnapState {
+        &self.snap_state
     }
 
     /// Keeps the network's rankings in `folder` between runs (`~/.cache/quvyta/packages`), so
@@ -443,16 +492,32 @@ impl Store {
         self.sources = Some(sources.clone());
         self.installed.packages = installed.into_iter().collect();
         self.installed_changed();
+        let mut commands = Vec::new();
         let has_flatpak = matches!(sources.get(Source::Flatpak), Availability::Ready { .. });
-        if !(has_flatpak && self.is_enabled(Source::Flatpak)) {
-            if !self.installed.flatpaks.is_empty() {
-                self.installed.flatpaks.clear();
-                self.installed_changed();
-            }
-            return Command::none();
+        if has_flatpak && self.is_enabled(Source::Flatpak) {
+            let runner = Arc::clone(&self.machine.runner);
+            commands.push(Command::perform(move || {
+                Msg::Flatpaks(data::installed_flatpaks(runner.as_ref()).map(Arc::from))
+            }));
+        } else if !self.installed.flatpaks.is_empty() {
+            self.installed.flatpaks.clear();
+            self.installed_changed();
         }
-        let runner = Arc::clone(&self.machine.runner);
-        Command::perform(move || Msg::Flatpaks(data::installed_flatpaks(runner.as_ref()).map(Arc::from)))
+        self.snapd = Snapd::found(sources, self.snapd.socket().to_path_buf());
+        if self.is_enabled(Source::Snap) {
+            let snapd = self.snapd.clone();
+            commands.push(Command::perform(move || {
+                let state = snapd.state();
+                // Nothing is asked of a snapd that is not answering; its state alone is the answer.
+                let snaps = state.is_ready().then(|| snapd.installed()).transpose().map(Option::unwrap_or_default);
+                Msg::Snaps { state: Box::new(state), snaps: snaps.map(Arc::from) }
+            }));
+        } else if !self.installed.snaps.is_empty() || self.snap_state != SnapState::NotInstalled {
+            self.installed.snaps.clear();
+            self.snap_state = SnapState::NotInstalled;
+            self.installed_changed();
+        }
+        Command::batch(commands)
     }
 
     /// Works out every "Installed" mark again after the installed packages changed.
@@ -584,6 +649,11 @@ impl Store {
             Msg::AurStats(Ok(stats)) => {
                 self.aur_stats = stats;
                 self.rebuild_home();
+            }
+            Msg::Snaps { state, snaps } => {
+                self.snap_state = *state;
+                self.installed.set_snaps(snaps.as_deref().unwrap_or_default());
+                self.installed_changed();
             }
             Msg::Flatpaks(Ok(apps)) => {
                 self.installed.set_flatpaks(&apps);
@@ -786,6 +856,11 @@ impl Store {
         if self.is_enabled(Source::Aur) && query.chars().count() >= qpackages_core::catalog::aur::MIN_SEARCH_CHARS {
             pending.push(Source::Aur);
         }
+        // Snap is asked only once snapd answered: without it the `snap` program hangs for minutes,
+        // and snapd's socket is the only thing that says at once whether it is there.
+        if self.is_enabled(Source::Snap) && self.snap_state.is_ready() && !query.is_empty() {
+            pending.push(Source::Snap);
+        }
         let commands: Vec<Command<Msg>> = pending.iter().map(|&source| self.ask(source, generation, &query)).collect();
         self.search = Some(Search {
             query,
@@ -795,6 +870,7 @@ impl Store {
             repo: Arc::from([]),
             aur: Arc::from([]),
             aur_detailed: Arc::default(),
+            snap: Arc::from([]),
             ranked: Vec::new(),
             spinner: false,
         });
@@ -808,9 +884,11 @@ impl Store {
     /// The background work asking `source` about `query`.
     fn ask(&self, source: Source, generation: Generation, query: &str) -> Command<Msg> {
         let runner = Arc::clone(&self.machine.runner);
+        let snapd = self.snapd.clone();
         let query = query.to_owned();
         Command::perform(move || {
             let answer = match source {
+                Source::Snap => snapd.search(&query).map(|snaps| Found::Snap(Arc::from(snaps))),
                 Source::Aur => data::search_aur_detailed(runner.as_ref(), &query).map(|(packages, detailed)| {
                     Found::Aur { packages: Arc::from(packages), detailed: Arc::new(detailed) }
                 }),
@@ -842,6 +920,7 @@ impl Store {
                 search.aur = packages;
                 search.aur_detailed = detailed;
             }
+            Ok(Found::Snap(snaps)) => search.snap = snaps,
             Err(failure) => search.failed.push((source, failure)),
         }
         self.rebuild_results();
@@ -861,10 +940,13 @@ impl Store {
             ),
             None => (&[][..], &[][..]),
         };
-        let apps: Vec<_> = merge(repo, flathub, &search.repo, &search.aur)
+        let mut apps: Vec<_> = merge(repo, flathub, &search.repo, &search.aur)
             .into_iter()
             .filter_map(|app| model::keep_enabled(app, &self.enabled))
             .collect();
+        if self.enabled.contains(&Source::Snap) {
+            apps.extend(search.snap.iter().map(model::snap_app));
+        }
         let aur_by_name: HashMap<&str, &AurPackage> =
             search.aur.iter().map(|package| (package.name.as_str(), package)).collect();
         let aur_of = |app: &qpackages_core::catalog::merge::App| {
@@ -963,23 +1045,43 @@ impl Store {
                 });
                 Msg::Details { key, offer: index, answer }
             }),
-            // Flatpak's details are the catalog's, already here; Snap is not read yet.
-            Source::Flatpak | Source::Snap => Command::none(),
+            Source::Snap => {
+                let snapd = self.snapd.clone();
+                Command::perform(move || {
+                    let answer = snapd
+                        .about(&offer.package)
+                        .and_then(|found| found.map(|snap| Details::Snap(Box::new(snap))).ok_or(Failure::Unreadable));
+                    Msg::Details { key, offer: index, answer }
+                })
+            }
+            // Flatpak's details are the catalog's, already here.
+            Source::Flatpak => Command::none(),
         }
     }
 }
 
 /// The actions the transaction flow runs for `request`, in order, each confirmed on its own: the
-/// repositories' part, then Flatpak's for the user, then Flatpak's for the whole system.
+/// repositories' part, then the AUR's, then Flatpak's for the user, then Flatpak's for the whole
+/// system, then Snap's.
 ///
 /// pacman installs from the repositories and removes repository and AUR packages alike; paru or
 /// yay builds from the AUR; Flatpak installs for the user. A Flatpak is removed from every
 /// installation `installed` says holds it, by the id Flatpak spells it with: for the user
 /// directly, for the system through the helper. An extra installation configured by name has no
-/// removal; those offers are left out. Nothing is left when none of the offers can run.
+/// removal; those offers are left out.
+///
+/// Snap's own work all goes through the helper, since snapd refuses an ordinary user every change.
+/// A snap `classic` names runs outside the sandbox and is installed with a word of its own, so the
+/// helper can never add `--classic` to a snap whose confirmation did not say what that means; snaps
+/// of both kinds in one request are two steps, each confirmed for itself.
+///
+/// Nothing is left when none of the offers can run.
 #[must_use]
-pub fn transactions(request: &Request, installed: &Installed) -> Vec<crate::transaction::Action> {
-    use crate::transaction::Action;
+pub fn transactions(
+    request: &Request,
+    installed: &Installed,
+    classic: &HashSet<String>,
+) -> Vec<crate::transaction::Action> {
     use qpackages_core::catalog::flatpak::Installation;
 
     let names = |offers: &[Offer], sources: &[Source]| -> Vec<String> {
@@ -991,6 +1093,11 @@ pub fn transactions(request: &Request, installed: &Installed) -> Vec<crate::tran
             actions.push(Action::Install(names(offers, &[Source::Pacman])));
             actions.push(Action::AurInstall(names(offers, &[Source::Aur])));
             actions.push(Action::FlatpakInstall(names(offers, &[Source::Flatpak])));
+            let snaps = names(offers, &[Source::Snap]);
+            let (outside, sandboxed): (Vec<String>, Vec<String>) =
+                snaps.into_iter().partition(|name| classic.contains(name));
+            actions.push(Action::SnapInstall(sandboxed));
+            actions.push(Action::SnapInstallClassic(outside));
         }
         Request::Remove(offers) => {
             actions.push(Action::Remove(names(offers, &[Source::Pacman, Source::Aur])));
@@ -1012,6 +1119,11 @@ pub fn transactions(request: &Request, installed: &Installed) -> Vec<crate::tran
             }
             actions.push(Action::FlatpakRemove(user));
             actions.push(Action::FlatpakRemoveSystem(system));
+            // Only a snap this machine really has is removed; a name nothing installed would make
+            // snapd answer "not installed" with code 0, which reads as success.
+            let snaps =
+                names(offers, &[Source::Snap]).into_iter().filter(|name| installed.snaps.contains_key(name)).collect();
+            actions.push(Action::SnapRemove(snaps));
         }
         Request::OpenSettings(_) => {}
     }
@@ -1022,8 +1134,30 @@ pub fn transactions(request: &Request, installed: &Installed) -> Vec<crate::tran
 impl Store {
     /// The actions the transaction flow runs for `request` on what this page knows is installed;
     /// see [`transactions`].
+    ///
+    /// Where a snap runs outside the sandbox and this machine has no `/snap` link, making that link
+    /// is put first: snapd refuses such an install without it, and asking for the link afterwards
+    /// would mean the user confirmed an installation that could never run.
     #[must_use]
     pub fn transactions(&self, request: &Request) -> Vec<crate::transaction::Action> {
-        transactions(request, &self.installed)
+        let classic = self.classic_snaps();
+        let mut actions = transactions(request, &self.installed, &classic);
+        let wants_link =
+            actions.iter().any(|action| matches!(action, Action::SnapInstallClassic(_))) && !self.snap_link.exists();
+        if wants_link {
+            actions.insert(0, Action::SnapLink);
+        }
+        actions
+    }
+
+    /// The snaps this page saw running outside the sandbox: those a search turned up and those
+    /// already installed that way.
+    fn classic_snaps(&self) -> HashSet<String> {
+        let found = self.search.iter().flat_map(|search| search.snap.iter());
+        found
+            .chain(self.installed.snaps.values())
+            .filter(|snap| snap.is_classic())
+            .map(|snap| snap.name.clone())
+            .collect()
     }
 }

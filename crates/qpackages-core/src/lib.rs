@@ -18,4 +18,6 @@ pub mod pacman;
 pub mod reflector;
 pub mod review;
 
+pub mod snap;
+
 pub mod sources;

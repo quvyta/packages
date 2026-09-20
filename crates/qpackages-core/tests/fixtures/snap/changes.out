@@ -1,0 +1,12 @@
+ID   Status  Spawn               Ready               Summary
+1    Done    today at 18:30 UTC  today at 18:30 UTC  Initialize system state
+2    Done    today at 18:30 UTC  today at 18:31 UTC  Install "hello-world" snap
+3    Error   today at 18:30 UTC  today at 18:30 UTC  Initialize device
+4    Error   today at 18:30 UTC  today at 18:30 UTC  Initialize device
+5    Done    today at 18:31 UTC  today at 18:31 UTC  Install "test-snapd-classic-confinement" snap
+6    Done    today at 18:31 UTC  today at 18:32 UTC  Install "hello" snap
+7    Done    today at 18:32 UTC  today at 18:32 UTC  Remove "hello" snap
+8    Done    today at 18:32 UTC  today at 18:32 UTC  Refresh all snaps: no updates
+9    Done    today at 18:32 UTC  today at 18:32 UTC  Refresh all snaps: no updates
+10   Done    today at 18:33 UTC  today at 18:33 UTC  Install "hello" snap
+

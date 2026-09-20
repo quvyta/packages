@@ -112,6 +112,8 @@ fn description(open: &OpenApp, component: Option<&Component>, turkish: bool) -> 
     let line = match open.details.get(open.offer) {
         Some(Some(Ok(Details::Repo(info)))) => info.description.clone(),
         Some(Some(Ok(Details::Aur(package)))) => package.description.clone(),
+        // snapd carries a whole description, which is the only long text a snap has.
+        Some(Some(Ok(Details::Snap(snap)))) => snap.summary.clone(),
         _ => None,
     }?;
     let summary = open.card.summary(turkish);
@@ -138,10 +140,24 @@ fn facts(open: &OpenApp, component: Option<&Component>, ui: &mut View<'_, Msg>) 
                 fields.extend(component.homepage.as_deref().map(|url| (t!("store.app.website"), site(url))));
             }
         }
-        (Source::Pacman | Source::Aur, Some(None) | None) => {
+        (Source::Snap, Some(Some(Ok(Details::Snap(snap))))) => {
+            fields.push((t!("store.app.snap-name"), snap.name.clone()));
+            fields.push((t!("store.app.version"), snap.version.clone()));
+            if let Some(publisher) = &snap.publisher {
+                let shown =
+                    if snap.verified { t!("snap.verified", who = publisher.as_str()) } else { publisher.clone() };
+                fields.push((t!("store.app.publisher"), shown));
+            }
+            let size = snap.download_size.or(snap.installed_size);
+            fields.extend(size.map(|bytes| (t!("store.app.download"), size_text(bytes))));
+            if snap.is_classic() {
+                warning = Some(t!("snap.classic-warning"));
+            }
+        }
+        (Source::Pacman | Source::Aur | Source::Snap, Some(None) | None) => {
             ui.add(Text::new(t!("store.app.reading")).color("muted")).fill_width();
         }
-        (Source::Pacman | Source::Aur, Some(Some(_))) => {
+        (Source::Pacman | Source::Aur | Source::Snap, Some(Some(_))) => {
             let glyph = ui.env().icons().glyph("warning").into_owned();
             ui.add(
                 Text::new(format!("{glyph} {}", t!("store.app.unreachable", source = source_name(offer.source))))
@@ -149,7 +165,6 @@ fn facts(open: &OpenApp, component: Option<&Component>, ui: &mut View<'_, Msg>) 
             )
             .fill_width();
         }
-        (Source::Snap, _) => {}
     }
     if let Some(warning) = warning {
         let glyph = ui.env().icons().glyph("warning").into_owned();

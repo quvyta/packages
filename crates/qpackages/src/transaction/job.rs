@@ -14,6 +14,7 @@ use qpackages_core::backup::{self, Snapshot, Tool};
 use qpackages_core::flatpak;
 use qpackages_core::helper::Request;
 use qpackages_core::pacman::pacnew_files;
+use qpackages_core::snap::api;
 
 use super::{Action, OUTPUT_LINES, Run, filter};
 
@@ -48,6 +49,9 @@ pub struct Job {
     step_lines: Vec<String>,
     /// The number snapper gave the snapshot before, which the one after is paired with.
     pre: Option<u32>,
+    /// The summary of the snap step last put in the pane, so reading snapd again does not write
+    /// the same line over and over.
+    snap_step: String,
     /// The `.pacnew` files pacman said it left, in the order it said so.
     pub pacnew: Vec<String>,
     /// How many packages the confirmed plan touches, dependencies included; the names alone
@@ -81,6 +85,7 @@ impl Job {
             output: LogBuffer::new(OUTPUT_LINES),
             progress: None,
             step_lines: Vec::new(),
+            snap_step: String::new(),
             pre: None,
             pacnew: Vec::new(),
             then: Vec::new(),
@@ -125,6 +130,22 @@ impl Job {
         }
     }
 
+    /// Takes what snapd says about the running snap job: the step it is on goes to the pane the
+    /// first time it is seen, and a download's real share drives the bar.
+    ///
+    /// Only a download counts bytes; every other step counts one of one, and there the bar is left
+    /// unknown rather than jumping to a number that means nothing.
+    pub fn snap_progress(&mut self, change: &api::Change) {
+        let Some(task) = change.running() else { return };
+        #[expect(clippy::cast_possible_truncation, reason = "a share between 0 and 1, to draw a bar with")]
+        let share = task.fraction().map(|share| share as f32);
+        self.progress = share;
+        if self.snap_step != task.summary {
+            self.snap_step = task.summary.clone();
+            self.line(&task.summary);
+        }
+    }
+
     /// The snapshot before ended well: its number is kept for the one after. `false` when
     /// snapper printed no number, so no snapshot after can be paired with it.
     pub fn took_before(&mut self) -> bool {
@@ -143,6 +164,7 @@ impl Job {
         self.index += 1;
         self.progress = None;
         self.step_lines.clear();
+        self.snap_step.clear();
         self.index < self.steps.len()
     }
 
@@ -266,5 +288,48 @@ mod tests {
         assert_eq!(job.pacnew, ["/etc/pacman.conf.pacnew"]);
         assert_eq!(job.progress, Some(0.5));
         assert_eq!(job.output.len(), 3);
+    }
+
+    /// What snapd answered about a running job, from the container's recordings.
+    fn change(name: &str) -> api::Change {
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../qpackages-core/tests/fixtures/snap").join(name);
+        let text = std::fs::read_to_string(path).expect("the recording is readable");
+        api::parse_change(&text).expect("the recording reads")
+    }
+
+    #[test]
+    fn a_snap_jobs_step_reaches_the_pane_once_and_a_download_drives_the_bar() {
+        let mut job = Job::new(Action::SnapInstall(vec!["core22".to_owned()]), backup::Plan::Off);
+        assert_eq!(job.progress, None);
+        let doing = change("api-change-doing.json");
+        job.snap_progress(&doing);
+        let share = job.progress.expect("a download counts bytes");
+        assert!((0.006..0.007).contains(&share), "{share}");
+        let lines = job.output.len();
+        assert!(lines > 0, "snapd's step is in the pane");
+        assert!(job.output.iter().any(|line| line.text().contains("Download snap")), "the step it is on");
+        job.snap_progress(&doing);
+        assert_eq!(job.output.len(), lines, "reading the same step again writes no second line");
+    }
+
+    #[test]
+    fn a_step_that_only_ends_leaves_the_bar_unknown_and_a_finished_job_changes_nothing() {
+        let mut job = Job::new(Action::SnapInstall(vec!["hello".to_owned()]), backup::Plan::Off);
+        job.progress = Some(0.5);
+        let mut doing = change("api-change-doing.json");
+        // The step running now counts one of one, which says nothing about how long it takes.
+        for task in &mut doing.tasks {
+            if task.is_running() {
+                task.total = 1;
+                task.done = 0;
+            }
+        }
+        job.snap_progress(&doing);
+        assert_eq!(job.progress, None, "a bar that means nothing is left unknown");
+        let done = change("api-change-done.json");
+        let lines = job.output.len();
+        job.snap_progress(&done);
+        assert_eq!(job.output.len(), lines, "a job with nothing running says nothing");
     }
 }

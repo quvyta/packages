@@ -1,0 +1,4 @@
+Warning: /var/lib/snapd/snap/bin was not found in your $PATH. If you've not
+         restarted your session since you installed snapd, try doing that.
+         Please see https://forum.snapcraft.io/t/9469 for more details.
+

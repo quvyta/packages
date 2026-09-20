@@ -86,7 +86,8 @@ pub fn exchange(folder: &Path, line: &str, out: &mut impl Write) -> io::Result<i
             }
             Some(Response::Done(Some(ended))) => code = ended,
             Some(Response::Done(None) | Response::Refused(_)) => code = FAILED,
-            Some(Response::Ready(_)) | None => {}
+            // A build's root steps are pacman's; snapd is never on the other end of this pipe.
+            Some(Response::Ready(_) | Response::SnapChange(_)) | None => {}
         }
     }
     Ok(code)

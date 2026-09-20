@@ -18,6 +18,8 @@ use qframe::widgets::{
 };
 use qpackages_core::sources::{Availability, Source, Sources};
 
+use crate::snap::State as SnapState;
+
 use crate::helper::pkexec::Tool;
 use crate::settings::{self, AUR_HELPERS, PRIVILEGE_TOOLS};
 use crate::sources;
@@ -44,6 +46,10 @@ pub enum Msg {
     PrivilegeTool(usize),
     /// The user asked to install the program a source needs.
     Install(Source),
+    /// The user asked to build a source's program from the AUR, since it is in no repository.
+    BuildFromAur(Source),
+    /// The user asked for snapd's socket to be switched on or off.
+    SnapSocket(bool),
     /// The user asked to add Flathub as a Flatpak remote.
     AddFlathub,
     /// An appearance row was changed: a setting the family shares, or motion and the pillar.
@@ -61,6 +67,8 @@ pub struct Cx<'a> {
     pub sources: Option<&'a Sources>,
     /// Whether the user has Flathub as a Flatpak remote, once a read has said.
     pub flathub: Option<bool>,
+    /// What snapd is, once a read has said; `None` while nothing has looked.
+    pub snap: Option<&'a SnapState>,
     /// Whether qpac runs as root, which rules the AUR out.
     pub root: bool,
     /// Whether an installation is being planned, so the button that asked shows it.
@@ -133,10 +141,25 @@ fn sources_section(list: &mut SettingsRows<'_, Msg>, cx: Cx<'_>) {
                         || t!("settings-page.installed"),
                         |helper| t!("settings-page.through", helper = helper.program()),
                     ),
+                    // snapd's program being there is not enough: it only answers once its socket
+                    // is switched on, which the Arch package leaves off.
+                    (Source::Snap, _) => match cx.snap {
+                        Some(state) => snap_description(state),
+                        None => t!("settings-page.looking"),
+                    },
                     (_, Some(_)) => t!("settings-page.installed"),
                     (_, None) => t!("settings-page.looking"),
                 };
+                let waiting =
+                    source == Source::Snap && enabled && cx.snap.is_some_and(crate::snap::State::wants_socket);
                 list.row(SettingRow::new(name).description(description), |ui| {
+                    if waiting {
+                        let start = Button::new(t!("snap.socket-on"))
+                            .variant("primary")
+                            .loading(cx.planning)
+                            .on_press(Msg::SnapSocket(true));
+                        ui.add(start).id("snap-socket-on");
+                    }
                     ui.add(Switch::new(enabled).on_toggle(move |on| Msg::Source(source, on)));
                 });
                 if source == Source::Flatpak && enabled && cx.flathub == Some(false) {
@@ -154,6 +177,15 @@ fn sources_section(list: &mut SettingsRows<'_, Msg>, cx: Cx<'_>) {
     });
 }
 
+/// What the Snap row says about snapd: not installed, its socket off, not answering, or its
+/// version.
+fn snap_description(state: &SnapState) -> String {
+    match state {
+        SnapState::Ready(info) => t!("snap.state.ready", version = info.version.as_str()),
+        other => t!(other.key()),
+    }
+}
+
 /// Flatpak is on but the user has no Flathub remote, so it has nothing to install: an offer to add
 /// it, which needs no permission.
 fn flathub_row(list: &mut SettingsRows<'_, Msg>, planning: bool) {
@@ -167,6 +199,19 @@ fn flathub_row(list: &mut SettingsRows<'_, Msg>, planning: bool) {
 /// A source this machine lacks: an offer to install it where its package is in the
 /// repositories, the reason where it is not.
 fn missing_row(list: &mut SettingsRows<'_, Msg>, source: Source, name: String, planning: bool) {
+    if let (None, Some(package)) = (sources::package(source), sources::aur_package(source)) {
+        // Nothing in the repositories brings it, so it is built from the AUR like any other
+        // package: the offer says so, because a build takes minutes rather than seconds.
+        let row = SettingRow::new(name).description(t!("source.missing-aur", package = package));
+        list.row(row, |ui| {
+            let build = Button::new(t!("source.build", package = package))
+                .variant("primary")
+                .loading(planning)
+                .on_press(Msg::BuildFromAur(source));
+            ui.add(build).id(format!("build-{}", sources::name(source)));
+        });
+        return;
+    }
     match sources::package(source) {
         Some(package) => {
             let row = SettingRow::new(name).description(t!("source.missing-message", package = package));

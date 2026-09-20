@@ -28,6 +28,7 @@ fn found() -> Found {
         at: AT,
         repo: Ok(vec![update("linux", "6.18.1-1", "6.18.2-1"), update("mesa", "25.2.3-1", "25.2.4-1")]),
         aur: Some(Ok(vec![update("visual-studio-code-bin", "1.104.0-1", "1.105.0-1")])),
+        snap: None,
     }
 }
 
@@ -85,7 +86,7 @@ fn an_empty_group_is_left_out_and_a_held_back_package_is_not_counted() {
     let mut h = tab(100, 20);
     let mut held = update("linux", "6.18.1-1", "6.18.2-1");
     held.ignored = true;
-    h.send(Msg::Checked(Found { at: AT, repo: Ok(vec![held]), aur: Some(Ok(Vec::new())) }));
+    h.send(Msg::Checked(Found { at: AT, repo: Ok(vec![held]), aur: Some(Ok(Vec::new())), snap: None }));
     let screen = h.screen();
     assert!(screen.contains("0 updates"), "{screen}");
     assert!(screen.contains("held back by IgnorePkg"), "{screen}");
@@ -96,7 +97,7 @@ fn an_empty_group_is_left_out_and_a_held_back_package_is_not_counted() {
 #[test]
 fn nothing_to_update_says_so_with_the_time_of_the_check() {
     let mut h = tab(100, 20);
-    h.send(Msg::Checked(Found { at: AT, repo: Ok(Vec::new()), aur: None }));
+    h.send(Msg::Checked(Found { at: AT, repo: Ok(Vec::new()), aur: None, snap: None }));
     let screen = h.screen();
     for text in ["Everything is up to date", "Last checked 14:02.", "Check now"] {
         assert!(screen.contains(text), "`{text}` is missing:\n{screen}");
@@ -116,7 +117,7 @@ fn the_list_stays_while_a_check_runs_and_a_failed_check_keeps_it() {
     let screen = h.screen();
     assert!(screen.contains("linux") && screen.contains("checking"), "{screen}");
     let failure = Failure::Said("error: failed retrieving file 'core.db'".to_owned());
-    h.send(Msg::Checked(Found { at: AT + 600, repo: Err(failure), aur: None }));
+    h.send(Msg::Checked(Found { at: AT + 600, repo: Err(failure), aur: None, snap: None }));
     let screen = h.screen();
     assert!(screen.contains("linux"), "the list stays:\n{screen}");
     assert!(screen.contains("The last check did not finish: error: failed retrieving file"), "{screen}");
@@ -138,7 +139,7 @@ fn a_first_check_that_fails_says_why_and_offers_another() {
     let mut h = tab(100, 20);
     let screen = h.screen();
     assert!(screen.contains("Looking for updates"), "before any answer:\n{screen}");
-    h.send(Msg::Checked(Found { at: AT, repo: Err(Failure::NoFakeroot), aur: None }));
+    h.send(Msg::Checked(Found { at: AT, repo: Err(Failure::NoFakeroot), aur: None, snap: None }));
     let screen = h.screen();
     for text in ["Could not check for updates", "fakeroot", "base-devel", "Check now"] {
         assert!(screen.contains(text), "`{text}` is missing:\n{screen}");
@@ -302,11 +303,27 @@ fn update_all_asks_for_the_repositories_updates_without_those_held_back() {
         repo.push(Update { ignored: true, ..update("glibc", "2.42-1", "2.42-2") });
     }
     let _ = updates.update(Msg::Checked(found));
-    let Some(Request::UpdateAll(list)) = updates.update(Msg::UpdateAll) else {
+    let Some(Request::UpdateAll(list, snaps)) = updates.update(Msg::UpdateAll) else {
         panic!("an update is asked for");
     };
     let names: Vec<&str> = list.iter().map(|update| update.name.as_str()).collect();
     assert_eq!(names, ["linux", "mesa"], "pacman holds glibc back and the AUR is not built here");
+    assert_eq!(snaps, Vec::<String>::new(), "snapd was not asked");
+}
+
+#[test]
+fn snaps_with_a_newer_version_are_their_own_group_and_their_own_step() {
+    let mut updates = Updates::default();
+    let mut found = found();
+    found.snap = Some(Ok(vec![update("hello", "2.9", "2.10")]));
+    let _ = updates.update(Msg::Checked(found));
+    assert_eq!(updates.pending(true), 4, "the snap counts on the tab like the rest");
+    assert_eq!(updates.refreshable(), ["hello"]);
+    let Some(Request::UpdateAll(list, snaps)) = updates.update(Msg::UpdateAll) else {
+        panic!("an update is asked for");
+    };
+    assert_eq!(snaps, ["hello"], "snapd's part is asked for by name");
+    assert!(!list.iter().any(|update| update.name == "hello"), "and never handed to pacman");
 }
 
 #[test]

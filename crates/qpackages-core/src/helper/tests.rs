@@ -98,7 +98,7 @@ fn upgrade_takes_no_value() {
 }
 
 #[test]
-fn timer_switches_only_reflectors_timer() {
+fn timer_switches_only_the_two_units_it_knows() {
     assert_eq!(Request::parse("timer on reflector.timer"), Ok(Request::Timer(true)));
     assert_eq!(Request::parse("timer off reflector.timer"), Ok(Request::Timer(false)));
     for line in [
@@ -110,9 +110,42 @@ fn timer_switches_only_reflectors_timer() {
         "timer on ../reflector.timer",
         "timer toggle reflector.timer",
         "timer on reflector.service",
+        "timer on snapd.service",
+        "timer on snapd.socket extra",
     ] {
         assert_eq!(Request::parse(line), Err(Refusal::Values), "`{line}`");
     }
+    assert_eq!(Request::parse("timer on snapd.socket"), Ok(Request::SnapdSocket(true)));
+    assert_eq!(Request::parse("timer off snapd.socket"), Ok(Request::SnapdSocket(false)));
+}
+
+#[test]
+fn a_snap_job_names_its_kind_and_every_name_follows_snapds_rule() {
+    use crate::snap::Job;
+    assert_eq!(Request::parse("snap install hello-world"), Ok(Request::Snap(Job::Install, owned(&["hello-world"]))));
+    assert_eq!(
+        Request::parse("snap install-classic code"),
+        Ok(Request::Snap(Job::InstallClassic, owned(&["code"]))),
+        "a snap outside the sandbox is asked for in its own words"
+    );
+    assert_eq!(Request::parse("snap remove hello core22"), Ok(Request::Snap(Job::Remove, owned(&["hello", "core22"]))));
+    assert_eq!(Request::parse("snap refresh hello"), Ok(Request::Snap(Job::Refresh, owned(&["hello"]))));
+    assert_eq!(Request::parse("snap refresh"), Ok(Request::Snap(Job::Refresh, Vec::new())), "every snap");
+    for line in ["snap", "snap purge hello", "snap install", "snap install-classic", "snap remove", "snap Install x"] {
+        assert_eq!(Request::parse(line), Err(Refusal::Values), "`{line}`");
+    }
+    for name in ["Hello", "hello_world", "a", "-x", "x-", "a--b", "123", "hello.world", "--classic", "hello/world"] {
+        assert_eq!(Request::parse(&format!("snap install {name}")), Err(Refusal::SnapName), "`{name}`");
+        assert_eq!(Request::parse(&format!("snap remove {name}")), Err(Refusal::SnapName), "`{name}`");
+        assert_eq!(Request::parse(&format!("snap refresh {name}")), Err(Refusal::SnapName), "`{name}`");
+    }
+    assert_eq!(
+        Request::parse("snap install hello ../evil"),
+        Err(Refusal::SnapName),
+        "one bad name refuses the whole request"
+    );
+    assert_eq!(Request::parse("snap-link"), Ok(Request::SnapLink));
+    assert_eq!(Request::parse("snap-link /snap"), Err(Refusal::Values), "the helper chooses the path, not the caller");
 }
 
 #[test]
@@ -270,6 +303,14 @@ fn a_request_writes_the_line_it_is_read_from() {
         Request::MarkExplicit(owned(&["gtk3"])),
         Request::Timer(true),
         Request::Timer(false),
+        Request::SnapdSocket(true),
+        Request::SnapdSocket(false),
+        Request::SnapLink,
+        Request::Snap(crate::snap::Job::Install, owned(&["hello-world"])),
+        Request::Snap(crate::snap::Job::InstallClassic, owned(&["code"])),
+        Request::Snap(crate::snap::Job::Remove, owned(&["hello", "core22"])),
+        Request::Snap(crate::snap::Job::Refresh, owned(&["hello"])),
+        Request::Snap(crate::snap::Job::Refresh, Vec::new()),
         Request::Snapshot(Snapshot::SnapperPre),
         Request::Snapshot(Snapshot::SnapperPost(4_294_967_295)),
         Request::Snapshot(Snapshot::Timeshift),
@@ -299,6 +340,11 @@ fn requests_run_programs_by_their_path_with_fixed_flags_and_a_double_dash() {
     let systemctl = |args: &[&str]| Some(("/usr/bin/systemctl", owned(args)));
     assert_eq!(Request::Timer(true).command(), systemctl(&["enable", "--now", "--", "reflector.timer"]));
     assert_eq!(Request::Timer(false).command(), systemctl(&["disable", "--now", "--", "reflector.timer"]));
+    assert_eq!(Request::SnapdSocket(true).command(), systemctl(&["enable", "--now", "--", "snapd.socket"]));
+    assert_eq!(Request::SnapdSocket(false).command(), systemctl(&["disable", "--now", "--", "snapd.socket"]));
+    let job = Request::Snap(crate::snap::Job::Install, owned(&["hello-world"]));
+    assert_eq!(job.command(), None, "a snap job is two runs: start it, then wait for its number");
+    assert_eq!(Request::SnapLink.command(), None, "the helper makes the link itself");
     assert_eq!(Request::RemoveOrphans(firefox()).command(), None, "the helper lists the orphans first");
     let built = Request::InstallBuilt(owned(&["/home/a/.cache/yay/x/x-1-1-any.pkg.tar.zst"]));
     assert_eq!(built.command(), None, "the helper opens the files first");
@@ -324,6 +370,10 @@ fn responses_are_read_and_written_the_same_way() {
         ("refused flatpak-id", Response::Refused(Refusal::FlatpakId)),
         ("refused built", Response::Refused(Refusal::Built)),
         ("refused not-this-build", Response::Refused(Refusal::NotThisBuild)),
+        ("refused snap-name", Response::Refused(Refusal::SnapName)),
+        ("refused snap-link", Response::Refused(Refusal::SnapLink)),
+        ("snap-change 10", Response::SnapChange(10)),
+        ("snap-change 4294967295", Response::SnapChange(u32::MAX)),
     ] {
         assert_eq!(Response::parse(line), Some(response.clone()), "`{line}`");
         assert_eq!(response.to_string(), line);
@@ -333,8 +383,20 @@ fn responses_are_read_and_written_the_same_way() {
 
 #[test]
 fn anything_else_is_not_a_response() {
-    for line in ["", "ready", "ready one", "done", "done 1.5", "refused", "refused why", "hello 1", "sudo: a password"]
-    {
+    for line in [
+        "",
+        "ready",
+        "ready one",
+        "done",
+        "done 1.5",
+        "refused",
+        "refused why",
+        "hello 1",
+        "sudo: a password",
+        "snap-change",
+        "snap-change ten",
+        "snap-change -1",
+    ] {
         assert_eq!(Response::parse(line), None, "`{line}`");
     }
 }

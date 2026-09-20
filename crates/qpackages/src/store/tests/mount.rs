@@ -28,6 +28,7 @@ fn app(recorded: &Arc<Recorded>, scratch: &Scratch) -> Harness<Qpackages> {
         app_catalog: &fixtures().join("swcatalog"),
         flatpak_catalogs: &flatpak,
         appearance: crate::appearance_in(scratch.root()),
+        snap_socket: &scratch.root().join("snapd.socket"),
     };
     let mut h = Harness::with_env(Qpackages::new(machine, &settings), crate::test_env(), 100, 30);
     h.set_locale("en").set_glyph_mode(GlyphMode::Unicode).set_reduced_motion(true);

@@ -46,6 +46,7 @@ use qpackages_core::lock::{LockStatus, Owner, lock_status};
 use qpackages_core::pacman::command::{self, PACMAN, SUDO};
 use qpackages_core::pacman::{Plan, Update, parse_install_plan, parse_remove_plan, read_orphans};
 use qpackages_core::reflector::Mirrors;
+use qpackages_core::snap;
 use qpackages_core::sources::AurHelper;
 
 use crate::app::Msg as AppMsg;
@@ -56,10 +57,15 @@ use crate::helper::session::{self, Outcome, Session, StartFailure, Wait};
 use crate::reload::Reload;
 use crate::review;
 use crate::runner::Runner;
+use crate::snap::Snapd;
 pub use job::{Job, Step};
 
 /// Lines of output kept; the oldest fall out once pacman has said more than this.
 const OUTPUT_LINES: usize = 50_000;
+
+/// How often snapd is asked how far its job has come. Twice a second keeps a download's bar moving
+/// smoothly while costing one short read of a local socket.
+const SNAP_POLL: Duration = Duration::from_millis(500);
 
 /// The key every toast of the flow shares, so a later one replaces the earlier in place.
 const TOAST_KEY: &str = "transaction";
@@ -93,6 +99,20 @@ pub enum Action {
     AddFlathub,
     /// Build these packages from the AUR with paru or yay, and install them with what they need.
     AurInstall(Vec<String>),
+    /// Have snapd install these snaps, confined the usual way.
+    SnapInstall(Vec<String>),
+    /// Have snapd install these snaps, which run outside the sandbox. The confirmation says what
+    /// that means, and the request is a word of its own so the helper never adds `--classic` to a
+    /// snap the user did not agree to.
+    SnapInstallClassic(Vec<String>),
+    /// Have snapd remove these snaps.
+    SnapRemove(Vec<String>),
+    /// Have snapd bring these snaps up to date.
+    SnapRefresh(Vec<String>),
+    /// Start and enable snapd's socket (`true`), or stop and disable it (`false`).
+    SnapdSocket(bool),
+    /// Make the `/snap` link a snap with classic confinement needs.
+    SnapLink,
 }
 
 /// How one step of a job is carried out.
@@ -140,21 +160,33 @@ impl Action {
             | Self::FlatpakInstall(names)
             | Self::FlatpakRemove(names)
             | Self::FlatpakRemoveSystem(names)
-            | Self::AurInstall(names) => names.iter().map(String::as_str).collect(),
+            | Self::AurInstall(names)
+            | Self::SnapInstall(names)
+            | Self::SnapInstallClassic(names)
+            | Self::SnapRemove(names)
+            | Self::SnapRefresh(names) => names.iter().map(String::as_str).collect(),
             Self::Upgrade(updates) => updates.iter().map(|update| update.name.as_str()).collect(),
-            Self::Mirrors(_) | Self::Timer(_) | Self::AddFlathub => Vec::new(),
+            Self::Mirrors(_) | Self::Timer(_) | Self::AddFlathub | Self::SnapdSocket(_) | Self::SnapLink => Vec::new(),
         }
     }
 
     /// Whether there is nothing to do: a package action without packages.
     fn is_empty(&self) -> bool {
-        !matches!(self, Self::Mirrors(_) | Self::Timer(_) | Self::AddFlathub) && self.names().is_empty()
+        !matches!(self, Self::Mirrors(_) | Self::Timer(_) | Self::AddFlathub | Self::SnapdSocket(_) | Self::SnapLink)
+            && self.names().is_empty()
     }
 
     /// Whether the action takes packages away.
     #[must_use]
     pub fn is_removal(&self) -> bool {
-        matches!(self, Self::Remove(_) | Self::RemoveOrphans(_) | Self::FlatpakRemove(_) | Self::FlatpakRemoveSystem(_))
+        matches!(
+            self,
+            Self::Remove(_)
+                | Self::RemoveOrphans(_)
+                | Self::FlatpakRemove(_)
+                | Self::FlatpakRemoveSystem(_)
+                | Self::SnapRemove(_)
+        )
     }
 
     /// Whether Flatpak carries the action out as the user, with no helper and no permission.
@@ -170,6 +202,22 @@ impl Action {
         matches!(
             self,
             Self::FlatpakInstall(_) | Self::FlatpakRemove(_) | Self::FlatpakRemoveSystem(_) | Self::AddFlathub
+        )
+    }
+
+    /// Whether snapd carries the action out, so what is said about its run names snapd rather
+    /// than pacman. Switching snapd's socket and making its link are systemd's and the file
+    /// system's work, but they are still Snap's as far as the user is concerned.
+    #[must_use]
+    pub fn runs_snap(&self) -> bool {
+        matches!(
+            self,
+            Self::SnapInstall(_)
+                | Self::SnapInstallClassic(_)
+                | Self::SnapRemove(_)
+                | Self::SnapRefresh(_)
+                | Self::SnapdSocket(_)
+                | Self::SnapLink
         )
     }
 
@@ -196,7 +244,7 @@ impl Action {
     /// screen reads the packages again after them.
     #[must_use]
     pub fn changes_packages(&self) -> bool {
-        !matches!(self, Self::Mirrors(_) | Self::Timer(_))
+        !matches!(self, Self::Mirrors(_) | Self::Timer(_) | Self::SnapdSocket(_) | Self::SnapLink)
     }
 
     /// The names as one line, for toasts and headings.
@@ -218,7 +266,15 @@ impl Action {
             | Self::FlatpakRemove(_)
             | Self::FlatpakRemoveSystem(_)
             | Self::AddFlathub
-            | Self::AurInstall(_) => None,
+            | Self::AurInstall(_)
+            // snapd plans its own work: what a snap brings with it is its bases, which snapd
+            // chooses and never prints beforehand.
+            | Self::SnapInstall(_)
+            | Self::SnapInstallClassic(_)
+            | Self::SnapRemove(_)
+            | Self::SnapRefresh(_)
+            | Self::SnapdSocket(_)
+            | Self::SnapLink => None,
         }
     }
 
@@ -237,6 +293,12 @@ impl Action {
             Self::FlatpakRemove(ids) => Run::Flatpak(flatpak::uninstall_args(ids)),
             Self::AddFlathub => Run::Flatpak(flatpak::add_flathub_args()),
             Self::AurInstall(_) => Run::Aur,
+            Self::SnapInstall(names) => Run::Helper(Request::Snap(snap::Job::Install, names.clone())),
+            Self::SnapInstallClassic(names) => Run::Helper(Request::Snap(snap::Job::InstallClassic, names.clone())),
+            Self::SnapRemove(names) => Run::Helper(Request::Snap(snap::Job::Remove, names.clone())),
+            Self::SnapRefresh(names) => Run::Helper(Request::Snap(snap::Job::Refresh, names.clone())),
+            Self::SnapdSocket(on) => Run::Helper(Request::SnapdSocket(*on)),
+            Self::SnapLink => Run::Helper(Request::SnapLink),
         }
     }
 
@@ -294,6 +356,10 @@ pub enum Msg {
     DropJob,
     /// The user closed the list of new `.pacnew` files.
     ClosePacnew,
+    /// snapd took the running snap job on and numbered it, so its progress can be followed.
+    SnapChange(u32),
+    /// snapd said how far its job has come, or could not be read.
+    SnapProgress(Result<Box<qpackages_core::snap::api::Change>, crate::store::Failure>),
     /// The orphans were listed again after the helper said the list had changed.
     Orphans(Result<Vec<String>, String>),
     /// sudo's ticket was warmed on the real terminal, or not.
@@ -420,6 +486,8 @@ pub struct Flow {
     /// Where the recipe review keeps its clones and its approvals; `None` without a home folder,
     /// and then nothing is built from the AUR, since an unrecorded review asks again every time.
     review_places: Option<review::Places>,
+    /// snapd on its socket, read as the user while the helper has it install or remove a snap.
+    snapd: Snapd,
 }
 
 impl fmt::Debug for Flow {
@@ -463,7 +531,13 @@ impl Flow {
             builder: None,
             build_places: None,
             review_places: None,
+            snapd: Snapd::new(false, qpackages_core::snap::SOCKET),
         }
+    }
+
+    /// Reads snapd on `snapd`'s socket from now on: the machine's own, or a test's stand-in.
+    pub fn set_snapd(&mut self, snapd: Snapd) {
+        self.snapd = snapd;
     }
 
     /// Builds AUR packages with `builder` from now on; `None` when there is none to use.
@@ -624,6 +698,16 @@ impl Flow {
             Msg::Line(text) => {
                 if let State::Running { job, .. } = &mut self.state {
                     job.line(&text);
+                }
+            }
+            Msg::SnapChange(id) => return self.follow_snap(id),
+            Msg::SnapProgress(read) => {
+                if let (State::Running { job, .. }, Ok(change)) = (&mut self.state, &read) {
+                    job.snap_progress(change);
+                    // snapd is asked again until the job is over; the helper says when it really is.
+                    if !change.ready {
+                        return self.follow_snap_again(change.id.parse().unwrap_or_default());
+                    }
                 }
             }
             Msg::Ended(outcome) => return self.ended(&outcome, pty),
@@ -970,7 +1054,10 @@ impl Flow {
         };
         let session = self.session.clone();
         let task = Task::new(job.heading(), move |cx| {
-            let outcome = session.run(&request, pty, &InTask(cx), &mut |line| cx.send(wrap(Msg::Line(line))));
+            let outcome =
+                session.run(&request, pty, &InTask(cx), &mut |line| cx.send(wrap(Msg::Line(line))), &mut |id| {
+                    cx.send(wrap(Msg::SnapChange(id)));
+                });
             Ok(wrap(match outcome {
                 Outcome::Finished(outcome) => Msg::Ended(outcome),
                 Outcome::Refused(refusal) => Msg::Refused(refusal),
@@ -980,6 +1067,27 @@ impl Flow {
         .on_event(|event| wrap(Msg::Event(event)));
         self.state = State::Running { job, task: task.id() };
         Command::task(task)
+    }
+
+    /// Starts following snap job `id` on snapd's socket, reading it at once so the pane says what
+    /// snapd is doing without a wait.
+    ///
+    /// The helper started the job with `--no-wait` and is waiting for it; the reading side is
+    /// qpac's own, as the user, because snapd lets a user watch even a job root started. What the
+    /// helper finally answers is still the word on how the job went; this only fills the pane and
+    /// the bar while it runs.
+    fn follow_snap(&self, id: u32) -> Command<AppMsg> {
+        let snapd = self.snapd.clone();
+        Command::perform(move || wrap(Msg::SnapProgress(snapd.change(id).map(Box::new))))
+    }
+
+    /// Reads snap job `id` again after [`SNAP_POLL`].
+    fn follow_snap_again(&self, id: u32) -> Command<AppMsg> {
+        let snapd = self.snapd.clone();
+        Command::perform(move || {
+            std::thread::sleep(SNAP_POLL);
+            wrap(Msg::SnapProgress(snapd.change(id).map(Box::new)))
+        })
     }
 
     /// Has Flatpak run as the user with `args` and streams its lines into the pane. Flatpak's own
@@ -1104,22 +1212,32 @@ impl Flow {
             }
             Action::AddFlathub => Toast::success(t!("flatpak.done-add")),
             Action::AurInstall(_) => Toast::success(t!("transaction.done-install", names = names)),
+            Action::SnapInstall(_) | Action::SnapInstallClassic(_) => {
+                Toast::success(t!("transaction.done-install", names = names))
+            }
+            Action::SnapRemove(_) => Toast::success(t!("transaction.done-remove", names = names)),
+            Action::SnapRefresh(_) => Toast::success(t!("snap.done-refresh", names = names)),
+            Action::SnapdSocket(true) => Toast::success(t!("snap.done-socket-on")),
+            Action::SnapdSocket(false) => Toast::success(t!("snap.done-socket-off")),
+            Action::SnapLink => Toast::success(t!("snap.done-link")),
         };
         let toast = match warning {
             Some(warning) => Toast::warning(warning).body(t!("backup.after-failed-body")),
             None => toast,
         };
+        // What is queued after the job runs whether or not this one moved a package: making the
+        // `/snap` link changes nothing installed and is still the step an installation waits on.
+        let next = match job.then.split_first() {
+            Some((first, rest)) => self.begin(first.clone(), rest.to_vec()),
+            None => Command::none(),
+        };
         if !job.action.changes_packages() {
-            return self.toast(toast);
+            return Command::batch([self.toast(toast), next]);
         }
         self.done = Some(Done {
             upgraded: job.action.upgrades(),
             orphans: matches!(job.action, Action::Remove(_) | Action::Upgrade(_) | Action::UpgradeInstall(_)),
         });
-        let next = match job.then.split_first() {
-            Some((first, rest)) => self.begin(first.clone(), rest.to_vec()),
-            None => Command::none(),
-        };
         Command::batch([self.toast(toast), self.reload.command(), next])
     }
 
@@ -1128,6 +1246,7 @@ impl Flow {
         let as_user = job.action.as_user();
         let flatpak = job.action.runs_flatpak();
         let aur = matches!(job.action, Action::AurInstall(_));
+        let snap = job.action.runs_snap();
         if !job.pacnew.is_empty() {
             self.pacnew = Some(job.pacnew.clone());
         }
@@ -1136,6 +1255,8 @@ impl Flow {
             ProcessOutcome::Finished { code: Some(code) } => {
                 let title = if flatpak {
                     t!("transaction.failed-flatpak", code = *code)
+                } else if snap {
+                    t!("snap.failed", code = *code)
                 } else if aur {
                     t!("aur.failed", code = *code)
                 } else {
@@ -1146,6 +1267,8 @@ impl Flow {
             ProcessOutcome::Finished { code: None } => {
                 let title = if flatpak {
                     t!("transaction.killed-flatpak")
+                } else if snap {
+                    t!("snap.killed")
                 } else if aur {
                     t!("aur.killed")
                 } else {
@@ -1224,6 +1347,8 @@ impl Flow {
                 self.granted = self.session.is_alive();
                 let title = if job.action.runs_flatpak() {
                     t!("transaction.could-not-start-flatpak")
+                } else if job.action.runs_snap() {
+                    t!("snap.could-not-start")
                 } else if matches!(job.action, Action::AurInstall(_)) {
                     t!("aur.could-not-start")
                 } else {
@@ -1271,6 +1396,12 @@ fn running_label(action: &Action) -> String {
         Action::FlatpakRemove(_) | Action::FlatpakRemoveSystem(_) => t!("transaction.running-remove", names = names),
         Action::AddFlathub => t!("flatpak.running-add"),
         Action::AurInstall(_) => t!("aur.running", names = names),
+        Action::SnapInstall(_) | Action::SnapInstallClassic(_) => t!("snap.running-install", names = names),
+        Action::SnapRemove(_) => t!("snap.running-remove", names = names),
+        Action::SnapRefresh(_) => t!("snap.running-refresh", names = names),
+        Action::SnapdSocket(true) => t!("snap.running-socket-on"),
+        Action::SnapdSocket(false) => t!("snap.running-socket-off"),
+        Action::SnapLink => t!("snap.running-link"),
     }
 }
 
@@ -1287,6 +1418,10 @@ fn polkit_asks(action: &Action, n: usize) -> String {
         Action::Mirrors(_) => t!("transaction.polkit-asks-mirrors"),
         Action::Timer(_) => t!("transaction.polkit-asks-timer"),
         Action::AurInstall(_) => t!("aur.polkit-asks", n = n),
+        Action::SnapInstall(_) | Action::SnapInstallClassic(_) => t!("snap.polkit-asks-install", n = n),
+        Action::SnapRemove(_) => t!("snap.polkit-asks-remove", n = n),
+        Action::SnapRefresh(_) => t!("snap.polkit-asks-refresh", n = n),
+        Action::SnapdSocket(_) | Action::SnapLink => t!("snap.polkit-asks-setup"),
     }
 }
 

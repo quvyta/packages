@@ -1,0 +1,4 @@
+Name         Version             Rev    Tracking       Publisher[32m[0m    Notes
+core         16-2.61.4-20260225  17292  latest/stable  canonical[32m**[0m  core
+hello-world  6.4                 29     latest/stable  canonical[32m**[0m  -
+snapd        2.76.3              27738  latest/stable  canonical[32m**[0m  snapd

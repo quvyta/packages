@@ -225,6 +225,7 @@ fn screen(name: &str, pkgbuild: &str, locale: &str, size: (u16, u16), glyphs: Gl
             app_catalog: &scratch.catalog(),
             flatpak_catalogs: &[],
             appearance: crate::appearance_in(scratch.root()),
+            snap_socket: &scratch.root().join("snapd.socket"),
         },
         &settings,
     )

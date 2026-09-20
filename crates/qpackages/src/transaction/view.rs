@@ -12,6 +12,7 @@ use qpackages_core::lock::Owner;
 use qpackages_core::news::NewsItem;
 use qpackages_core::pacman::{Plan, Step, Update};
 use qpackages_core::reflector::Mirrors;
+use qpackages_core::snap;
 
 use super::{Action, Flow, Msg, State};
 use crate::app::Msg as AppMsg;
@@ -117,12 +118,21 @@ fn confirmation(action: &Action, plan: &Plan, facts: &Facts<'_>, ui: &mut View<'
             let builds = facts.build.map_or(0, |build| build.builds.len());
             (t!("aur.build-title", n = builds), t!("aur.build-lead", helper = facts.helper.unwrap_or_default()))
         }
+        Action::SnapInstall(_) => (t!("snap.install-title", n = ids), t!("snap.install-lead")),
+        Action::SnapInstallClassic(_) => (t!("snap.install-title", n = ids), t!("snap.install-classic-lead")),
+        Action::SnapRemove(_) => (t!("snap.remove-title", n = ids), t!("snap.remove-lead")),
+        Action::SnapRefresh(_) => (t!("snap.refresh-title", n = ids), t!("snap.refresh-lead")),
+        Action::SnapdSocket(true) => (t!("snap.socket-on-title"), t!("snap.socket-on-lead")),
+        Action::SnapdSocket(false) => (t!("snap.socket-off-title"), t!("snap.socket-off-lead")),
+        Action::SnapLink => (t!("snap.link-title"), t!("snap.link-lead")),
     };
     let mut dialog = Modal::new().title(title).on_close(AppMsg::Transaction(Msg::Cancel)).action(cancel);
     dialog = match action {
-        Action::Remove(_) | Action::RemoveOrphans(_) | Action::FlatpakRemove(_) | Action::FlatpakRemoveSystem(_) => {
-            dialog.variant("danger").action(apply(t!("transaction.remove"), "danger"))
-        }
+        Action::Remove(_)
+        | Action::RemoveOrphans(_)
+        | Action::FlatpakRemove(_)
+        | Action::FlatpakRemoveSystem(_)
+        | Action::SnapRemove(_) => dialog.variant("danger").action(apply(t!("transaction.remove"), "danger")),
         Action::Install(_) if facts.pending > 0 => {
             let (only, both) = (t!("transaction.install-only"), t!("transaction.upgrade-and-install"));
             dialog
@@ -139,6 +149,13 @@ fn confirmation(action: &Action, plan: &Plan, facts: &Facts<'_>, ui: &mut View<'
         Action::Mirrors(_) => dialog.action(apply(t!("mirrors.apply"), "primary")),
         Action::Timer(true) => dialog.action(apply(t!("mirrors.timer-on"), "primary")),
         Action::Timer(false) => dialog.action(apply(t!("mirrors.timer-off"), "primary")),
+        Action::SnapInstall(_) | Action::SnapInstallClassic(_) => {
+            dialog.action(apply(t!("transaction.install"), "primary"))
+        }
+        Action::SnapRefresh(_) => dialog.action(apply(t!("snap.refresh"), "primary")),
+        Action::SnapdSocket(true) => dialog.action(apply(t!("snap.socket-on"), "primary")),
+        Action::SnapdSocket(false) => dialog.action(apply(t!("snap.socket-off"), "primary")),
+        Action::SnapLink => dialog.action(apply(t!("snap.link"), "primary")),
     };
     ui.add_with(dialog, |ui| {
         ui.add(Text::new(lead).role("secondary")).fill_width();
@@ -151,6 +168,12 @@ fn confirmation(action: &Action, plan: &Plan, facts: &Facts<'_>, ui: &mut View<'
                 names.iter().map(ListItem::new).collect()
             }
             Action::AddFlathub => vec![ListItem::new(FLATHUB).detail(FLATHUB_REPO)],
+            Action::SnapInstall(names)
+            | Action::SnapInstallClassic(names)
+            | Action::SnapRemove(names)
+            | Action::SnapRefresh(names) => names.iter().map(ListItem::new).collect(),
+            Action::SnapdSocket(_) => vec![ListItem::new(snap::SOCKET_UNIT)],
+            Action::SnapLink => vec![ListItem::new(snap::SNAP_LINK).detail(snap::SNAP_DIR)],
             Action::AurInstall(_) => {
                 let builds = facts.build.map(|build| build.builds.as_slice()).unwrap_or_default();
                 builds.iter().map(built_item).chain(plan.steps.iter().map(step_item)).collect()
@@ -187,7 +210,22 @@ fn confirmation(action: &Action, plan: &Plan, facts: &Facts<'_>, ui: &mut View<'
             Action::Mirrors(_) => {
                 ui.add(Text::new(t!("mirrors.apply-keeps")).role("secondary")).fill_width();
             }
-            Action::Timer(_) | Action::AddFlathub | Action::FlatpakInstall(_) => {}
+            Action::Timer(_) | Action::AddFlathub | Action::FlatpakInstall(_) | Action::SnapdSocket(_) => {}
+            Action::SnapInstall(_) | Action::SnapRefresh(_) => {
+                // snapd decides which bases come along and says so only while it works.
+                ui.add(Text::new(t!("snap.size-unknown")).role("secondary")).fill_width();
+            }
+            Action::SnapInstallClassic(_) => {
+                ui.add(Text::new(t!("snap.classic-warning")).color("warning")).fill_width();
+                ui.add(Text::new(t!("snap.size-unknown")).role("secondary")).fill_width();
+            }
+            Action::SnapRemove(_) => {
+                ui.add(Text::new(t!("snap.remove-keeps-data")).role("secondary")).fill_width();
+                ui.add(Text::new(t!("snap.remove-keeps-bases")).role("secondary")).fill_width();
+            }
+            Action::SnapLink => {
+                ui.add(Text::new(t!("snap.link-note")).role("secondary")).fill_width();
+            }
             Action::FlatpakRemove(_) => {
                 ui.add(Text::new(t!("flatpak.remove-unused")).color("warning")).fill_width();
                 ui.add(Text::new(t!("flatpak.remove-keeps-data")).role("secondary")).fill_width();
@@ -360,5 +398,10 @@ fn finished_label(action: &Action) -> String {
         Action::FlatpakRemove(_) | Action::FlatpakRemoveSystem(_) => t!("transaction.finished-remove", names = names),
         Action::AddFlathub => t!("flatpak.finished-add"),
         Action::AurInstall(_) => t!("aur.finished", names = names),
+        Action::SnapInstall(_) | Action::SnapInstallClassic(_) => t!("snap.finished-install", names = names),
+        Action::SnapRemove(_) => t!("snap.finished-remove", names = names),
+        Action::SnapRefresh(_) => t!("snap.finished-refresh", names = names),
+        Action::SnapdSocket(_) => t!("snap.finished-socket"),
+        Action::SnapLink => t!("snap.finished-link"),
     }
 }

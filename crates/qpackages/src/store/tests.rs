@@ -199,6 +199,8 @@ fn a_request_becomes_the_actions_the_flow_runs_each_part_in_its_turn() {
     let offer = |source, package: &str| Offer { source, package: package.to_owned() };
     let owned = |names: &[&str]| names.iter().map(|name| (*name).to_owned()).collect::<Vec<_>>();
     let nothing = Installed::default();
+    let sandboxed = std::collections::HashSet::new();
+    let transactions = |request: &Request, installed: &Installed| transactions(request, installed, &sandboxed);
     let install = Request::Install(vec![
         offer(Source::Pacman, "gimp"),
         offer(Source::Aur, "spotify"),
@@ -248,6 +250,57 @@ fn a_request_becomes_the_actions_the_flow_runs_each_part_in_its_turn() {
     );
     assert_eq!(transactions(&flatpak("org.kde.krita"), &installed), [], "a named installation has no removal");
     assert_eq!(transactions(&flatpak("org.example.NotHere"), &installed), [], "nothing installed, nothing to remove");
+}
+
+#[test]
+fn snap_offers_become_the_helpers_own_steps_and_classic_is_asked_for_apart() {
+    use crate::transaction::Action;
+    use qpackages_core::snap::api::{Confinement, Kind, Snap};
+
+    let offer = |package: &str| Offer { source: Source::Snap, package: package.to_owned() };
+    let owned = |names: &[&str]| names.iter().map(|name| (*name).to_owned()).collect::<Vec<_>>();
+    let snap = |name: &str, confinement| Snap {
+        name: name.to_owned(),
+        title: name.to_owned(),
+        summary: None,
+        version: String::from("1"),
+        kind: Kind::App,
+        confinement: Some(confinement),
+        publisher: None,
+        verified: false,
+        installed_size: None,
+        download_size: None,
+        icon_url: None,
+        install_date: None,
+    };
+    let nothing = Installed::default();
+    let sandboxed = std::collections::HashSet::from([String::from("code")]);
+
+    let install = Request::Install(vec![offer("hello-world"), offer("code")]);
+    assert_eq!(
+        transactions(&install, &nothing, &sandboxed),
+        [Action::SnapInstall(owned(&["hello-world"])), Action::SnapInstallClassic(owned(&["code"]))],
+        "a snap that runs outside the sandbox is asked for in its own words"
+    );
+    assert_eq!(
+        transactions(&Request::Install(vec![offer("hello-world")]), &nothing, &sandboxed),
+        [Action::SnapInstall(owned(&["hello-world"]))],
+        "nothing is left for a step with no snaps in it"
+    );
+
+    let mut installed = Installed::default();
+    installed.set_snaps(&[snap("hello", Confinement::Strict), snap("core22", Confinement::Strict)]);
+    assert_eq!(
+        transactions(&Request::Remove(vec![offer("hello")]), &installed, &sandboxed),
+        [Action::SnapRemove(owned(&["hello"]))]
+    );
+    assert_eq!(
+        transactions(&Request::Remove(vec![offer("no-such-snap")]), &installed, &sandboxed),
+        [],
+        "snapd calls removing what is not installed an answer with code 0, so it never gets asked"
+    );
+    assert!(installed.has(&offer("hello")), "an installed snap marks its card");
+    assert!(!installed.has(&Offer { source: Source::Pacman, package: String::from("hello") }), "not a package name");
 }
 
 #[test]

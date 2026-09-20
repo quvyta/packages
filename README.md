@@ -1,6 +1,6 @@
 # qpac
 
-**Find, install, update and remove software from the Arch repositories, the AUR and Flatpak in one terminal app that shows exactly what will change before anything does.**
+**Find, install, update and remove software from the Arch repositories, the AUR, Flatpak and Snap in one terminal app that shows exactly what will change before anything does.**
 
 [![crates.io](https://img.shields.io/crates/v/quvyta-packages.svg)](https://crates.io/crates/quvyta-packages)
 [![Downloads](https://img.shields.io/crates/d/quvyta-packages.svg)](https://crates.io/crates/quvyta-packages)
@@ -8,7 +8,7 @@
 [![Arch Linux](https://img.shields.io/badge/Arch_Linux-and_derivatives-1793d1?logo=archlinux&logoColor=white)](#requirements)
 [![Status: beta](https://img.shields.io/badge/status-beta-orange.svg)](CHANGELOG.md)
 
-![qpac: Discover, the store page, with popular apps and popular AUR packages as cards, the kinds of software on the left and the sources below them](https://raw.githubusercontent.com/quvyta/packages/main/docs/screenshots/discover.png)
+![qpac in use: Discover with its app cards, a search for obs answered across the repositories, Flatpak and the AUR, OBS Studio's page with its sizes and its Install button, the confirmation naming the seven packages pacman will install, the install running with pacman's own output, and the updates waiting with the Arch news above them](https://raw.githubusercontent.com/quvyta/packages/main/docs/screenshots/qpac.gif)
 
 **quvyta-packages**, or **qpac** for short, is a package manager for Arch Linux that runs in the
 terminal. It is meant to bring pacman, the AUR, Flatpak and Snap together in one simple interface
@@ -16,11 +16,10 @@ that feels like an app store, and shows exactly what will change before anything
 of the Quvyta family of terminal applications, is built on
 [quvyta-framework](https://github.com/quvyta/framework) and is open source under the MIT licence.
 
-> **Beta.** qpac is new. It finds software in the repositories, the AUR and Flatpak, installs and
-> removes packages from the repositories and Flatpak, and builds AUR packages with `paru` or
-> `yay` after you have read their recipes; Snap comes in a later release. The interface may still
-> change between releases. Please report anything that looks wrong at
-> <https://github.com/quvyta/packages/issues>.
+> **Beta.** qpac is new. It finds software in the repositories, the AUR, Flatpak and Snap,
+> installs and removes from all four, and builds AUR packages with `paru` or `yay` after you have
+> read their recipes. The interface may still change between releases. Please report anything
+> that looks wrong at <https://github.com/quvyta/packages/issues>.
 
 <p>
   <img src="https://raw.githubusercontent.com/quvyta/packages/main/docs/screenshots/discover-search.png" alt="A search for obs: one card per application across the repositories, Flatpak and the AUR, with counts per kind on the left" width="49%">
@@ -79,6 +78,12 @@ of the Quvyta family of terminal applications, is built on
   recipes are fetched, compared with the ones you approved last time and read through rules that
   point at the risky lines; the whole build is one screen, and only **Reviewed, install** starts
   it.
+- **Snap.** snapd is read on its own socket, as you, so the snaps and a running job's real
+  progress need no privileges; the helper carries out the install, the removal and the update. A
+  snap that needs classic confinement is a request of its own, so `--classic` can never land on a
+  snap whose confirmation did not say what it means. Waiting snap updates join the Updates tab as
+  their own group. Without snapd the source is shown faint with what it would take to install it,
+  and nothing is asked of a snapd that is not there.
 - **Changes you can see.** Install from the store, or check packages and remove them. Before
   anything runs, pacman is asked what the change would do, and the full list, dependencies
   included, is shown for you to confirm. Cancel has the focus, so the safe answer is the default.
@@ -107,7 +112,10 @@ family's themes, icons, keys and mouse behaviour.
 
 ### Not yet
 
-- Snap.
+- Snaps have no kind in Discover: snapd's search answer carries no category per snap, so snap
+  cards fall under "Other" and are found by searching rather than by browsing.
+- The Installed tab lists the packages pacman knows. Flatpaks and snaps are not in it; they are
+  marked as installed on their cards in Discover instead.
 
 ## Requirements
 

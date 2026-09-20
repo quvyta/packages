@@ -12,7 +12,7 @@ pub mod category;
 pub mod featured;
 pub mod flatpak;
 pub mod gzip;
-mod json;
+pub(crate) mod json;
 pub mod merge;
 pub mod net;
 pub mod popularity;

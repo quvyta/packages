@@ -12,6 +12,7 @@ use crate::backup::Snapshot;
 use crate::flatpak::{self, FLATPAK_PATH, is_app_id};
 use crate::pacman::command;
 use crate::reflector::Mirrors;
+use crate::snap;
 
 #[cfg(test)]
 mod tests;
@@ -28,10 +29,11 @@ pub const LANG_FLAG: &str = "--lang";
 /// pacman by its absolute path: the helper never looks a program up on a search path.
 pub const PACMAN_PATH: &str = "/usr/bin/pacman";
 
-/// systemctl by its absolute path, for the one timer the helper may switch.
+/// systemctl by its absolute path, for the two units the helper may switch.
 pub const SYSTEMCTL_PATH: &str = "/usr/bin/systemctl";
 
-/// The only unit `timer` accepts: reflector's own timer, which refreshes the mirror list.
+/// One of the two units `timer` accepts: reflector's own timer, which refreshes the mirror
+/// list. The other is [`snap::SOCKET_UNIT`].
 pub const REFLECTOR_TIMER: &str = "reflector.timer";
 
 /// The search path the helper gives pacman, for the programs pacman itself starts.
@@ -90,6 +92,19 @@ pub enum Request {
     /// Remove these Flatpak applications, installed for the whole system. Installing always
     /// happens for the user and needs no helper.
     FlatpakSystemRemove(Vec<String>),
+    /// Have snapd install, remove or refresh these snaps. An empty list is only a refresh, and
+    /// means every snap. snapd refuses an ordinary user all three, whether or not polkit is
+    /// installed, so there is no path around the helper.
+    Snap(snap::Job, Vec<String>),
+    /// Start and enable [`snap::SOCKET_UNIT`] (`true`), or stop and disable it (`false`).
+    ///
+    /// On the wire this is a `timer` request, the way the design writes it, since the two units
+    /// the helper may switch are switched with the same command. In code the two are apart
+    /// because what the screen says about them has nothing in common.
+    SnapdSocket(bool),
+    /// Make [`snap::SNAP_LINK`] point at [`snap::SNAP_DIR`], which a snap with classic
+    /// confinement insists on. Anything already at that path is left alone.
+    SnapLink,
     /// Run later commands on a pseudo-terminal of this many columns and rows.
     Size {
         /// Columns.
@@ -127,11 +142,16 @@ pub enum Refusal {
     /// The request is not one the AUR build in progress was expected to make, so qpac did not
     /// pass it on.
     NotThisBuild,
+    /// A snap name breaks snapd's naming rule.
+    SnapName,
+    /// Something other than the link to snapd's own folder is already at [`snap::SNAP_LINK`];
+    /// the helper does not replace what it did not put there.
+    SnapLink,
 }
 
 impl Refusal {
     /// Every refusal, for tables that name each one.
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 13] = [
         Self::NotRoot,
         Self::Unknown,
         Self::Values,
@@ -143,6 +163,8 @@ impl Refusal {
         Self::FlatpakId,
         Self::Built,
         Self::NotThisBuild,
+        Self::SnapName,
+        Self::SnapLink,
     ];
 
     /// The word that names the refusal on the wire and in the language files.
@@ -160,6 +182,8 @@ impl Refusal {
             Self::FlatpakId => "flatpak-id",
             Self::Built => "built",
             Self::NotThisBuild => "not-this-build",
+            Self::SnapName => "snap-name",
+            Self::SnapLink => "snap-link",
         }
     }
 
@@ -193,6 +217,8 @@ impl Request {
             "timer" => match values.as_slice() {
                 ["on", REFLECTOR_TIMER] => Ok(Self::Timer(true)),
                 ["off", REFLECTOR_TIMER] => Ok(Self::Timer(false)),
+                ["on", snap::SOCKET_UNIT] => Ok(Self::SnapdSocket(true)),
+                ["off", snap::SOCKET_UNIT] => Ok(Self::SnapdSocket(false)),
                 _ => Err(Refusal::Values),
             },
             "snapshot" => match values.as_slice() {
@@ -207,6 +233,14 @@ impl Request {
                 Some((&"remove", ids)) => app_ids(ids).map(Self::FlatpakSystemRemove),
                 _ => Err(Refusal::Values),
             },
+            "snap" => match values.split_first() {
+                Some((word, names)) => match snap::Job::from_key(word) {
+                    Some(job) => snap_names(job, names).map(|names| Self::Snap(job, names)),
+                    None => Err(Refusal::Values),
+                },
+                None => Err(Refusal::Values),
+            },
+            "snap-link" => nothing(&values).map(|()| Self::SnapLink),
             "mirrors" => Mirrors::from_values(&values).map(Self::Mirrors).ok_or(Refusal::Values),
             "size" => match values.as_slice() {
                 [cols, rows] => Ok(Self::Size { cols: dimension(cols)?, rows: dimension(rows)? }),
@@ -236,7 +270,16 @@ impl Request {
             }
             Self::Snapshot(snapshot) => Some(snapshot.command()),
             Self::FlatpakSystemRemove(ids) => Some((FLATPAK_PATH, flatpak::system_uninstall_args(ids))),
-            Self::RemoveOrphans(_) | Self::InstallBuilt(_) | Self::Mirrors(_) | Self::Size { .. } => None,
+            Self::SnapdSocket(on) => {
+                let verb = if *on { "enable" } else { "disable" };
+                Some((SYSTEMCTL_PATH, [verb, "--now", "--", snap::SOCKET_UNIT].map(str::to_owned).to_vec()))
+            }
+            Self::RemoveOrphans(_)
+            | Self::InstallBuilt(_)
+            | Self::Mirrors(_)
+            | Self::Snap(_, _)
+            | Self::SnapLink
+            | Self::Size { .. } => None,
         }
     }
 }
@@ -258,6 +301,12 @@ impl fmt::Display for Request {
             Self::Snapshot(Snapshot::Timeshift) => f.write_str("snapshot pre timeshift"),
             Self::Mirrors(mirrors) => write!(f, "mirrors {}", mirrors.values().join(" ")),
             Self::FlatpakSystemRemove(ids) => write!(f, "flatpak-system remove {}", ids.join(" ")),
+            Self::Snap(job, names) if names.is_empty() => write!(f, "snap {}", job.key()),
+            Self::Snap(job, names) => write!(f, "snap {} {}", job.key(), names.join(" ")),
+            Self::SnapdSocket(on) => {
+                write!(f, "timer {} {}", if *on { "on" } else { "off" }, snap::SOCKET_UNIT)
+            }
+            Self::SnapLink => f.write_str("snap-link"),
             Self::Size { cols, rows } => write!(f, "size {cols} {rows}"),
         }
     }
@@ -270,6 +319,9 @@ pub enum Response {
     Ready(u32),
     /// A line of the running command's output.
     Line(String),
+    /// snapd took the job on and numbered it. qpac follows the job's progress itself, reading
+    /// `/v2/changes/<id>` as the user, while the helper waits for it to end.
+    SnapChange(u32),
     /// The command ended with this exit code, or `None` when a signal ended it.
     Done(Option<i32>),
     /// The request was refused and nothing ran.
@@ -289,6 +341,7 @@ impl Response {
         let (word, value) = line.split_once(' ')?;
         match word {
             "ready" => value.parse().ok().map(Self::Ready),
+            "snap-change" => value.parse().ok().map(Self::SnapChange),
             "done" if value == "signal" => Some(Self::Done(None)),
             "done" => value.parse().ok().map(|code| Self::Done(Some(code))),
             "refused" => Refusal::from_key(value).map(Self::Refused),
@@ -303,6 +356,7 @@ impl fmt::Display for Response {
             Self::Ready(version) => write!(f, "ready {version}"),
             // A newline inside the text would end the line early and be read as a response.
             Self::Line(text) => write!(f, "line {}", text.replace('\n', " ")),
+            Self::SnapChange(id) => write!(f, "snap-change {id}"),
             Self::Done(Some(code)) => write!(f, "done {code}"),
             Self::Done(None) => f.write_str("done signal"),
             Self::Refused(refusal) => write!(f, "refused {}", refusal.key()),
@@ -443,6 +497,18 @@ fn app_ids(values: &[&str]) -> Result<Vec<String>, Refusal> {
         return Err(Refusal::FlatpakId);
     }
     Ok(values.iter().map(|id| (*id).to_owned()).collect())
+}
+
+/// The names of a snap job: every one following [`snap::is_snap_name`]. Only a refresh may come
+/// with none, and then it means every snap.
+fn snap_names(job: snap::Job, values: &[&str]) -> Result<Vec<String>, Refusal> {
+    if values.is_empty() {
+        return if job.takes_all() { Ok(Vec::new()) } else { Err(Refusal::Values) };
+    }
+    if !values.iter().all(|name| snap::is_snap_name(name)) {
+        return Err(Refusal::SnapName);
+    }
+    Ok(values.iter().map(|name| (*name).to_owned()).collect())
 }
 
 /// No value at all.

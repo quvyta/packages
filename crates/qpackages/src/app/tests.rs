@@ -17,6 +17,7 @@ mod flatpak;
 mod flow;
 mod orphans;
 mod polkit;
+mod snap;
 mod upgrade;
 
 /// Built-in files plus the compiled-in locales and keymap, as the runtime loads them.
@@ -65,6 +66,7 @@ fn app_on(
         app_catalog: &nowhere(),
         flatpak_catalogs: &[],
         appearance: crate::testing::appearance_apart(),
+        snap_socket: &nowhere().join("snapd.socket"),
     };
     // Nothing of the machine running the tests is looked at: no snapshot tool, no unit folder.
     Qpackages::new(machine, &settings).with_places(Places {
@@ -137,7 +139,7 @@ fn three_updates() -> Found {
         update("mesa", "25.2.3-1", "25.2.4-1"),
         update("bash", "5.3.15-1", "5.3.16-1"),
     ];
-    Found { at: 1_789_999_320, repo: Ok(repo), aur: None }
+    Found { at: 1_789_999_320, repo: Ok(repo), aur: None, snap: None }
 }
 
 #[test]

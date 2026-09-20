@@ -43,6 +43,10 @@ pub struct Updates {
     aur: Option<Vec<Update>>,
     /// Why the latest check could not reach the AUR.
     aur_failure: Option<Failure>,
+    /// The snaps with a newer version waiting; `None` when snapd was not asked.
+    snap: Option<Vec<Update>>,
+    /// Why the latest check could not reach snapd.
+    snap_failure: Option<Failure>,
     /// The row selected in the list.
     selected: Option<usize>,
     /// Arch's news of the last two weeks, once read.
@@ -81,8 +85,9 @@ pub enum Msg {
 pub enum Request {
     /// Start a check in the background.
     Check,
-    /// Update the system; these are the updates the confirmation lists.
-    UpdateAll(Vec<Update>),
+    /// Update the system; these are the updates the confirmation lists, and the snaps that are
+    /// brought up to date in a step of their own after them.
+    UpdateAll(Vec<Update>, Vec<String>),
 }
 
 /// What the tab needs from the rest of the application to draw itself.
@@ -108,8 +113,9 @@ impl Updates {
             Msg::Checked(found) => self.found(found),
             Msg::Select(row) => self.selected = Some(row),
             Msg::UpdateAll => {
-                let updates = self.upgradable();
-                return (!updates.is_empty()).then_some(Request::UpdateAll(updates));
+                let (updates, snaps) = (self.upgradable(), self.refreshable());
+                let something = !updates.is_empty() || !snaps.is_empty();
+                return something.then_some(Request::UpdateAll(updates, snaps));
             }
             Msg::News(Ok(items)) => self.news = News::Read(items),
             Msg::News(Err(_)) => self.news = News::Failed,
@@ -122,6 +128,12 @@ impl Updates {
     #[must_use]
     pub fn upgradable(&self) -> Vec<Update> {
         self.repo.iter().flatten().filter(|update| !update.ignored).cloned().collect()
+    }
+
+    /// The snaps "Update all" brings up to date, by name.
+    #[must_use]
+    pub fn refreshable(&self) -> Vec<String> {
+        self.snap.iter().flatten().map(|update| update.name.clone()).collect()
     }
 
     /// Arch's recent news, once read.
@@ -146,7 +158,7 @@ impl Updates {
     #[must_use]
     pub fn pending(&self, aur: bool) -> usize {
         let count = |list: &Option<Vec<Update>>| list.iter().flatten().filter(|update| !update.ignored).count();
-        count(&self.repo) + if aur { count(&self.aur) } else { 0 }
+        count(&self.repo) + if aur { count(&self.aur) } else { 0 } + count(&self.snap)
     }
 
     /// Takes in what a check found. A part that could not be reached keeps the list it had, so a
@@ -172,6 +184,17 @@ impl Updates {
             }
             Some(Err(failure)) => self.aur_failure = Some(failure),
         }
+        match found.snap {
+            None => {
+                self.snap = None;
+                self.snap_failure = None;
+            }
+            Some(Ok(updates)) => {
+                self.snap = Some(updates);
+                self.snap_failure = None;
+            }
+            Some(Err(failure)) => self.snap_failure = Some(failure),
+        }
     }
 
     /// Draws the tab.
@@ -179,8 +202,11 @@ impl Updates {
         let time = self.checked_at.map(|at| clock(at, cx.utc_offset));
         let aur = if cx.aur { self.aur.as_deref() } else { None };
         let aur_failure = self.aur_failure.as_ref().filter(|_| cx.aur);
-        let known = self.repo.is_some() || aur.is_some();
-        let empty = self.repo.as_ref().is_none_or(Vec::is_empty) && aur.is_none_or(<[Update]>::is_empty);
+        let snap = self.snap.as_deref();
+        let known = self.repo.is_some() || aur.is_some() || snap.is_some();
+        let empty = self.repo.as_ref().is_none_or(Vec::is_empty)
+            && aur.is_none_or(<[Update]>::is_empty)
+            && snap.is_none_or(<[Update]>::is_empty);
         let check =
             Button::new(t!("updates.check-now")).loading(self.checking).disabled(!cx.can_check).on_press(Msg::CheckNow);
 
@@ -194,7 +220,7 @@ impl Updates {
             ui.add(state).fill().id("updates");
             return;
         }
-        if empty && self.repo_failure.is_none() && aur_failure.is_none() {
+        if empty && self.repo_failure.is_none() && aur_failure.is_none() && self.snap_failure.is_none() {
             let message = time.map_or_else(String::new, |time| t!("updates.last-checked", time = time));
             let state = EmptyState::new(t!("updates.up-to-date")).icon("check").message(message).action(check);
             ui.add(state).fill().id("updates");
@@ -212,7 +238,7 @@ impl Updates {
                 }
                 ui.add(Text::new(status.join(" · ")).no_wrap()).fill_width();
                 ui.add(check).id("check-now");
-                if !self.upgradable().is_empty() {
+                if !self.upgradable().is_empty() || !self.refreshable().is_empty() {
                     let all = Button::new(t!("updates.update-all"))
                         .variant("primary")
                         .disabled(cx.busy || !cx.can_check)
@@ -230,7 +256,7 @@ impl Updates {
             }
             self.news_lines(ui, cx.utc_offset);
             let arrow = ui.env().icons().glyph("arrow-right").into_owned();
-            let items = self.items(self.repo.as_deref(), aur, aur_failure, &arrow, usize::from(ui.size().width));
+            let items = self.items(self.repo.as_deref(), aur, snap, aur_failure, &arrow, usize::from(ui.size().width));
             let list = List::new(items).selected(self.selected).empty_text(t!("updates.none")).on_select(Msg::Select);
             ui.add(list).fill().id("updates");
             if let Some(note) = backup_note(cx.backup).filter(|_| !self.upgradable().is_empty()) {
@@ -278,11 +304,12 @@ impl Updates {
         &self,
         repo: Option<&[Update]>,
         aur: Option<&[Update]>,
+        snap: Option<&[Update]>,
         aur_failure: Option<&Failure>,
         arrow: &str,
         width: usize,
     ) -> Vec<ListItem> {
-        let every = || repo.into_iter().flatten().chain(aur.into_iter().flatten());
+        let every = || repo.into_iter().flatten().chain(aur.into_iter().flatten()).chain(snap.into_iter().flatten());
         let widest = |text: fn(&Update) -> &str| every().map(|update| text(update).chars().count()).max().unwrap_or(0);
         let widths = (widest(|update| &update.name), widest(|update| &update.from));
         let note = every().filter_map(note).map(|note| note.chars().count()).max().unwrap_or(0);
@@ -290,7 +317,7 @@ impl Updates {
         // no version is ever cut off.
         let aligned = widths.0 + widths.1 + widest(|update| &update.to) + 9 + note + ROW_CHROME <= width;
         let mut items = Vec::new();
-        for (title, updates) in [(t!("updates.repo"), repo), (t!("source.aur"), aur)] {
+        for (title, updates) in [(t!("updates.repo"), repo), (t!("source.aur"), aur), (t!("source.snap"), snap)] {
             let Some(updates) = updates.filter(|updates| !updates.is_empty()) else {
                 continue;
             };

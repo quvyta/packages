@@ -1,0 +1,1 @@
+error: cannot list snaps: cannot communicate with server: Get "http://localhost/v2/find?q=hello&scope=wide": dial unix /run/snapd.socket: connect: no such file or directory

@@ -19,6 +19,7 @@ use qpackages_core::helper::{
 };
 use qpackages_core::pacman::{command, read_orphans};
 use qpackages_core::reflector::{BACKUP, CONFIG, MIRRORLIST, Mirrors, REFLECTOR_PATH, has_server};
+use qpackages_core::snap;
 
 use crate::runner::{Real, Runner};
 
@@ -133,6 +134,8 @@ fn serve(
             Ok(Request::RemoveOrphans(expected)) => remove_orphans(&expected, &env, size, runner, &mut output),
             Ok(Request::Mirrors(mirrors)) => choose_mirrors(places.root, &mirrors, &env, size, runner, &mut output),
             Ok(Request::InstallBuilt(paths)) => install_built(&paths, places.caller, &env, size, runner, &mut output),
+            Ok(Request::Snap(job, names)) => snap_job(job, &names, &env, runner, &mut output),
+            Ok(Request::SnapLink) => snap_link(places.root, &mut output),
             Ok(request) => match request.command() {
                 Some((program, args)) => carry_out(program, &args, &env, size, runner, &mut output),
                 None => continue,
@@ -222,6 +225,82 @@ fn open_built(path: &Path, caller: &Caller) -> io::Result<File> {
         return Err(refused());
     }
     Ok(file)
+}
+
+/// Has snapd carry out `job` on `names` and waits for it to end.
+///
+/// This is the one request that runs its program twice, and on pipes rather than a pseudo-terminal.
+/// `snap install` on a terminal draws a spinner and a progress bar by rewriting one line over and
+/// over, which is nothing a pane of lines could show; with `--no-wait` it prints the job's number
+/// and lets go instead. The number goes back as [`Response::SnapChange`], and qpac follows the job
+/// itself, reading snapd's socket as the user — snapd lets a user watch even a job root started.
+/// The helper then waits with `snap watch`, which prints nothing on a pipe, so that the request is
+/// only answered once the job is really over.
+///
+/// snapd's own words still reach the pane: every line the first run printed is passed on, the
+/// number excepted. Some of those lines are answers rather than failures — "already installed" and
+/// "no updates available" both end with code 0 — which is why the result the screen believes comes
+/// from the job's own status, not from this code.
+fn snap_job(
+    job: qpackages_core::snap::Job,
+    names: &[String],
+    env: &[(&str, &str)],
+    runner: &dyn Runner,
+    output: &mut impl Write,
+) -> Response {
+    let Ok(started) = runner.output(snap::SNAP_PATH, &snap::job_args(job, names), env) else {
+        return Response::Refused(Refusal::Start);
+    };
+    let id = snap::change_id(&started.stdout);
+    let number = id.map(|id| id.to_string());
+    for line in started.stdout.lines().chain(started.stderr.lines()) {
+        // The number is the answer to the request, not something to show.
+        if Some(line.trim()) == number.as_deref() {
+            continue;
+        }
+        let _ = respond(output, &Response::Line(line.to_owned()));
+    }
+    let Some(id) = id else { return Response::Done(started.code) };
+    if respond(output, &Response::SnapChange(id)).is_err() {
+        return Response::Refused(Refusal::Start);
+    }
+    match runner.output(snap::SNAP_PATH, &snap::watch_args(id), env) {
+        Ok(waited) => {
+            for line in waited.stdout.lines().chain(waited.stderr.lines()) {
+                let _ = respond(output, &Response::Line(line.to_owned()));
+            }
+            Response::Done(waited.code)
+        }
+        Err(_) => Response::Refused(Refusal::Start),
+    }
+}
+
+/// Makes the link a snap with classic confinement needs: `/snap` pointing at snapd's own folder
+/// under `root`.
+///
+/// Anything already at that path is left exactly as it is, whether it is the link itself or
+/// something else the machine's owner put there. Only a path with nothing at it is written, so the
+/// request can never replace a folder or send `/snap` somewhere new.
+fn snap_link(root: &Path, output: &mut impl Write) -> Response {
+    let link = root.join(snap::SNAP_LINK.trim_start_matches('/'));
+    let target = root.join(snap::SNAP_DIR.trim_start_matches('/'));
+    match fs::read_link(&link) {
+        Ok(found) if found == target => return Response::Done(Some(0)),
+        // Something else is there: a folder, a file, or a link somewhere else.
+        Ok(_) => return Response::Refused(Refusal::SnapLink),
+        Err(error) if error.kind() != io::ErrorKind::NotFound => return Response::Refused(Refusal::SnapLink),
+        Err(_) => {}
+    }
+    if fs::symlink_metadata(&link).is_ok() {
+        return Response::Refused(Refusal::SnapLink);
+    }
+    match std::os::unix::fs::symlink(&target, &link) {
+        Ok(()) => {
+            let _ = respond(output, &Response::Line(format!("{} -> {}", link.display(), target.display())));
+            Response::Done(Some(0))
+        }
+        Err(_) => Response::Refused(Refusal::SnapLink),
+    }
 }
 
 /// Runs reflector into a new file beside pacman's mirror list under `root`, and puts that file in
@@ -330,6 +409,7 @@ fn respond(output: &mut impl Write, response: &Response) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use qpackages_core::backup::Snapshot;
+    use qpackages_core::helper::SYSTEMCTL_PATH;
     use qpackages_core::reflector::Mirrors;
 
     use super::*;
@@ -902,5 +982,124 @@ mod tests {
         assert_eq!(Caller::find(stranger, &home.root), None, "a user the database does not know");
         assert_eq!(Caller::find(|_| None, &home.root), None, "started by neither");
         assert_eq!(Caller::find(sudo, &home.root.join("nowhere")), None, "no password database");
+    }
+
+    /// A folder of a test's own, under which the `/snap` link is made and looked at.
+    fn snap_root(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!("qpackages-snap-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("var/lib/snapd")).expect("a scratch folder");
+        root
+    }
+
+    /// Serves `input` with `runner` under `root`.
+    fn serve_under(root: &Path, runner: &Recorded, input: &[u8]) -> Vec<String> {
+        let mut output = Vec::new();
+        serve(&Places { root, caller: None }, input, &mut output, runner, "C").expect("the helper serves to the end");
+        String::from_utf8(output).expect("responses are text").lines().map(str::to_owned).collect()
+    }
+
+    #[test]
+    fn a_snap_job_is_started_without_waiting_then_waited_for_by_its_number() {
+        let recorded = Recorded::default();
+        let start = snap::job_args(snap::Job::Install, &["hello-world".to_owned()]);
+        // What snapd printed in the container: the job's number, and its reminder about $PATH.
+        recorded.answer_full(
+            snap::SNAP_PATH,
+            &start,
+            "10\n",
+            "Warning: /var/lib/snapd/snap/bin was not found in your $PATH.\n",
+            0,
+        );
+        recorded.answer_full(snap::SNAP_PATH, &snap::watch_args(10), "", "", 0);
+        let out = served(&recorded, b"snap install hello-world\n");
+        assert_eq!(
+            out,
+            [
+                "ready 1",
+                "line Warning: /var/lib/snapd/snap/bin was not found in your $PATH.",
+                "snap-change 10",
+                "done 0",
+            ],
+            "the number is the answer, not a line to show"
+        );
+        assert_eq!(
+            recorded.command_lines(),
+            [format!("{} install --no-wait -- hello-world", snap::SNAP_PATH), format!("{} watch 10", snap::SNAP_PATH),]
+        );
+        assert!(recorded.calls().iter().all(|call| call.pty.is_none()), "snap draws nothing worth a terminal");
+    }
+
+    #[test]
+    fn a_snap_job_snapd_never_took_ends_at_once_with_what_it_said() {
+        let recorded = Recorded::default();
+        let start = snap::job_args(snap::Job::Install, &["no-such-snap-qpac-xyz".to_owned()]);
+        recorded.answer_full(snap::SNAP_PATH, &start, "", "error: snap \"no-such-snap-qpac-xyz\" not found\n", 1);
+        let out = served(&recorded, b"snap install no-such-snap-qpac-xyz\n");
+        assert_eq!(
+            out,
+            ["ready 1", "line error: snap \"no-such-snap-qpac-xyz\" not found", "done 1"],
+            "no number, so nothing is waited for"
+        );
+        assert_eq!(recorded.command_lines().len(), 1, "`snap watch` is never run");
+    }
+
+    #[test]
+    fn a_refresh_of_every_snap_needs_no_name_and_a_bad_name_runs_nothing() {
+        let recorded = Recorded::default();
+        let all = snap::job_args(snap::Job::Refresh, &[]);
+        recorded.answer_full(snap::SNAP_PATH, &all, "14\n", "", 0);
+        recorded.answer_full(snap::SNAP_PATH, &snap::watch_args(14), "", "", 0);
+        assert_eq!(served(&recorded, b"snap refresh\n"), ["ready 1", "snap-change 14", "done 0"]);
+        let refused = Recorded::default();
+        assert_eq!(served(&refused, b"snap install Bad_Name\n"), ["ready 1", "refused snap-name"]);
+        assert_eq!(served(&refused, b"snap remove -x\n"), ["ready 1", "refused snap-name"]);
+        assert_eq!(served(&refused, b"snap purge hello\n"), ["ready 1", "refused values"]);
+        assert_eq!(refused.command_lines(), Vec::<String>::new(), "nothing ran");
+    }
+
+    #[test]
+    fn the_snap_link_is_made_only_where_nothing_is_in_its_way() {
+        let root = snap_root("link");
+        let recorded = Recorded::default();
+        let link = root.join("snap");
+        let target = root.join("var/lib/snapd/snap");
+        assert_eq!(serve_under(&root, &recorded, b"snap-link\n").last().expect("an answer"), "done 0");
+        assert_eq!(fs::read_link(&link).expect("the link is there"), target);
+        // Asking again is no change and no failure: the link is already what it should be.
+        assert_eq!(serve_under(&root, &recorded, b"snap-link\n").last().expect("an answer"), "done 0");
+        assert_eq!(recorded.command_lines(), Vec::<String>::new(), "no program is run for a link");
+    }
+
+    #[test]
+    fn something_else_at_the_link_is_left_alone() {
+        for (name, put) in [("folder", true), ("file", false)] {
+            let root = snap_root(&format!("link-{name}"));
+            let link = root.join("snap");
+            if put {
+                fs::create_dir_all(link.join("someone-elses")).expect("a folder in the way");
+            } else {
+                fs::write(&link, "not a link").expect("a file in the way");
+            }
+            let out = serve_under(&root, &Recorded::default(), b"snap-link\n");
+            assert_eq!(out.last().expect("an answer"), "refused snap-link", "{name}");
+            assert!(fs::symlink_metadata(&link).is_ok(), "what was there is still there");
+        }
+        // A link pointing somewhere else is not replaced either.
+        let root = snap_root("link-elsewhere");
+        std::os::unix::fs::symlink(root.join("somewhere"), root.join("snap")).expect("a link in the way");
+        let out = serve_under(&root, &Recorded::default(), b"snap-link\n");
+        assert_eq!(out.last().expect("an answer"), "refused snap-link");
+        assert_eq!(fs::read_link(root.join("snap")).expect("still there"), root.join("somewhere"));
+    }
+
+    #[test]
+    fn snapds_socket_is_switched_with_systemctl_like_reflectors_timer() {
+        let recorded = Recorded::default();
+        let args = ["enable", "--now", "--", "snapd.socket"].map(str::to_owned).to_vec();
+        recorded.play(SYSTEMCTL_PATH, &args, &["Created symlink"], ProcessOutcome::Finished { code: Some(0) });
+        let out = served(&recorded, b"timer on snapd.socket\n");
+        assert_eq!(out, ["ready 1", "line Created symlink", "done 0"]);
+        assert_eq!(recorded.command_lines(), [format!("{SYSTEMCTL_PATH} enable --now -- snapd.socket")]);
     }
 }

@@ -1,0 +1,3 @@
+error: system does not fully support snapd: cannot mount squashfs image using
+       "squashfs": mount: /tmp/syscheck-mountpoint-2322072419: failed to set up
+       loop device for /tmp/syscheck-squashfs-3422991869.

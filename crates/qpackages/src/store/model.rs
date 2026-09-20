@@ -13,6 +13,7 @@ use qpackages_core::catalog::featured::FeaturedApp;
 use qpackages_core::catalog::flatpak::InstalledApp;
 use qpackages_core::catalog::merge::{App, Offer, TRUST_ORDER, id_key};
 use qpackages_core::catalog::popularity::FlathubUpdate;
+use qpackages_core::snap::api::Snap;
 use qpackages_core::sources::Source;
 
 /// The kinds column: everything, one of the browsable kinds, or what none of them holds
@@ -65,8 +66,8 @@ impl Kind {
 }
 
 /// What is installed on the machine, as far as the store knows: the pacman packages (the AUR's
-/// among them) and the Flatpak applications, the latter by id key with every installation that
-/// holds them.
+/// among them), the Flatpak applications, the latter by id key with every installation that
+/// holds them, and the snaps by name.
 #[derive(Debug, Clone, Default)]
 pub struct Installed {
     /// The names of the installed pacman packages.
@@ -74,6 +75,9 @@ pub struct Installed {
     /// The installed Flatpak applications, by [`id_key`] of their id: one entry for each
     /// installation that holds the application, with the id as Flatpak spells it.
     pub flatpaks: HashMap<String, Vec<InstalledApp>>,
+    /// The installed snaps by name, the bases and snapd itself among them: a base is not a card,
+    /// but it is installed, and removing an application never takes its base away.
+    pub snaps: HashMap<String, Snap>,
 }
 
 impl Installed {
@@ -85,13 +89,23 @@ impl Installed {
         }
     }
 
+    /// Takes `snaps` as the installed snaps, replacing what was known.
+    pub fn set_snaps(&mut self, snaps: &[Snap]) {
+        self.snaps.clear();
+        for snap in snaps {
+            self.snaps.insert(snap.name.clone(), snap.clone());
+        }
+    }
+
     /// Whether `offer` is installed: its package for pacman and the AUR, its application id for
-    /// Flatpak. A Flatpak id is never taken for a package name, nor the other way round.
+    /// Flatpak, its name for Snap. A Flatpak id is never taken for a package name, nor the other
+    /// way round, and a snap name is compared as snapd spells it: snap names are lower case
+    /// already, so there is nothing to fold.
     pub fn has(&self, offer: &Offer) -> bool {
         match offer.source {
             Source::Pacman | Source::Aur => self.packages.contains(&offer.package),
             Source::Flatpak => self.flatpaks.contains_key(&id_key(&offer.package)),
-            Source::Snap => false,
+            Source::Snap => self.snaps.contains_key(&offer.package),
         }
     }
 }
@@ -218,6 +232,30 @@ pub fn recent_app(update: &FlathubUpdate, catalog: &HashMap<String, usize>, apps
     }
 }
 
+/// A snap as an application of its own.
+///
+/// A snap never joins a repository or Flathub entry: it carries no AppStream id, and its name is
+/// its own — the `hello` snap is GNU Hello while the `hello` package is something else — so nothing
+/// but the name could be matched on, and matching on it would merge applications that are not the
+/// same. Its card therefore stands alone, the way an AUR-only package's does.
+///
+/// It has no kind either: snapd's search answer carries no category for a snap, so the card falls
+/// under what none of the kinds holds and is found by searching.
+pub fn snap_app(snap: &Snap) -> App {
+    App {
+        id: None,
+        name: Localized { default: snap.title.clone(), turkish: None },
+        summary: snap.summary.clone().map(|default| Localized { default, turkish: None }),
+        category: Category::Unknown,
+        icon: None,
+        // The name is worth searching by as well: a person looking for `hello-world` types the
+        // name, not the title the store shows.
+        keywords: vec![snap.name.clone()],
+        keywords_turkish: Vec::new(),
+        offers: vec![Offer { source: Source::Snap, package: snap.name.clone() }],
+    }
+}
+
 /// Which home row a starter entry belongs to. The AUR row holds what only the AUR (and maybe
 /// Flathub) has; anything the repositories offer is a popular application, the way the design
 /// draws Firefox there and Chrome in the AUR row.
@@ -267,6 +305,7 @@ pub fn ranked_popular(apps: &[App], popularity: &Popularity) -> Option<Vec<usize
                 Source::Flatpak => {
                     by_id.entry(id_key(&offer.package)).or_insert(index);
                 }
+                // Neither ranking knows about snaps: pkgstats counts packages and Flathub its own.
                 Source::Aur | Source::Snap => {}
             }
         }

@@ -2,6 +2,31 @@
 
 Every release of quvyta-packages, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/); while the version starts with 0, a minor release may change the interface, the command line or the files qpac keeps under `~/.config/quvyta/` and `~/.local/state/quvyta/packages/`, and the notes say so when it does.
 
+## 0.1.7 - 2026-09-20
+
+### Added
+
+- A moving picture at the top of the README (also as MP4): Discover, a search answered across the repositories, Flatpak and the AUR, an application's page, the confirmation naming every package pacman will install, the install running with pacman's own output, and the updates waiting with the Arch news above them. It is drawn from the test harness against an invented machine, so nothing on it comes from a real one.
+- Snap is a source of its own. snapd is read on its own socket, as you, so listing the snaps and
+  following a job's real progress need no privileges, and the helper carries out the install, the
+  removal and the update. A snap that needs classic confinement is a separate request, so
+  `--classic` can never land on a snap whose confirmation did not say what it means. Snaps appear
+  in Discover's search and on an application's page, installed ones are marked on their cards,
+  waiting snap updates join the Updates tab as their own group, and the settings show snapd's
+  version. Without snapd the source is shown faint with what installing it would take, and
+  nothing is asked of a snapd that is not there.
+
+### Changed
+
+- Built on quvyta-framework 0.1.11.
+
+### Fixed
+
+- A failed Snap job said pacman had ended with an error; it now names the program that failed.
+- A step that moves no package no longer drops the steps queued after it. This was waiting to
+  happen for the mirror list and the background timer, and was first hit by a classic snap, which
+  asks for the `/snap` link before it installs.
+
 ## 0.1.6 - 2026-09-20
 
 ### Added

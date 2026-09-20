@@ -1,0 +1,6 @@
+snap          2.77.1-1
+snapd         2.77.1-1
+series        16
+arch          20260913.0.592969
+kernel        6.12.1-arch1-1
+architecture  amd64

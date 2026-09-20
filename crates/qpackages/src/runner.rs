@@ -198,6 +198,14 @@ mod recorded {
             self.streams.lock().unwrap_or_else(PoisonError::into_inner).insert(key(program, args), (lines, outcome));
         }
 
+        /// Answers `program args` with `stdout`, `stderr` and exit code `code`: what a program
+        /// that writes to both at once printed, such as `snap install`, whose job number lands on
+        /// standard output and whose reminder about `$PATH` on the error stream.
+        pub fn answer_full(&self, program: &str, args: &[impl AsRef<str>], stdout: &str, stderr: &str, code: i32) {
+            let output = Output { stdout: stdout.to_owned(), stderr: stderr.to_owned(), code: Some(code) };
+            self.outputs.lock().unwrap_or_else(PoisonError::into_inner).insert(key(program, args), output);
+        }
+
         /// Every call so far, oldest first.
         pub fn calls(&self) -> Vec<Call> {
             self.calls.lock().unwrap_or_else(PoisonError::into_inner).clone()

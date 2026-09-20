@@ -15,7 +15,7 @@ use super::Problem;
 const MAX_DEPTH: usize = 64;
 
 /// Parses a whole answer, reporting where it breaks.
-pub(super) fn parse(text: &str) -> Result<JsonValue, Problem> {
+pub(crate) fn parse(text: &str) -> Result<JsonValue, Problem> {
     if let Some(offset) = too_deep(text) {
         return Err(Problem::at(text, offset, format!("nested more than {MAX_DEPTH} levels deep")));
     }
@@ -50,35 +50,35 @@ fn too_deep(text: &str) -> Option<usize> {
 }
 
 /// The value under `key` when `value` is an object that has it.
-pub(super) fn field<'a>(value: &'a JsonValue, key: &str) -> Option<&'a JsonValue> {
+pub(crate) fn field<'a>(value: &'a JsonValue, key: &str) -> Option<&'a JsonValue> {
     value.get::<HashMap<String, JsonValue>>()?.get(key)
 }
 
 /// The string under `key`.
-pub(super) fn text<'a>(value: &'a JsonValue, key: &str) -> Option<&'a str> {
+pub(crate) fn text<'a>(value: &'a JsonValue, key: &str) -> Option<&'a str> {
     field(value, key)?.get::<String>().map(String::as_str)
 }
 
 /// The array under `key`.
-pub(super) fn array<'a>(value: &'a JsonValue, key: &str) -> Option<&'a Vec<JsonValue>> {
+pub(crate) fn array<'a>(value: &'a JsonValue, key: &str) -> Option<&'a Vec<JsonValue>> {
     field(value, key)?.get::<Vec<JsonValue>>()
 }
 
 /// The strings of the array under `key`; entries of another type are left out.
-pub(super) fn strings(value: &JsonValue, key: &str) -> Vec<String> {
+pub(crate) fn strings(value: &JsonValue, key: &str) -> Vec<String> {
     array(value, key)
         .map(|items| items.iter().filter_map(|item| item.get::<String>().cloned()).collect())
         .unwrap_or_default()
 }
 
 /// The number under `key`.
-pub(super) fn number(value: &JsonValue, key: &str) -> Option<f64> {
+pub(crate) fn number(value: &JsonValue, key: &str) -> Option<f64> {
     field(value, key)?.get::<f64>().copied()
 }
 
 /// The whole number under `key`. JSON numbers are doubles, so anything with a fraction or past
 /// 2^53, where doubles stop counting exactly, is not one.
-pub(super) fn integer(value: &JsonValue, key: &str) -> Option<i64> {
+pub(crate) fn integer(value: &JsonValue, key: &str) -> Option<i64> {
     const EXACT: f64 = 9_007_199_254_740_992.0;
     let number = number(value, key)?;
     // Checked first, so the conversion is exact.
@@ -86,7 +86,7 @@ pub(super) fn integer(value: &JsonValue, key: &str) -> Option<i64> {
 }
 
 /// The count under `key`: a whole number that is not negative.
-pub(super) fn count(value: &JsonValue, key: &str) -> Option<u64> {
+pub(crate) fn count(value: &JsonValue, key: &str) -> Option<u64> {
     integer(value, key).and_then(|number| u64::try_from(number).ok())
 }
 

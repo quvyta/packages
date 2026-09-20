@@ -109,13 +109,19 @@ fn respond(line: Result<String, Refusal>, setup: &Setup, out: &mut impl Write) -
         Err(refusal) => return refuse(refusal, setup, out),
     };
     let mut failed = None;
-    let outcome = setup.session.run(&request, setup.size, &|| false, &mut |text| {
-        if failed.is_none()
-            && let Err(error) = write_response(out, &Response::Line(text))
-        {
-            failed = Some(error);
-        }
-    });
+    let outcome = setup.session.run(
+        &request,
+        setup.size,
+        &|| false,
+        &mut |text| {
+            if failed.is_none()
+                && let Err(error) = write_response(out, &Response::Line(text))
+            {
+                failed = Some(error);
+            }
+        },
+        &mut |_| {},
+    );
     let ending = match outcome {
         Outcome::Finished(ProcessOutcome::Finished { code }) => Response::Done(code),
         Outcome::Finished(ProcessOutcome::Cancelled) | Outcome::Lost(_) => Response::Done(None),

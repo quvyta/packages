@@ -163,10 +163,10 @@ fn countries_are_read_without_privileges_chosen_and_saved() {
 
 #[test]
 fn applying_the_mirrors_confirms_and_sends_the_checked_values_to_the_helper() {
-    let (mut h, _scratch, recorded) = page(&[], with_reflector);
-    // The helper of the tests works under a root that does not exist, where reflector's list
-    // would be written.
-    let fresh = std::env::temp_dir().join("qpackages-in-process-helper-root/etc/pacman.d/.mirrorlist.qpac-new");
+    let (mut h, scratch, recorded) = page(&[], with_reflector);
+    // The helper of the tests works under the scratch folder, where reflector's list would be
+    // written; nothing of the real machine's `/etc` is ever touched.
+    let fresh = scratch.root().join("etc/pacman.d/.mirrorlist.qpac-new");
     let known = [Country { name: "Turkey".to_owned(), code: "TR".to_owned(), mirrors: 7 }];
     let mirrors = Mirrors::new(&["TR"], &known, Protocol::Https, 12, 10, Sort::Rate).expect("valid");
     recorded.play(REFLECTOR_PATH, &mirrors.args(&fresh), &["done"], ProcessOutcome::Finished { code: Some(0) });

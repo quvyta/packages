@@ -5,7 +5,7 @@ repository = "https://github.com/quvyta/packages"
 readme = "../../README.md"
 keywords = ["tui", "terminal", "pacman", "arch", "packages"]
 categories = ["command-line-utilities"]
-version = "0.1.6"
+version = "0.1.7"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -22,8 +22,8 @@ name = "quvyta-packages"
 path = "src/bin/quvyta-packages.rs"
 
 [dependencies]
-quvyta-packages-core = { version = "0.1.4", path = "../qpackages-core" }
-quvyta-framework = "0.1.10"
+quvyta-packages-core = { version = "0.1.5", path = "../qpackages-core" }
+quvyta-framework = "0.1.11"
 # Already built for the framework; used directly for the pipes an AUR build's root steps travel
 # through, which the standard library cannot make (`mkfifo`) or open without blocking.
 rustix = { version = "1.1.4", default-features = false, features = ["std", "fs", "event"] }

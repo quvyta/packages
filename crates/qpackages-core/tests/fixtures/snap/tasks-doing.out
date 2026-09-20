@@ -1,0 +1,19 @@
+Status  Spawn               Ready               Summary
+Done    today at 18:33 UTC  today at 18:33 UTC  Ensure prerequisites for "hello" are available
+Done    today at 18:33 UTC  today at 18:33 UTC  Download snap "hello" (42) from channel "stable"
+Doing   today at 18:33 UTC  -                   Fetch and check assertions for snap "hello" (42)
+Do      today at 18:33 UTC  -                   Wait until prerequisites for "hello" are available
+Do      today at 18:33 UTC  -                   Mount snap "hello" (42)
+Do      today at 18:33 UTC  -                   Copy snap "hello" data
+Do      today at 18:33 UTC  -                   Prepare snap "hello" (42) for security profile setup
+Do      today at 18:33 UTC  -                   Make snap "hello" (42) available to the system
+Do      today at 18:33 UTC  -                   Automatically connect eligible plugs and slots of snap "hello"
+Do      today at 18:33 UTC  -                   Set automatic aliases for snap "hello"
+Do      today at 18:33 UTC  -                   Setup snap "hello" aliases
+Do      today at 18:33 UTC  -                   Run install hook of "hello" snap if present
+Do      today at 18:33 UTC  -                   Run default-configure hook of "hello" snap if present
+Do      today at 18:33 UTC  -                   Start snap "hello" (42) services
+Do      today at 18:33 UTC  -                   Run configure hook of "hello" snap if present
+Do      today at 18:33 UTC  -                   Run health check of "hello" snap
+Doing   today at 18:33 UTC  -                   Process delayed security backend side effects for affected snaps
+

@@ -1,0 +1,14 @@
+name:      hello-world
+summary:   The 'hello-world' of snaps
+publisher: Canonical**
+store-url: https://snapcraft.io/hello-world
+contact:   snaps@canonical.com
+license:   MIT
+description: |
+  This is a simple hello world example.
+snap-id: buPKUD3TKqCOgLEjjHx5kSiCpIs5cMuQ
+channels:
+  latest/stable:    6.4 2024-02-27 (29) 20.5kB -
+  latest/candidate: 6.4 2024-02-27 (29) 20.5kB -
+  latest/beta:      6.4 2024-02-27 (29) 20.5kB -
+  latest/edge:      6.4 2024-02-27 (29) 20.5kB -

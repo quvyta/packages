@@ -1,0 +1,2 @@
+error: cannot install "test-snapd-classic-confinement": classic confinement
+       requires snaps under /snap or symlink from /snap to /var/lib/snapd/snap

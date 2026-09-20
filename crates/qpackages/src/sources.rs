@@ -18,6 +18,16 @@ pub const fn package(source: Source) -> Option<&'static str> {
     }
 }
 
+/// The AUR package that brings a source this version cannot install from the repositories.
+/// snapd is not in the official repositories, so Snap is offered as an AUR build like any other.
+#[must_use]
+pub const fn aur_package(source: Source) -> Option<&'static str> {
+    match source {
+        Source::Snap => Some("snapd"),
+        Source::Pacman | Source::Aur | Source::Flatpak => None,
+    }
+}
+
 /// The name a source goes by under `sources.` in the settings file and `source.` in the
 /// language files.
 #[must_use]

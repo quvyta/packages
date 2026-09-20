@@ -1,0 +1,2 @@
+error: cannot remove "core20": snap "core20" is not removable: snap is being
+       used by snap hello.

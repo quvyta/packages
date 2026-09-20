@@ -258,6 +258,9 @@ impl Session {
     /// Sends `request` to run on a `size` pseudo-terminal and hands every line of its output to
     /// `on_line` until it ends. Blocks; runs in the background.
     ///
+    /// `on_change` is called once for a snap job, with the number snapd gave it: the helper waits
+    /// for the job while qpac follows its progress on snapd's socket as the user.
+    ///
     /// When `wait` is given up, the helper is let go: it runs pacman to its end, since stopping
     /// pacman halfway can break its database, then exits. A helper that is gone or answers
     /// something else is let go as well.
@@ -267,6 +270,7 @@ impl Session {
         (cols, rows): (u16, u16),
         wait: &dyn Wait,
         on_line: &mut dyn FnMut(String),
+        on_change: &mut dyn FnMut(u32),
     ) -> Outcome {
         // Taken out for the whole run, so the screen never waits on the lock while pacman works.
         let Some(mut connection) = self.lock().take() else {
@@ -279,6 +283,10 @@ impl Session {
             let ended = match connection.receive(wait) {
                 Ok(Some(Response::Line(text))) => {
                     on_line(text);
+                    continue;
+                }
+                Ok(Some(Response::SnapChange(id))) => {
+                    on_change(id);
                     continue;
                 }
                 Ok(Some(Response::Done(code))) => Outcome::Finished(ProcessOutcome::Finished { code }),
@@ -374,6 +382,7 @@ pub use in_process::InProcess;
 #[cfg(test)]
 mod in_process {
     use std::io::{self, BufReader, PipeWriter, Write};
+    use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex, PoisonError};
     use std::thread::{self, JoinHandle};
@@ -391,6 +400,10 @@ mod in_process {
         uid: u32,
         /// The user who started the helpers, whose build cache they install packages from.
         caller: Option<Caller>,
+        /// The root the helpers work under. A path that does not exist by default, so a request
+        /// that writes a file can only fail; a test whose request should really write one — the
+        /// `/snap` link — points this at its own scratch folder.
+        root: PathBuf,
         inputs: Mutex<Vec<Input>>,
         threads: Mutex<Vec<JoinHandle<()>>>,
         starts: AtomicUsize,
@@ -402,6 +415,20 @@ mod in_process {
             Self::building(Arc::clone(runner) as Arc<dyn Runner>, uid, None)
         }
 
+        /// The same helpers, working under `root` instead of a path that does not exist.
+        #[must_use]
+        pub fn under(self: Arc<Self>, root: &Path) -> Arc<Self> {
+            Arc::new(Self {
+                runner: Arc::clone(&self.runner),
+                uid: self.uid,
+                caller: self.caller.clone(),
+                root: root.to_path_buf(),
+                inputs: Mutex::new(Vec::new()),
+                threads: Mutex::new(Vec::new()),
+                starts: AtomicUsize::new(0),
+            })
+        }
+
         /// Helpers that run as user `uid`, started by `caller`, and run their programs through
         /// `runner`: for tests of AUR builds, whose package files a runner of their own checks.
         pub fn building(runner: Arc<dyn Runner>, uid: u32, caller: Option<Caller>) -> Arc<Self> {
@@ -409,6 +436,7 @@ mod in_process {
                 runner,
                 uid,
                 caller,
+                root: std::env::temp_dir().join("qpackages-in-process-helper-root"),
                 inputs: Mutex::new(Vec::new()),
                 threads: Mutex::new(Vec::new()),
                 starts: AtomicUsize::new(0),
@@ -443,12 +471,10 @@ mod in_process {
             let ended = Arc::new(AtomicBool::new(false));
             let (runner, uid, flag) = (Arc::clone(&self.runner), self.uid, Arc::clone(&ended));
             let caller = self.caller.clone();
+            let root = self.root.clone();
             let thread = thread::spawn(move || {
                 let input = BufReader::new(request_reader);
-                // No request these helpers get writes a file; a root that does not exist makes
-                // sure one never could.
-                let nowhere = std::env::temp_dir().join("qpackages-in-process-helper-root");
-                let places = Places { root: &nowhere, caller: caller.as_ref() };
+                let places = Places { root: &root, caller: caller.as_ref() };
                 let _ = root::answer(&[], Some(uid), &places, input, response_writer, runner.as_ref());
                 flag.store(true, Ordering::SeqCst);
             });
@@ -524,7 +550,7 @@ mod tests {
         let (session, _launcher) = session(&recorded, 0);
         assert_eq!(session.start(), Ok(()));
         let request = Request::RemoveOrphans(vec!["libfoo".to_owned()]);
-        let outcome = session.run(&request, (80, 24), &|| false, &mut |_| {});
+        let outcome = session.run(&request, (80, 24), &|| false, &mut |_| {}, &mut |_| {});
         assert_eq!(outcome, Outcome::Refused(Refusal::Changed));
         assert!(session.is_alive(), "a refusal leaves the helper ready for the next request");
     }
@@ -543,11 +569,11 @@ mod tests {
         assert_eq!(session.start(), Ok(()));
         assert!(session.is_alive());
         let mut lines = Vec::new();
-        let outcome = session.run(&install("cowsay"), (70, 9), &|| false, &mut |line| lines.push(line));
+        let outcome = session.run(&install("cowsay"), (70, 9), &|| false, &mut |line| lines.push(line), &mut |_| {});
         assert_eq!(outcome, Outcome::Finished(ProcessOutcome::Finished { code: Some(0) }));
         assert_eq!(lines, ["one", "two"]);
         assert_eq!(recorded.calls()[0].pty, Some((70, 9)), "the size goes before the request");
-        let outcome = session.run(&install("nope"), (70, 9), &|| false, &mut |_| {});
+        let outcome = session.run(&install("nope"), (70, 9), &|| false, &mut |_| {}, &mut |_| {});
         assert_eq!(outcome, Outcome::Refused(Refusal::Start), "the recorded runner has no pacman for it");
         assert!(session.is_alive(), "a refusal leaves the helper up");
         assert_eq!(launcher.starts(), 1);
@@ -561,7 +587,10 @@ mod tests {
         let (session, _) = session(&recorded, 1000);
         assert_eq!(session.start(), Err(StartFailure::Refused(Refusal::NotRoot)));
         assert!(!session.is_alive());
-        assert_eq!(session.run(&install("cowsay"), (80, 24), &|| false, &mut |_| {}), Outcome::Lost(String::new()));
+        assert_eq!(
+            session.run(&install("cowsay"), (80, 24), &|| false, &mut |_| {}, &mut |_| {}),
+            Outcome::Lost(String::new())
+        );
     }
 
     #[test]
@@ -580,7 +609,10 @@ mod tests {
         assert_eq!(session.start(), Ok(()), "a new one starts");
         let clone = session.clone();
         launcher.kill();
-        assert!(matches!(clone.run(&install("cowsay"), (80, 24), &|| false, &mut |_| {}), Outcome::Lost(_)));
+        assert!(matches!(
+            clone.run(&install("cowsay"), (80, 24), &|| false, &mut |_| {}, &mut |_| {}),
+            Outcome::Lost(_)
+        ));
         assert!(!session.is_alive(), "a lost helper is not kept");
         assert_eq!(launcher.starts(), 2);
     }
@@ -607,7 +639,7 @@ mod tests {
             Ok(Connection::new(Box::new(io::sink()), (&b"ready 1\n"[..]).chain(reader), Box::new(Quiet)))
         }));
         assert_eq!(session.start(), Ok(()));
-        let outcome = session.run(&install("cowsay"), (80, 24), &|| true, &mut |_| {});
+        let outcome = session.run(&install("cowsay"), (80, 24), &|| true, &mut |_| {}, &mut |_| {});
         assert_eq!(outcome, Outcome::Finished(ProcessOutcome::Cancelled));
         assert!(!session.is_alive(), "a helper nobody waits for is let go");
     }

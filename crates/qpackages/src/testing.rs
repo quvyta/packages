@@ -3,10 +3,14 @@
 //! Everything lives in a folder of its own under the system's temporary place and goes when the
 //! test is done.
 
+use std::collections::HashMap;
 use std::fs;
+use std::io::{BufRead, BufReader, Write};
+use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread;
 
 use qframe::prelude::{App, Harness};
 use qframe::storage::Settings;
@@ -45,7 +49,9 @@ pub fn app_with(
         lock_dir: &scratch.lock(),
         lookup: Arc::new(lookup),
         runner: Arc::clone(recorded) as Arc<dyn Runner>,
-        helper: InProcess::new(recorded, 0).start_fn(),
+        // The helper works under the scratch folder: the one request that writes a file, the `/snap`
+        // link, then lands there and never anywhere on the real machine.
+        helper: InProcess::new(recorded, 0).under(scratch.root()).start_fn(),
         uid: Some(1000),
         utc_offset: 0,
         // Folders that do not exist: Discover shows its starter list and reads nothing of this
@@ -54,6 +60,7 @@ pub fn app_with(
         flatpak_catalogs: &[],
         // The family folder is the machine's own, so no test reads or writes the user's.
         appearance: crate::appearance_in(scratch.root()),
+        snap_socket: &scratch.root().join("snapd.socket"),
     };
     let places = Places {
         root: scratch.root().to_path_buf(),
@@ -239,4 +246,83 @@ pub fn click_last<A: App>(h: &mut Harness<A>, label: &str) {
         .unwrap_or_else(|| panic!("`{label}` is not on screen:\n{screen}"));
     let x = line[..start].chars().count();
     h.click(i32::try_from(x).expect("a screen column"), i32::try_from(y).expect("a screen row"));
+}
+
+/// A stand-in for snapd on a socket of the test's own.
+///
+/// It speaks what snapd speaks: one request per connection, answered with the headers snapd's own
+/// HTTP/1.0 answer carries and the body registered for that path, then the connection closes.
+/// Nothing of the real snapd is involved and no snap is ever run; the bodies are the JSON snapd
+/// answered in a throwaway container, recorded under `qpackages-core/tests/fixtures/snap`.
+///
+/// A path with no answer registered gets `404`, which the reading side takes as snapd saying
+/// nothing — so a test says only what it wants said.
+pub struct FakeSnapd {
+    /// The bodies to answer with, by request path. A test may change them while it runs, the way
+    /// the recorded runner's answers change.
+    answers: Arc<Mutex<HashMap<String, String>>>,
+    /// The paths asked for, in order.
+    asked: Arc<Mutex<Vec<String>>>,
+    socket: PathBuf,
+}
+
+impl FakeSnapd {
+    /// Starts listening on `socket`, answering nothing yet.
+    pub fn start(socket: &Path) -> Self {
+        if let Some(folder) = socket.parent() {
+            let _ = fs::create_dir_all(folder);
+        }
+        let _ = fs::remove_file(socket);
+        let listener = UnixListener::bind(socket).expect("the scratch folder takes a socket");
+        let answers: Arc<Mutex<HashMap<String, String>>> = Arc::default();
+        let asked: Arc<Mutex<Vec<String>>> = Arc::default();
+        let (mine, seen) = (Arc::clone(&answers), Arc::clone(&asked));
+        thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                let Ok(copy) = stream.try_clone() else { continue };
+                let mut line = String::new();
+                if BufRead::read_line(&mut BufReader::new(copy), &mut line).is_err() {
+                    continue;
+                }
+                // `GET <path> HTTP/1.0`.
+                let path = line.split(' ').nth(1).unwrap_or_default().to_owned();
+                seen.lock().expect("no panic held it").push(path.clone());
+                let body = mine.lock().expect("no panic held it").get(&path).cloned();
+                let answer = match body {
+                    Some(body) => format!(
+                        "HTTP/1.0 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+                        body.len()
+                    ),
+                    None => String::from("HTTP/1.0 404 Not Found\r\nContent-Length: 0\r\n\r\n"),
+                };
+                let _ = stream.write_all(answer.as_bytes());
+                let _ = stream.flush();
+            }
+        });
+        Self { answers, asked, socket: socket.to_path_buf() }
+    }
+
+    /// Answers `path` with `body` from now on, replacing what was registered for it.
+    pub fn answer(&self, path: &str, body: &str) {
+        self.answers.lock().expect("no panic held it").insert(path.to_owned(), body.to_owned());
+    }
+
+    /// The paths asked for so far, in order.
+    pub fn asked(&self) -> Vec<String> {
+        self.asked.lock().expect("no panic held it").clone()
+    }
+
+    /// How many times `path` was asked for.
+    pub fn reads(&self, path: &str) -> usize {
+        self.asked().iter().filter(|asked| *asked == path).count()
+    }
+}
+
+impl Drop for FakeSnapd {
+    fn drop(&mut self) {
+        // The socket goes, so a later state read of the same scratch folder finds nothing there;
+        // the thread ends with the process, having nothing left to accept.
+        let _ = fs::remove_file(&self.socket);
+    }
 }

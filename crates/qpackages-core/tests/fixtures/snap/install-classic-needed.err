@@ -1,0 +1,7 @@
+error: This revision of snap "test-snapd-classic-confinement" was published
+       using classic confinement and thus may perform arbitrary system changes
+       outside of the security sandbox that snaps are usually confined to,
+       which may put your system at risk.
+
+       If you understand and want to proceed repeat the command including
+       --classic.

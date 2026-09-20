@@ -1,0 +1,21 @@
+name:      hello
+summary:   GNU Hello, the "hello world" snap
+publisher: Canonical**
+store-url: https://snapcraft.io/hello
+contact:   snaps@canonical.com
+license:   unset
+description: |
+  GNU hello prints a friendly greeting. This is part of the snapcraft tour at
+  https://snapcraft.io/
+commands:
+  - hello
+  - hello.universe
+snap-id:      mVyGrEwiqSi5PugCwyH7WgpoQLemtTd6
+tracking:     latest/stable
+refresh-date: today at 18:33 UTC
+channels:
+  latest/stable:    2.10   2022-01-14 (42)  106kB -
+  latest/candidate: 2.10   2022-01-14 (42)  106kB -
+  latest/beta:      2.10.1 2017-05-17 (29) 65.5kB -
+  latest/edge:      2.12   2022-03-15 (52)  131kB -
+installed:          2.10              (42)  106kB -
