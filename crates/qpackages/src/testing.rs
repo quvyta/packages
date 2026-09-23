@@ -41,6 +41,44 @@ pub fn app_with(
     recorded: &Arc<Recorded>,
     lookup: fn(&str) -> Option<PathBuf>,
 ) -> Qpackages {
+    // The family folder is the machine's own, so no test reads or writes the user's.
+    let appearance = crate::appearance_in(scratch.root());
+    on_machine(scratch, &settings.schema(settings::schema()), recorded, lookup, appearance, None, Some(1000))
+        .on_tab(crate::app::Tab::Installed)
+}
+
+/// qpac's first start on `scratch`, running as `uid`: the family folder is `scratch`'s own
+/// `config`, where qpac has no settings file yet, so the wizard opens. The settings are read the
+/// way the real start reads them, and the fonts the appearance step looks at are the scratch
+/// folder's own. It opens on Discover, as qpac does.
+pub fn first_start(
+    scratch: &Scratch,
+    recorded: &Arc<Recorded>,
+    lookup: fn(&str) -> Option<PathBuf>,
+    uid: u32,
+) -> Qpackages {
+    let folder = scratch.config();
+    let settings = settings::load_in(&folder, &scratch.root().join("legacy"));
+    let first_run = crate::app::FirstRun::in_folder(&folder).map(|first_run| first_run.with_fonts(&scratch.fonts()));
+    // While the wizard asks nothing may be written, not even the family's shared file.
+    let preferences = match &first_run {
+        Some(first_run) => first_run.preferences().clone(),
+        None => qframe::storage::Family::QUVYTA.preferences_in(&folder, settings::APP, &crate::i18n()),
+    };
+    let appearance = Appearance::new(qframe::storage::Family::QUVYTA, settings::APP, preferences).in_folder(&folder);
+    on_machine(scratch, &settings, recorded, lookup, appearance, first_run, Some(uid))
+}
+
+/// The application on `scratch`'s machine, with everything a test gives it.
+fn on_machine(
+    scratch: &Scratch,
+    settings: &Settings,
+    recorded: &Arc<Recorded>,
+    lookup: fn(&str) -> Option<PathBuf>,
+    appearance: Appearance,
+    first_run: Option<crate::app::FirstRun>,
+    uid: Option<u32>,
+) -> Qpackages {
     let machine = Machine {
         dbpath: &scratch.local(),
         sync_dir: &scratch.sync(),
@@ -52,15 +90,15 @@ pub fn app_with(
         // The helper works under the scratch folder: the one request that writes a file, the `/snap`
         // link, then lands there and never anywhere on the real machine.
         helper: InProcess::new(recorded, 0).under(scratch.root()).start_fn(),
-        uid: Some(1000),
+        uid,
         utc_offset: 0,
         // Folders that do not exist: Discover shows its starter list and reads nothing of this
         // computer's.
         app_catalog: &scratch.catalog(),
         flatpak_catalogs: &[],
-        // The family folder is the machine's own, so no test reads or writes the user's.
-        appearance: crate::appearance_in(scratch.root()),
+        appearance,
         snap_socket: &scratch.root().join("snapd.socket"),
+        first_run,
     };
     let places = Places {
         root: scratch.root().to_path_buf(),
@@ -71,7 +109,7 @@ pub fn app_with(
         cache: Some(scratch.root().join("cache")),
         data: Some(scratch.root().join("data")),
     };
-    Qpackages::new(machine, &settings.schema(settings::schema())).with_places(places).on_tab(crate::app::Tab::Installed)
+    Qpackages::new(machine, settings).with_places(places)
 }
 
 /// [`crate::appearance_in`] over a family folder of its own that is taken away again as soon as it
@@ -160,6 +198,16 @@ impl Scratch {
     /// Where the repositories' app catalog would be; never created.
     pub fn catalog(&self) -> PathBuf {
         self.root.join("swcatalog")
+    }
+
+    /// The family's settings folder of a first start, which holds nothing until the wizard ends.
+    pub fn config(&self) -> PathBuf {
+        self.root.join("config")
+    }
+
+    /// The fonts the wizard's appearance step looks at and would install into.
+    pub fn fonts(&self) -> PathBuf {
+        self.root.join("fonts")
     }
 
     /// The user's systemd unit folder.

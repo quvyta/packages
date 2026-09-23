@@ -149,6 +149,8 @@ removes the old name when it upgrades.
 
 Run `qpac` without `sudo`: it asks for privileges only when a change is confirmed.
 
+The first start opens a short setup: how qpac looks (language, theme, icons), which sources it uses, and whether it checks for updates in the background. A source this computer lacks can be checked there; it is installed once the setup is over, through the same confirmation as any other install. Nothing is written until you finish, and the setup never comes again once `packages.conf` exists.
+
 | Key | What it does |
 |---|---|
 | `ctrl+1`, `ctrl+2`, `ctrl+3` | Discover, Installed, Updates; `alt+left` and `alt+right` step through them |

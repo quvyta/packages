@@ -193,9 +193,9 @@ fn code(screen: &Screen, ui: &mut View<'_, Msg>) {
     let changed = shown.marks.iter().any(|mark| *mark != LineMark::Unchanged);
     let mut code = CodeView::new(shown.text.clone(), Language::from_file_name(name));
     if changed {
-        // A difference holds both versions' lines, so a row is not a line of either file: the
-        // numbers would name the wrong lines, and the marks say what changed instead.
-        code = code.line_marks(shown.marks.clone()).line_numbers(false);
+        // The marks number each row by its own file, a removed line by the old one and every other
+        // by the new one, so the number beside a finding's line is the one the finding names.
+        code = code.line_marks(shown.marks.clone());
     }
     for row in base
         .checked
@@ -207,7 +207,8 @@ fn code(screen: &Screen, ui: &mut View<'_, Msg>) {
         code = code.highlight_lines(row..=row, LineTone::Warning);
     }
     // The line gone to takes the accent tone over its finding's warning, and the view scrolls to
-    // it once; scrolling away afterwards is the user's.
+    // it once; scrolling away afterwards is the user's. Tints are placed by row, so the row is
+    // needed anyway; revealing that same row rather than by number keeps one mapping for both.
     if let Some(row) = screen.at.and_then(|at| went_to(screen, *index, at)).and_then(|line| shown.row_of(line)) {
         code = code.reveal(row).highlight_lines(row..=row, LineTone::Accent);
     }

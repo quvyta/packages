@@ -598,6 +598,20 @@ impl Flow {
         self.pending_updates = count;
     }
 
+    /// Whether a transaction went through and the packages it changed have not been read again
+    /// yet: what comes next may depend on what it installed.
+    #[must_use]
+    pub fn reading_again(&self) -> bool {
+        self.done.is_some()
+    }
+
+    /// Whether nothing at all is on: no plan, no confirmation, no run, and no finished run whose
+    /// output the user has not closed.
+    #[must_use]
+    pub fn at_rest(&self) -> bool {
+        matches!(self.state, State::Idle)
+    }
+
     /// What to do after the read that followed the last transaction; asked once.
     pub fn take_done(&mut self) -> Option<Done> {
         self.done.take()

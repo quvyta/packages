@@ -67,6 +67,7 @@ fn app_on(
         flatpak_catalogs: &[],
         appearance: crate::testing::appearance_apart(),
         snap_socket: &nowhere().join("snapd.socket"),
+        first_run: None,
     };
     // Nothing of the machine running the tests is looked at: no snapshot tool, no unit folder.
     Qpackages::new(machine, &settings).with_places(Places {

@@ -52,6 +52,7 @@ fn screen_at(settings: &str, width: u16, height: u16) -> (Harness<Qpackages>, Ar
         flatpak_catalogs: &[],
         appearance: crate::testing::appearance_apart(),
         snap_socket: &nowhere().join("snapd.socket"),
+        first_run: None,
     };
     let mut h = Harness::with_env(Qpackages::new(machine, &settings), env(), width, height);
     h.set_locale("en").set_glyph_mode(GlyphMode::Unicode).set_reduced_motion(true);

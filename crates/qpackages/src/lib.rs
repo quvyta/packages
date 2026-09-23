@@ -65,7 +65,7 @@ const CHECK_DIR: &str = "check";
 
 /// The compiled-in language files as a translator, for the parts that answer before or without a
 /// screen: the shared preferences' language detection and `--check`'s report.
-fn i18n() -> I18n {
+pub(crate) fn i18n() -> I18n {
     let mut i18n = I18n::builtin();
     for (file, text) in locales::LOCALES {
         i18n.add_source(file, text);
@@ -110,7 +110,15 @@ pub fn run() -> std::io::Result<()> {
     }
     let settings = settings::load();
     let family = Family::QUVYTA;
-    let preferences = family.preferences(settings::APP, &i18n());
+    // Read after the settings, which bring over an older file first: someone who used an earlier
+    // release has a `packages.conf` by now and is not asked.
+    let first_run = family.config_dir().and_then(|folder| app::FirstRun::in_folder(&folder));
+    // While the wizard is to open nothing may be written, not even the family's shared file, so
+    // the preferences are the ones it resolved without saving.
+    let preferences = match &first_run {
+        Some(first_run) => first_run.preferences().clone(),
+        None => family.preferences(settings::APP, &i18n()),
+    };
     let check_dir = family.cache_dir(settings::APP).map(|cache| cache.join(CHECK_DIR));
     let machine = app::Machine {
         dbpath: Path::new(LOCAL_DB),
@@ -127,6 +135,7 @@ pub fn run() -> std::io::Result<()> {
         flatpak_catalogs: &store::flatpak_catalogs(),
         appearance: Appearance::new(family, settings::APP, preferences.clone()),
         snap_socket: Path::new(qpackages_core::snap::SOCKET),
+        first_run,
     };
     let app = app::Qpackages::new(machine, &settings);
     let result = locales::LOCALES

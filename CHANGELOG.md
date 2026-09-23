@@ -2,6 +2,17 @@
 
 Every release of quvyta-packages, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/); while the version starts with 0, a minor release may change the interface, the command line or the files qpac keeps under `~/.config/quvyta/` and `~/.local/state/quvyta/packages/`, and the notes say so when it does.
 
+## 0.1.9 - 2026-09-23
+
+### Added
+
+- A first-run setup, the same one the other Quvyta applications open with. Its first step is the family's appearance (language, theme, icons). Then qpac's own two: which sources to use, with what this computer has already checked, and whether to check for updates in the background and how often. A source the computer lacks can be checked; once the setup is over it is installed through the normal confirmation, one source after another, and a Snap chosen this way is built from the AUR, then its service is turned on and its `/snap` link made, each asking first. Nothing is written until *Finish*, so a setup closed half-way comes again next time; anyone who already has a `packages.conf` never sees it.
+
+### Changed
+
+- The difference between two versions of an AUR recipe numbers its lines again, and each number is the line's number in its own file: a removed line keeps the old file's number, the others the new file's. The line a finding names now carries the number the finding states.
+- Built against quvyta-framework 0.1.18.
+
 ## 0.1.8 - 2026-09-20
 
 ### Added

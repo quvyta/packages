@@ -226,6 +226,7 @@ fn screen(name: &str, pkgbuild: &str, locale: &str, size: (u16, u16), glyphs: Gl
             flatpak_catalogs: &[],
             appearance: crate::appearance_in(scratch.root()),
             snap_socket: &scratch.root().join("snapd.socket"),
+            first_run: None,
         },
         &settings,
     )
@@ -371,6 +372,32 @@ fn a_changed_recipe_lists_what_the_rules_point_at_and_a_finding_goes_to_its_line
     let gone = settle(&mut screen.h);
     assert!(gone.contains(HIDDEN), "the code view went to the finding's line:\n{gone}");
     assert!(gone.contains("Runs code that was downloaded or hidden."), "the reason of the chosen finding:\n{gone}");
+}
+
+/// The number drawn beside the first row of `screen` that shows `text`: the last number before it
+/// on that row, which in the code pane is the line number column.
+fn number_beside(screen: &str, text: &str) -> Option<usize> {
+    let row = screen.lines().find(|row| row.contains(text))?;
+    let before = &row[..row.find(text)?];
+    before.split_whitespace().filter_map(|word| word.parse().ok()).next_back()
+}
+
+#[test]
+fn a_changed_recipe_numbers_its_lines_as_the_findings_do() {
+    // Three lines of the approved recipe are gone before the dangerous line, so its row in the
+    // difference is not its line: only numbering that follows the file draws 46 beside it.
+    let mut screen = screen("review-numbers", &dangerous(), "en", (120, 34), GlyphMode::Unicode);
+    already_approved(&screen, CLEAN);
+    let shown = up_to_the_review(&mut screen.h, "Build and install");
+    let line = dangerous().lines().position(|row| row.contains(HIDDEN)).expect("the recipe has the line") + 1;
+    assert_eq!(line, 46, "the fixture puts the dangerous line where the test expects it");
+    assert!(shown.contains(&format!("PKGBUILD:{line}")), "the finding names its line:\n{shown}");
+    for version in ["pkgver=1.4.2", "pkgver=1.5.0"] {
+        assert_eq!(number_beside(&shown, version), Some(3), "both versions of line 3 are numbered 3:\n{shown}");
+    }
+    click_last(&mut screen.h, "runs downloaded or hidden code");
+    let gone = settle(&mut screen.h);
+    assert_eq!(number_beside(&gone, HIDDEN), Some(line), "the number beside the finding's line is its own:\n{gone}");
 }
 
 #[test]

@@ -199,6 +199,7 @@ fn screen(name: &str, lookup: fn(&str) -> Option<PathBuf>, locale: &str) -> Scre
             flatpak_catalogs: &[],
             appearance: crate::appearance_in(scratch.root()),
             snap_socket: &scratch.root().join("snapd.socket"),
+            first_run: None,
         },
         &settings,
     )

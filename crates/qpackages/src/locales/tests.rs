@@ -131,6 +131,41 @@ pub(crate) fn label(code: &str, key: &str) -> String {
     text.clone()
 }
 
+/// Keys written in English and Turkish that the seven other languages do not carry yet: their
+/// translations come in a batch of their own. Until then a screen in one of those languages shows
+/// the English text for them, since the framework's lookup ends in English, never a missing key.
+///
+/// The list only shrinks: every key on it must be in English and in Turkish, and a key that any
+/// other language already carries must come off it, so it cannot go on hiding a gap once the
+/// translations have arrived.
+pub(crate) const PENDING: &[&str] = &[];
+
+/// The languages that are written with every key at once, whatever is pending for the others.
+const WRITTEN_FIRST: [&str; 2] = ["en", "tr"];
+
+/// Whether the language `code` may lack `key` for now, because it is pending.
+fn pending_in(code: &str, key: &str, pending: &[&str]) -> bool {
+    !WRITTEN_FIRST.contains(&code) && pending.contains(&key)
+}
+
+/// What is wrong with `pending` for `files`: a key English or Turkish lacks, or one another
+/// language carries already.
+fn pending_problems(files: &[File], pending: &[&str]) -> Vec<String> {
+    let mut problems = Vec::new();
+    for key in pending {
+        for file in files {
+            let carried = file.entries.contains_key(*key);
+            if WRITTEN_FIRST.contains(&file.code.as_str()) && !carried {
+                problems.push(format!("`{key}` is pending but `{}` lacks it too", file.code));
+            }
+            if !WRITTEN_FIRST.contains(&file.code.as_str()) && carried {
+                problems.push(format!("`{key}` is in `{}` now, so it is no longer pending", file.code));
+            }
+        }
+    }
+    problems
+}
+
 /// A system's `LANG` for each language qpac may carry, with the awkward ones written out: a
 /// region (`pt_BR`), a country that stands for a script (`zh_CN` is Simplified Chinese), and a
 /// country with no file of its own (`pt_PT`).
@@ -168,14 +203,39 @@ fn every_language_carries_every_english_key_and_nothing_else() {
     let english = english();
     let env = env();
     for file in files() {
-        let missing: Vec<&String> = english.entries.keys().filter(|key| !file.entries.contains_key(*key)).collect();
+        let missing: Vec<&String> = english
+            .entries
+            .keys()
+            .filter(|key| !file.entries.contains_key(*key) && !pending_in(&file.code, key, PENDING))
+            .collect();
         assert!(missing.is_empty(), "`{}` lacks {missing:?}", file.code);
         let extra: Vec<&String> = file.entries.keys().filter(|key| !english.entries.contains_key(*key)).collect();
         assert!(extra.is_empty(), "`{}` has keys English does not: {extra:?}", file.code);
         // The loaded catalogue agrees with the file: each key is the language's own text.
-        for key in english.entries.keys() {
+        for key in english.entries.keys().filter(|key| !pending_in(&file.code, key, PENDING)) {
             assert!(env.i18n().has(&file.code, key), "`{key}` has no text of its own in `{}`", file.code);
         }
+    }
+}
+
+#[test]
+fn the_pending_keys_are_exactly_the_ones_still_waiting() {
+    let problems = pending_problems(&files(), PENDING);
+    assert!(problems.is_empty(), "{problems:#?}");
+}
+
+#[test]
+fn a_pending_key_shows_in_english_where_its_language_lacks_it() {
+    let env = env();
+    let english = english();
+    for key in PENDING {
+        let Some(Entry::Plain(text)) = english.entries.get(*key) else { continue };
+        if !placeholders(text).is_empty() {
+            continue;
+        }
+        let mut i18n = env.i18n().clone();
+        i18n.set_active("de");
+        assert_eq!(&i18n.translate(key, &[]), text, "`{key}` in German falls back to English");
     }
 }
 
@@ -272,7 +332,13 @@ fn the_framework_speaks_every_language_the_application_does() {
     // English words on an otherwise translated screen.
     let env = env();
     for file in files() {
-        let missing = env.i18n().missing_keys(&file.code, "en");
+        // The catalogue holds qpac's own keys as well; the pending ones are waited for above.
+        let missing: Vec<String> = env
+            .i18n()
+            .missing_keys(&file.code, "en")
+            .into_iter()
+            .filter(|key| !pending_in(&file.code, key, PENDING))
+            .collect();
         assert!(missing.is_empty(), "`{}` falls back to English for {missing:?}", file.code);
     }
 }
@@ -321,6 +387,15 @@ fn the_checks_catch_what_they_are_for() {
     let written: BTreeSet<String> = forms.keys().cloned().collect();
     assert_ne!(written, categories_for("ru"), "a Russian table without `few` is what the plural check refuses");
     assert_eq!(PluralCategory::of("ru", 3).name(), "few");
+
+    // The pending list refuses a key English or Turkish lacks, and one a language already has.
+    let turkish = parse("tr.toml", "[meta]\nname = \"Türkçe\"\ncode = \"tr\"\n[a]\nhello = \"Merhaba {name}\"\n");
+    let german = parse("de.toml", "[meta]\nname = \"Deutsch\"\ncode = \"de\"\n[a]\nhello = \"Hallo {name}\"\n");
+    let three = [english, turkish, german];
+    assert_eq!(pending_problems(&three[..2], &["a.hello"]), Vec::<String>::new(), "English and Turkish have it");
+    assert_eq!(pending_problems(&three, &["a.n"]).len(), 1, "Turkish lacks `a.n`, which is not how a key waits");
+    assert_eq!(pending_problems(&three, &["a.hello"]).len(), 1, "German has `a.hello`, so it waits no more");
+    assert!(pending_in("de", "a.n", &["a.n"]) && !pending_in("tr", "a.n", &["a.n"]), "only the other languages wait");
 
     // `label` refuses what a narrow-screen check cannot look for whole.
     let with_placeholder = parse("en.toml", "[meta]\nname = \"English\"\ncode = \"en\"\n[a]\nb = \"Hi {name}\"\n");

@@ -8,8 +8,9 @@
 mod backend;
 mod layout;
 mod tab;
+mod wizard;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -17,7 +18,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use qframe::icons::GlyphMode;
 use qframe::prelude::*;
 use qframe::storage::{self, Family, Settings};
-use qframe::widgets::{Appearance, Badge, IconButton, Splitter, Tabs, Toast, Tooltip};
+use qframe::widgets::{Appearance, Badge, IconButton, Setup, SetupMsg, Splitter, Tabs, Toast, Tooltip};
 use qpackages_core::backup;
 use qpackages_core::catalog::net::{CURL, curl_args};
 use qpackages_core::news::{NEWS_URL, NewsItem, parse_news, recent};
@@ -41,6 +42,7 @@ use crate::{sources, store, transaction::view as flow_view};
 
 use layout::{MIN_PACKAGES, output_layout};
 pub use tab::{TABS, Tab};
+pub use wizard::{FirstRun, WizardMsg};
 
 /// The user id of root, for whom the AUR is off limits.
 const ROOT: u32 = 0;
@@ -82,6 +84,9 @@ pub struct Machine<'a> {
     pub appearance: Appearance,
     /// snapd's socket, which Discover reads the snaps and a job's progress from as the user.
     pub snap_socket: &'a Path,
+    /// The first-run wizard, when qpac has no settings file of its own yet; `None` for someone
+    /// who has one, and for a test or a picture that shows the screen after it.
+    pub first_run: Option<FirstRun>,
 }
 
 /// Where the application reads the system's files and keeps the user's own, beside what the
@@ -187,6 +192,16 @@ pub struct Qpackages {
     reflector: Reflector,
     /// The appearance rows and the shared preferences behind them.
     appearance: Appearance,
+    /// The first-run wizard while it has the screen; `None` once it is over, and from the start
+    /// for someone who has `packages.conf` already.
+    setup: Option<Setup<Msg>>,
+    /// The family folder the wizard writes into, which the appearance rows save into after it.
+    setup_folder: Option<PathBuf>,
+    /// What the wizard's own steps hold until Finish.
+    choices: wizard::Choices,
+    /// What the Settings page would start for the sources the wizard was asked to bring, taken
+    /// one after another once it is over.
+    after_setup: VecDeque<settings_page::Msg>,
 }
 
 impl std::fmt::Debug for Qpackages {
@@ -233,6 +248,13 @@ pub enum Msg {
     Transaction(transaction::Msg),
     /// The orphans were asked to be shown: every package, where they are marked.
     ShowOrphans,
+    /// Something on the first-run wizard's appearance step or its buttons, which the framework
+    /// answers.
+    Setup(SetupMsg),
+    /// Something on one of qpac's own steps of the wizard.
+    Wizard(WizardMsg),
+    /// The wizard wrote the shared keys and made `packages.conf`, and is over.
+    SetUp,
 }
 
 /// What an application without its first read shows: nothing, not an empty machine.
@@ -268,6 +290,10 @@ impl Qpackages {
             flatpak: machine.flatpak_catalogs.to_vec(),
         };
         let snapd = Snapd::new(false, machine.snap_socket);
+        let (setup, setup_folder) = match machine.first_run {
+            Some(first_run) => (Some(first_run.setup), Some(first_run.folder)),
+            None => (None, None),
+        };
         let mut app = Self {
             library: None,
             // The rankings are kept beside the update check's copy of pacman's database.
@@ -298,6 +324,10 @@ impl Qpackages {
             ),
             reload,
             appearance: machine.appearance,
+            setup,
+            setup_folder,
+            choices: wizard::Choices::default(),
+            after_setup: VecDeque::new(),
         };
         app.transaction.set_build_places(app.places.build(app.uid));
         app.transaction.set_review_places(app.places.review());
@@ -753,6 +783,51 @@ impl App for Qpackages {
     type Msg = Msg;
 
     fn update(&mut self, msg: Msg) -> Command<Msg> {
+        // The sources the wizard was asked to bring go one after another: the next one starts
+        // once the flow has come to rest after the one before it and the packages were read again.
+        let rests = matches!(msg, Msg::Transaction(_) | Msg::Reloaded(_));
+        let command = self.handle(msg);
+        if rests && !self.after_setup.is_empty() {
+            return Command::batch([command, self.next_after_setup()]);
+        }
+        command
+    }
+
+    fn view(&self, ui: &mut View<'_, Msg>) {
+        // The first start asks before it shows the packages: the wizard has the screen to itself.
+        if self.setting_up() {
+            self.setup_wizard(ui);
+            return;
+        }
+        AppShell::new().header(|ui| self.header(ui)).body(|ui| self.body(ui)).footer(|ui| self.footer(ui)).show(ui);
+    }
+
+    fn action(&self, name: &str) -> Option<Msg> {
+        // While the wizard asks, qpac's own keys have nothing to act on: its pages are not there.
+        if self.setting_up() {
+            return None;
+        }
+        self.key(name)
+    }
+
+    fn resized(&self, size: Size) -> Option<Msg> {
+        Some(Msg::Resized(size))
+    }
+
+    fn init(&mut self) -> Command<Msg> {
+        // The packages are read even while the wizard asks: its sources step shows what this
+        // machine has.
+        let reads = Command::batch([self.reload.command(), self.discover.init().map(Msg::Discover)]);
+        if self.setting_up() {
+            return Command::batch([reads, Command::focus(wizard::FIRST)]);
+        }
+        reads
+    }
+}
+
+impl Qpackages {
+    /// Applies `msg`.
+    fn handle(&mut self, msg: Msg) -> Command<Msg> {
         match msg {
             Msg::Tab(index) => {
                 if let Some(&tab) = TABS.get(index) {
@@ -821,15 +896,23 @@ impl App for Qpackages {
                 }
                 return command;
             }
+            // The framework owns its step: it applies the change, writes the shared keys and
+            // makes `packages.conf` when the wizard finishes, and answers with `Msg::SetUp`.
+            Msg::Setup(msg) => {
+                if let Some(mut setup) = self.setup.take() {
+                    let done = setup.update(msg, &mut self.settings);
+                    self.setup = Some(setup);
+                    return done;
+                }
+            }
+            Msg::Wizard(msg) => self.update_wizard(msg),
+            Msg::SetUp => return self.finish_setup(),
         }
         Command::none()
     }
 
-    fn view(&self, ui: &mut View<'_, Msg>) {
-        AppShell::new().header(|ui| self.header(ui)).body(|ui| self.body(ui)).footer(|ui| self.footer(ui)).show(ui);
-    }
-
-    fn action(&self, name: &str) -> Option<Msg> {
+    /// What the key named `name` does on the screen after the wizard.
+    fn key(&self, name: &str) -> Option<Msg> {
         if !self.settings_open
             && self.tab == Tab::Discover
             && let Some(msg) = self.discover.action(name)
@@ -856,14 +939,6 @@ impl App for Qpackages {
                 n.checked_sub(1).filter(|index| *index < TABS.len()).map(Msg::Tab)
             }),
         }
-    }
-
-    fn resized(&self, size: Size) -> Option<Msg> {
-        Some(Msg::Resized(size))
-    }
-
-    fn init(&mut self) -> Command<Msg> {
-        Command::batch([self.reload.command(), self.discover.init().map(Msg::Discover)])
     }
 }
 

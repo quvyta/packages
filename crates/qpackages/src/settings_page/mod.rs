@@ -24,6 +24,7 @@ use crate::helper::pkexec::Tool;
 use crate::settings::{self, AUR_HELPERS, PRIVILEGE_TOOLS};
 use crate::sources;
 
+pub(crate) use backend::interval_name;
 pub use backend::{Countries, Msg as BackendMsg, Reflector};
 
 /// Columns a choice takes on the right of its row.

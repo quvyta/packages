@@ -538,9 +538,9 @@ dependencies = [
 
 [[package]]
 name = "quvyta-framework"
-version = "0.1.13"
+version = "0.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2a2073e36b9abae0be34dc80d5d6856edd72eb157b9cf98618d3d8bbe4ee4854"
+checksum = "fb9c427053cd2af7985e115e1baf552f55332e0cd251d866154aab3f7e881d73"
 dependencies = [
  "crossterm",
  "dirs",
@@ -558,7 +558,7 @@ dependencies = [
 
 [[package]]
 name = "quvyta-packages"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "quvyta-framework",
  "quvyta-packages-core",

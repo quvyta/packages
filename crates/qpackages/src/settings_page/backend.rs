@@ -112,7 +112,7 @@ pub(super) fn updates_section(list: &mut SettingsRows<'_, PageMsg>, cx: Cx<'_>) 
 }
 
 /// How often, as the interval choice says it.
-fn interval_name(hours: u32) -> String {
+pub(crate) fn interval_name(hours: u32) -> String {
     match hours {
         24 => t!("settings-page.interval-day"),
         168 => t!("settings-page.interval-week"),

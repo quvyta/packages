@@ -107,7 +107,7 @@ impl Qpackages {
 
     /// Turns the background check's user timer on or off in the background, after saving the
     /// choice; a switch that fails puts the choice back and says why.
-    fn switch_background(&mut self, on: bool) -> Command<Msg> {
+    pub(super) fn switch_background(&mut self, on: bool) -> Command<Msg> {
         let (Some(dir), Some(exe)) = (self.places.units.clone(), self.places.exe.clone()) else {
             return Command::none();
         };
