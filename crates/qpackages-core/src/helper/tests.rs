@@ -541,3 +541,38 @@ fn the_callers_home_comes_from_the_password_database() {
     assert_eq!(passwd_home(passwd, 1002), None, "a relative home is no home");
     assert_eq!(passwd_home(passwd, 4242), None);
 }
+
+#[test]
+fn the_callers_name_comes_from_the_same_line_as_their_home() {
+    let passwd = "root:x:0:0::/root:/usr/bin/bash\nbroken\nayse:x:1000:1000:Ayşe:/home/ayse:/usr/bin/zsh\n";
+    assert_eq!(passwd_name(passwd, 1000).as_deref(), Some("ayse"));
+    assert_eq!(passwd_name(passwd, 0).as_deref(), Some("root"));
+    assert_eq!(passwd_name(passwd, 4242), None);
+}
+
+#[test]
+fn only_what_pacman_downloads_is_a_download() {
+    // Names `pacman -Sw` wrote in a throwaway container, epoch and all.
+    for name in [
+        "nano-9.2-1-x86_64.pkg.tar.zst",
+        "nano-9.2-1-x86_64.pkg.tar.zst.sig",
+        "less-1:710-1-x86_64.pkg.tar.zst",
+        "python-pip-25.2-1-any.pkg.tar.zst",
+        "libc++-20.1.8-1-x86_64.pkg.tar.xz",
+    ] {
+        assert!(is_download_name(name), "`{name}`");
+    }
+    for name in [
+        "",
+        "nano.pkg.tar.zst",
+        "nano-9.2-x86_64.pkg.tar.zst",
+        ".nano-9.2-1-x86_64.pkg.tar.zst",
+        "-nano-9.2-1-x86_64.pkg.tar.zst",
+        "../nano-9.2-1-x86_64.pkg.tar.zst",
+        "nano-9.2-1-x86_64.pkg.tar.zst.part",
+        "download-yMG1ra",
+        "a b-1-1-any.pkg.tar.zst",
+    ] {
+        assert!(!is_download_name(name), "`{name}`");
+    }
+}

@@ -9,13 +9,13 @@
 use std::fs::{self, File};
 use std::io::{self, BufRead, Read, Write};
 use std::os::fd::AsRawFd;
-use std::os::unix::fs::MetadataExt;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
 use qframe::runtime::ProcessOutcome;
 use qpackages_core::helper::{
-    PACMAN_PATH, Refusal, Request, Response, VERSION, build_caches, caller_uid, in_build_cache, pacman_env,
-    parse_options, passwd_home,
+    DOWNLOADS, PACMAN_CONF_PATH, PACMAN_PATH, Refusal, Request, Response, VERSION, build_caches, caller_uid,
+    in_build_cache, is_download_name, pacman_env, parse_options, passwd_home,
 };
 use qpackages_core::pacman::{command, read_orphans};
 use qpackages_core::reflector::{BACKUP, CONFIG, MIRRORLIST, Mirrors, REFLECTOR_PATH, has_server};
@@ -29,6 +29,13 @@ const ROOT: u32 = 0;
 /// The longest request line read, in bytes: far more than any list of package names needs, and
 /// a bound on what a runaway writer can make the helper hold.
 const MAX_LINE: usize = 1 << 20;
+
+/// The largest file taken from the downloads folder, in bytes: well above the largest package in
+/// the repositories, and a bound on what a user can make root copy.
+const MAX_DOWNLOAD: u64 = 8 << 30;
+
+/// pacman's cache when pacman-conf cannot say.
+const DEFAULT_CACHE: &str = "/var/cache/pacman/pkg";
 
 /// The pseudo-terminal pacman gets before a `size` request says otherwise.
 const DEFAULT_SIZE: (u16, u16) = (80, 24);
@@ -136,6 +143,13 @@ fn serve(
             Ok(Request::InstallBuilt(paths)) => install_built(&paths, places.caller, &env, size, runner, &mut output),
             Ok(Request::Snap(job, names)) => snap_job(job, &names, &env, runner, &mut output),
             Ok(Request::SnapLink) => snap_link(places.root, &mut output),
+            Ok(request @ (Request::Upgrade | Request::UpgradeInstall(_))) => {
+                take_downloads(places, runner);
+                match request.command() {
+                    Some((program, args)) => carry_out(program, &args, &env, size, runner, &mut output),
+                    None => continue,
+                }
+            }
             Ok(request) => match request.command() {
                 Some((program, args)) => carry_out(program, &args, &env, size, runner, &mut output),
                 None => continue,
@@ -225,6 +239,89 @@ fn open_built(path: &Path, caller: &Caller) -> io::Result<File> {
         return Err(refused());
     }
     Ok(file)
+}
+
+/// Copies what the background check downloaded ahead into pacman's own cache, so the update that
+/// follows finds the packages there instead of downloading them again. Returns how many files
+/// were copied.
+///
+/// The downloads are the caller's files in a folder the caller can write, so pacman is never
+/// pointed at them: pacman opens a package three times between checking it and unpacking it
+/// (measured with strace), and the user could swap the file in between. A copy in root's cache
+/// cannot be swapped, and pacman checks it there as it checks any file it downloaded itself: a
+/// copy that is not the package the repositories name fails its signature, is deleted, and the
+/// update stops without installing anything. Only regular files of the caller's, named as
+/// `pacman -Sw` names them, are copied, each read from the descriptor that was checked; a name
+/// already in the cache is left alone. Anything that goes wrong only means a file is not taken,
+/// and pacman then downloads it as it would have anyway.
+fn take_downloads(places: &Places<'_>, runner: &dyn Runner) -> usize {
+    let Some(caller) = places.caller else { return 0 };
+    let Ok(entries) = fs::read_dir(caller.home.join(DOWNLOADS)) else { return 0 };
+    let mut names: Vec<String> = entries
+        .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
+        .filter(|name| is_download_name(name))
+        .collect();
+    if names.is_empty() {
+        return 0;
+    }
+    names.sort();
+    let cache = pacman_cache(places.root, runner);
+    names.iter().filter(|name| take_one(&caller.home.join(DOWNLOADS).join(name), &cache.join(name), caller)).count()
+}
+
+/// The folder pacman downloads into, under `root`: the first cache folder pacman-conf names, or
+/// pacman's default when it names none.
+fn pacman_cache(root: &Path, runner: &dyn Runner) -> PathBuf {
+    let named = runner
+        .output(PACMAN_CONF_PATH, &["CacheDir".to_owned()], &pacman_env("C"))
+        .ok()
+        .filter(crate::runner::Output::succeeded)
+        .and_then(|listed| listed.stdout.lines().map(str::trim).find(|line| line.starts_with('/')).map(str::to_owned));
+    let cache = named.unwrap_or_else(|| DEFAULT_CACHE.to_owned());
+    root.join(cache.trim_start_matches('/'))
+}
+
+/// Copies the caller's file at `from` to `to` when it is a regular file of theirs and nothing is
+/// at `to` yet. What was looked at through the path is compared with what the open descriptor
+/// holds, so a link or a file swapped in between is not copied.
+fn take_one(from: &Path, to: &Path, caller: &Caller) -> bool {
+    let copied = (|| -> io::Result<bool> {
+        if fs::symlink_metadata(to).is_ok() {
+            return Ok(false);
+        }
+        let seen = fs::symlink_metadata(from)?;
+        if !seen.file_type().is_file() {
+            return Ok(false);
+        }
+        // Opened without following a link and without waiting: a path swapped for a link or a
+        // pipe after the look above must neither lead root elsewhere nor hold the helper up.
+        let flags = rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::NONBLOCK;
+        let mut file = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(i32::try_from(flags.bits()).unwrap_or_default())
+            .open(from)?;
+        let held = file.metadata()?;
+        let same = held.dev() == seen.dev() && held.ino() == seen.ino();
+        if !held.file_type().is_file() || !same || held.uid() != caller.uid || held.len() > MAX_DOWNLOAD {
+            return Ok(false);
+        }
+        let Some(folder) = to.parent() else { return Ok(false) };
+        let name = to.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+        // Hidden, so pacman never sees a file half written; replaced if an earlier run left it.
+        let part = folder.join(format!(".{name}.qpac-part"));
+        let _ = fs::remove_file(&part);
+        let mut copy = File::create_new(&part)?;
+        let written = io::copy(&mut Read::take(&mut file, MAX_DOWNLOAD + 1), &mut copy)?;
+        if written != held.len() {
+            let _ = fs::remove_file(&part);
+            return Ok(false);
+        }
+        copy.sync_all()?;
+        fs::set_permissions(&part, std::os::unix::fs::PermissionsExt::from_mode(0o644))?;
+        fs::rename(&part, to)?;
+        Ok(true)
+    })();
+    copied.unwrap_or(false)
 }
 
 /// Has snapd carry out `job` on `names` and waits for it to end.
@@ -883,6 +980,78 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.root);
         }
+    }
+
+    /// pacman's cache under `home`'s root, as pacman-conf names it in the recording.
+    fn cache_of(home: &Home, runner: &Upgrade) -> PathBuf {
+        runner.recorded.answer(PACMAN_CONF_PATH, &["CacheDir"], "/var/cache/pacman/pkg/\n", 0);
+        runner.recorded.play(
+            PACMAN_PATH,
+            &command::upgrade(),
+            &["upgrading nano..."],
+            ProcessOutcome::Finished { code: Some(0) },
+        );
+        let cache = home.root.join("var/cache/pacman/pkg");
+        fs::create_dir_all(&cache).expect("pacman's cache");
+        cache
+    }
+
+    const NANO: &str = "nano-9.2-1-x86_64.pkg.tar.zst";
+
+    #[test]
+    fn an_update_first_copies_what_was_downloaded_ahead_into_pacmans_cache() {
+        let home = Home::new("downloads");
+        let runner = Upgrade::default();
+        let cache = cache_of(&home, &runner);
+        home.file(&format!("{DOWNLOADS}/{NANO}"), b"nano's package");
+        home.file(&format!("{DOWNLOADS}/{NANO}.sig"), b"nano's signature");
+        home.file(&format!("{DOWNLOADS}/notes.txt"), b"not a package");
+        // A link named like a package: whatever it points at is not the user's download.
+        let elsewhere = home.file("elsewhere", b"somewhere else");
+        std::os::unix::fs::symlink(
+            &elsewhere,
+            home.caller.home.join(DOWNLOADS).join("less-1:710-1-x86_64.pkg.tar.zst"),
+        )
+        .expect("a link");
+        let out = home.serve(Some(&home.caller), &runner, "upgrade\n");
+        assert_eq!(out, ["ready 1", "line upgrading nano...", "done 0"]);
+        assert_eq!(fs::read(cache.join(NANO)).expect("copied"), b"nano's package");
+        assert_eq!(fs::read(cache.join(format!("{NANO}.sig"))).expect("copied"), b"nano's signature");
+        let mut names: Vec<String> = fs::read_dir(&cache)
+            .expect("the cache")
+            .map(|e| e.expect("entry").file_name().to_string_lossy().into())
+            .collect();
+        names.sort();
+        assert_eq!(names, [NANO.to_owned(), format!("{NANO}.sig")], "no link, no other file, nothing half written");
+        let lines = runner.recorded.command_lines();
+        assert_eq!(lines, [format!("{PACMAN_CONF_PATH} CacheDir"), format!("{PACMAN_PATH} -Syu --noconfirm")]);
+    }
+
+    #[test]
+    fn a_package_already_in_the_cache_is_left_as_it_is() {
+        let home = Home::new("downloads-kept");
+        let runner = Upgrade::default();
+        let cache = cache_of(&home, &runner);
+        fs::write(cache.join(NANO), b"pacman's own").expect("a cached package");
+        home.file(&format!("{DOWNLOADS}/{NANO}"), b"the user's");
+        home.serve(Some(&home.caller), &runner, "upgrade\n");
+        assert_eq!(fs::read(cache.join(NANO)).expect("there"), b"pacman's own");
+    }
+
+    #[test]
+    fn a_download_of_someone_else_is_not_taken() {
+        let home = Home::new("downloads-other");
+        let runner = Upgrade::default();
+        let cache = cache_of(&home, &runner);
+        home.file(&format!("{DOWNLOADS}/{NANO}"), b"nano's package");
+        let stranger = Caller { uid: home.caller.uid + 1, home: home.caller.home.clone() };
+        home.serve(Some(&stranger), &runner, "upgrade\n");
+        assert!(!cache.join(NANO).exists(), "the file is not the caller's");
+        // Without a caller there is no home to look in, and pacman-conf is not even asked.
+        let runner = Upgrade::default();
+        cache_of(&home, &runner);
+        home.serve(None, &runner, "upgrade\n");
+        assert_eq!(runner.recorded.command_lines(), [format!("{PACMAN_PATH} -Syu --noconfirm")]);
     }
 
     const HELLO: &str = ".cache/paru/clone/hello/hello-1.0-1-x86_64.pkg.tar.zst";

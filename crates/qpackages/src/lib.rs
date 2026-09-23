@@ -15,6 +15,7 @@ mod detail;
 mod helper;
 mod icons;
 mod installed;
+pub mod ladder;
 pub mod locales;
 mod reload;
 mod review;
@@ -137,7 +138,7 @@ pub fn run() -> std::io::Result<()> {
         snap_socket: Path::new(qpackages_core::snap::SOCKET),
         first_run,
     };
-    let app = app::Qpackages::new(machine, &settings);
+    let app = app::Qpackages::new(machine, &settings).with_self_update(app::SelfUpdateFolders::here());
     let result = locales::LOCALES
         .iter()
         .fold(Runtime::new(app), |runtime, (file, text)| runtime.locale_source(*file, *text))

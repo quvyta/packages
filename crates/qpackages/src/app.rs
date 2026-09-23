@@ -7,6 +7,7 @@
 
 mod backend;
 mod layout;
+mod self_update;
 mod tab;
 mod wizard;
 
@@ -41,6 +42,7 @@ use crate::updates::{self, Updates};
 use crate::{sources, store, transaction::view as flow_view};
 
 use layout::{MIN_PACKAGES, output_layout};
+pub use self_update::SelfUpdateFolders;
 pub use tab::{TABS, Tab};
 pub use wizard::{FirstRun, WizardMsg};
 
@@ -188,6 +190,11 @@ pub struct Qpackages {
     places: Places,
     /// Which snapshot tools this machine has, as last looked at.
     detected: backup::Detected,
+    /// Whether the ladder's install step can be chosen here, as last looked at.
+    pub(crate) ladder: crate::ladder::Here,
+    /// Who must own the install step's script and the folders above it: root, except on a
+    /// pretend machine a test builds, whose files its own user owns.
+    system_owner: u32,
     /// What the settings page knows about reflector.
     reflector: Reflector,
     /// The appearance rows and the shared preferences behind them.
@@ -202,6 +209,9 @@ pub struct Qpackages {
     /// What the Settings page would start for the sources the wizard was asked to bring, taken
     /// one after another once it is over.
     after_setup: VecDeque<settings_page::Msg>,
+    /// Where the family's switch for the notice of a newer qpac is kept, and whether it is on;
+    /// `None` where qpac asks about itself not at all.
+    self_update: Option<self_update::SelfUpdate>,
 }
 
 impl std::fmt::Debug for Qpackages {
@@ -255,6 +265,10 @@ pub enum Msg {
     Wizard(WizardMsg),
     /// The wizard wrote the shared keys and made `packages.conf`, and is over.
     SetUp,
+    /// crates.io has a newer qpac than the one running: qpac itself, not a package.
+    NewerQpac(qframe::runtime::Update),
+    /// The family's switch for that notice was written, or why not.
+    SelfUpdateSaved(Result<(), String>),
 }
 
 /// What an application without its first read shows: nothing, not an empty machine.
@@ -314,6 +328,8 @@ impl Qpackages {
             runner: Arc::clone(&machine.runner),
             places: Places::real(),
             detected: backup::Detected::default(),
+            ladder: crate::ladder::Here::default(),
+            system_owner: crate::ladder::ROOT,
             reflector: Reflector::default(),
             transaction: Flow::new(
                 machine.runner,
@@ -328,6 +344,7 @@ impl Qpackages {
             setup_folder,
             choices: wizard::Choices::default(),
             after_setup: VecDeque::new(),
+            self_update: None,
         };
         app.transaction.set_build_places(app.places.build(app.uid));
         app.transaction.set_review_places(app.places.review());
@@ -367,6 +384,14 @@ impl Qpackages {
         self
     }
 
+    /// The same application on a pretend machine whose system files `owner` owns, so a test can
+    /// put a trusted install script there.
+    #[cfg(test)]
+    pub(crate) fn system_owned_by(mut self, owner: u32) -> Self {
+        self.system_owner = owner;
+        self
+    }
+
     /// Tells the flow which AUR helper builds: the one the last read found, while the AUR is in
     /// use.
     fn update_builder(&mut self) {
@@ -390,6 +415,9 @@ impl Qpackages {
     fn detect_backup(&mut self) {
         self.detected = backup::detect(&self.places.root);
         self.transaction.set_backup(self.backup_plan());
+        // Looked at with the snapshot tools: a package that brings the install step's script is
+        // noticed after the next read, like one that brings snapper.
+        self.ladder = crate::ladder::Here::detect(&self.places.root, self.system_owner, self.uid);
     }
 
     /// Reads Arch's news of the last two weeks in the background.
@@ -581,6 +609,7 @@ impl Qpackages {
             // The appearance rows save themselves, each file read again right before it is
             // written, and keep the settings held here in step; there is nothing to save after.
             settings_page::Msg::Appearance(change) => self.appearance.update(change, &mut self.settings),
+            settings_page::Msg::SelfUpdate(on) => self.switch_self_update(on),
         }
     }
 
@@ -679,10 +708,12 @@ impl Qpackages {
                 planning: self.transaction.is_planning(),
                 tool: self.transaction.tool(),
                 detected: &self.detected,
+                ladder: &self.ladder,
                 background: self.places.units.is_some() && self.places.exe.is_some(),
                 reflector: &self.reflector,
                 busy: !self.transaction.is_idle(),
                 appearance: &self.appearance,
+                self_update: self.self_update.as_ref().map(self_update::SelfUpdate::on),
             };
             ui.page("settings", |ui| {
                 ui.map(Msg::Settings, |ui| settings_page::view(ui, cx)).fill();
@@ -819,9 +850,11 @@ impl App for Qpackages {
         // machine has.
         let reads = Command::batch([self.reload.command(), self.discover.init().map(Msg::Discover)]);
         if self.setting_up() {
+            // Nothing is asked about qpac itself while the wizard is open: a first start has
+            // enough to say, and the next start asks.
             return Command::batch([reads, Command::focus(wizard::FIRST)]);
         }
-        reads
+        Command::batch([reads, self.ask_for_newer_qpac()])
     }
 }
 
@@ -907,6 +940,9 @@ impl Qpackages {
             }
             Msg::Wizard(msg) => self.update_wizard(msg),
             Msg::SetUp => return self.finish_setup(),
+            Msg::NewerQpac(update) => return Command::toast(self_update::notice(&update)),
+            Msg::SelfUpdateSaved(Ok(())) => {}
+            Msg::SelfUpdateSaved(Err(reason)) => return self.self_update_not_saved(reason),
         }
         Command::none()
     }

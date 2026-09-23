@@ -334,6 +334,58 @@ fn yes_turns_the_timer_on_with_the_interval_chosen() {
     );
 }
 
+/// Opens the ladder's choice, which shows `shown`, and takes the step `steps` below it with the
+/// keys, as someone does once the list is open.
+fn choose_step(h: &mut Harness<Qpackages>, shown: &str, steps: usize) {
+    h.click_text(shown);
+    h.advance(Duration::from_millis(300));
+    for _ in 0..steps {
+        h.press("down");
+    }
+    h.press("enter");
+    settle(h);
+}
+
+#[test]
+fn the_ladder_step_is_asked_with_the_check_and_written_at_finish() {
+    let scratch = machine("wizard-ladder");
+    let recorded = recording();
+    let mut h = start(&scratch, &recorded, 120, 40);
+    press(&mut h, "Next");
+    press(&mut h, "Next");
+    let screen = h.screen();
+    for text in ["When updates are found", "Tell me", "no such script"] {
+        assert!(screen.contains(text), "`{text}` is missing:\n{screen}");
+    }
+    choose_step(&mut h, "Tell me", 1);
+    assert_eq!(h.app().choices.mode, crate::ladder::Mode::Download);
+    assert!(h.screen().contains("AUR, Flatpak and Snap updates are only reported."), "{}", h.screen());
+    assert_eq!(folder(&scratch), Vec::<String>::new(), "nothing is written before Finish");
+    press(&mut h, "Finish");
+    let text = written(&scratch);
+    assert!(text.contains("mode = \"download\"") && text.contains("autostart = \"on\""), "{text}");
+    // The Settings page reads the same choice back.
+    h.press("ctrl+,");
+    settle(&mut h);
+    let row = h.screen().lines().find(|line| line.contains("When updates are found")).map(str::to_owned);
+    assert!(row.is_some_and(|row| row.contains("Download")), "{}", h.screen());
+}
+
+#[test]
+fn without_the_check_the_ladder_step_waits_and_nothing_of_it_is_written() {
+    let scratch = machine("wizard-ladder-off");
+    let recorded = recording();
+    let mut h = start(&scratch, &recorded, 120, 40);
+    press(&mut h, "Next");
+    press(&mut h, "Next");
+    turn_down_the_background_check(&mut h);
+    h.click_text("Tell me");
+    h.advance(Duration::from_millis(300));
+    assert!(!h.screen().contains("Download"), "no list opens:\n{}", h.screen());
+    press(&mut h, "Finish");
+    assert!(!written(&scratch).contains("mode"), "{}", written(&scratch));
+}
+
 #[test]
 fn no_leaves_the_timer_alone() {
     let scratch = machine("wizard-no-timer");
@@ -363,6 +415,7 @@ fn starting_with_the_defaults_keeps_the_sources_found_and_checks_in_the_backgrou
     // nobody checked is off, so Discover does not offer it.
     assert!(text.contains("flatpak = false") && text.contains("snap = false") && !text.contains("aur"), "{text}");
     assert!(text.contains("autostart = \"on\"") && !text.contains("interval"), "{text}");
+    assert!(!text.contains("mode"), "telling is the default step and is not written:\n{text}");
     let timer = fs::read_to_string(scratch.units().join(TIMER)).expect("the timer is written");
     assert!(timer.contains("OnUnitActiveSec=6h"), "{timer}");
     assert!(!h.screen().contains("Install 1 package?"), "nothing is asked to be installed");
@@ -449,7 +502,13 @@ fn a_theme_kept_to_qpac_in_the_wizard_stays_qpac_s_own_on_the_settings_page() {
 fn the_wizard_s_labels_stand_whole_and_its_buttons_inside_the_frame() {
     let steps: [&[&str]; 2] = [
         &["wizard.step-sources", "source.pacman", "source.aur", "source.flatpak", "source.snap"],
-        &["wizard.step-updates", "settings-page.check", "settings-page.interval"],
+        &[
+            "wizard.step-updates",
+            "settings-page.check",
+            "settings-page.interval",
+            "settings-page.mode",
+            "settings-page.mode-notify",
+        ],
     ];
     for code in crate::locales::tests::codes() {
         // The buttons are the framework's, so their words come from its own catalogue.

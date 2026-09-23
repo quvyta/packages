@@ -122,8 +122,10 @@ pub(crate) fn codes() -> Vec<String> {
 /// The plain text `key` holds in the language `code`, read from the language file itself.
 ///
 /// A screen test asserts this text is on screen whole, so it must be a fixed label: a plural or a
-/// text with a `{placeholder}` is not one, and asking for one is a mistake in the test.
+/// text with a `{placeholder}` is not one, and asking for one is a mistake in the test. A key still
+/// [pending](PENDING) in `code` is the English text, as the screen shows it there.
 pub(crate) fn label(code: &str, key: &str) -> String {
+    let code = if pending_in(code, key, PENDING) { "en" } else { code };
     let file = files().into_iter().find(|file| file.code == code).unwrap_or_else(|| panic!("`{code}` is compiled in"));
     let entry = file.entries.get(key).unwrap_or_else(|| panic!("`{key}` is not in {}", file.name));
     let Entry::Plain(text) = entry else { panic!("`{key}` in {} is a plural, not a fixed label", file.name) };

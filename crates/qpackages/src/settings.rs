@@ -133,6 +133,16 @@ pub fn load() -> Settings {
     }
 }
 
+/// The settings as the background check reads them: the family's `packages.conf`, checked
+/// against qpackages's keys but never healed or brought over from an older folder. A check a
+/// timer starts must not change what the person wrote; the screen does that when it next opens.
+/// Without a home folder there is nothing to read, and every key has its default.
+#[must_use]
+pub fn for_check() -> Settings {
+    let path = Family::QUVYTA.config_dir().map(|folder| folder.join(format!("{APP}.conf")));
+    path.map_or_else(|| Settings::parse_str("packages.conf", ""), Settings::open).schema(schema())
+}
+
 /// [`load`] with `folder` as the family's folder and `legacy` as the folder earlier releases
 /// used, so a test never touches the user's own settings.
 ///
@@ -327,10 +337,10 @@ mod tests {
 
     #[test]
     fn healing_replaces_a_helper_nobody_knows_and_drops_an_unknown_key() {
-        let text = "[aur]\nhelper = \"trizen\"\n\n[updates]\nmode = \"install\"\n";
+        let text = "[aur]\nhelper = \"trizen\"\n\n[updates]\ncadence = \"install\"\n";
         let settings = Settings::parse_str("settings.toml", text).schema(schema()).self_heal(true);
         assert_eq!(aur_preference(&settings), AurPreference::Auto);
-        assert!(settings.value("updates.mode").is_none(), "a key this version does not read is removed");
+        assert!(settings.value("updates.cadence").is_none(), "a key this version does not read is removed");
         assert_eq!(settings.diagnostics().len(), 2, "each repair is reported");
     }
 }

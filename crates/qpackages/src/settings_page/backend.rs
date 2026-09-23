@@ -14,6 +14,7 @@ use super::{CONTROL_WIDTH, Cx, Msg as PageMsg};
 use crate::backend_settings::{
     self, OFFERED_AGES, OFFERED_COUNTS, OFFERED_INTERVALS, OFFERED_SORTS, Orphans, backup_choices,
 };
+use crate::ladder::{self, Here, Mode};
 use crate::transaction::view::backup_note;
 
 /// Everything that can happen in these settings.
@@ -25,6 +26,8 @@ pub enum Msg {
     AutostartSwitched(bool, Result<(), String>),
     /// An interval was chosen, by position in `OFFERED_INTERVALS`.
     Interval(usize),
+    /// A step of the update ladder was chosen, by position among those this machine offers.
+    Mode(usize),
     /// A snapshot choice was made, by position among those this machine offers.
     Backup(usize),
     /// What happens to orphans was chosen, by position in `Orphans::ALL`.
@@ -89,12 +92,17 @@ impl Countries {
     }
 }
 
-/// The background check: on or off, and how often.
+/// The background check: on or off, how often, and the ladder's step.
 pub(super) fn updates_section(list: &mut SettingsRows<'_, PageMsg>, cx: Cx<'_>) {
     list.heading(t!("settings-page.updates"));
     let on = backend_settings::autostart(cx.settings);
     let hours = backend_settings::interval_hours(cx.settings);
-    let description = if cx.background { t!("settings-page.check-text") } else { t!("settings-page.check-no-home") };
+    let mode = backend_settings::update_mode(cx.settings).effective(cx.ladder.script);
+    let description = match (cx.background, mode) {
+        (false, _) => t!("settings-page.check-no-home"),
+        (true, Mode::Install) => t!("settings-page.check-text-install"),
+        (true, _) => t!("settings-page.check-text"),
+    };
     let row = SettingRow::new(t!("settings-page.check")).description(description).disabled(!cx.background);
     list.row(row, |ui| {
         ui.add(Switch::new(on).disabled(!cx.background).on_toggle(|on| PageMsg::Backend(Msg::Autostart(on))));
@@ -109,6 +117,50 @@ pub(super) fn updates_section(list: &mut SettingsRows<'_, PageMsg>, cx: Cx<'_>) 
             .on_select(|index| PageMsg::Backend(Msg::Interval(index)));
         ui.add(select).width(Length::Cells(CONTROL_WIDTH));
     });
+    mode_rows(list, cx.ladder, mode, on, |index| PageMsg::Backend(Msg::Mode(index)));
+}
+
+/// The ladder's step: a choice among the steps this machine offers, what the chosen one does, and
+/// the install step on a row of its own that says why it cannot be chosen when the script is
+/// missing. The wizard shows the same rows, so both read the same choices. They wait while the
+/// background check is off, since only the check climbs the ladder.
+pub(crate) fn mode_rows<M: Clone + 'static>(
+    list: &mut SettingsRows<'_, M>,
+    here: &Here,
+    mode: Mode,
+    on: bool,
+    chose: impl Fn(usize) -> M + 'static,
+) {
+    let offered = here.offered();
+    let names: Vec<String> = offered.iter().map(|step| mode_name(*step)).collect();
+    let chosen = offered.iter().position(|step| *step == mode);
+    let row = SettingRow::new(t!("settings-page.mode")).description(mode_text(mode, here)).disabled(!on);
+    list.row(row, |ui| {
+        let select = Select::new(names).selected(chosen).disabled(!on).on_select(chose);
+        ui.add(select).width(Length::Cells(CONTROL_WIDTH)).id("update-mode");
+    });
+    if !here.script {
+        let row = SettingRow::new(mode_name(Mode::Install)).description(t!("settings-page.mode-install-missing"));
+        list.row(row.disabled(true), |_| {});
+    }
+}
+
+/// A step of the ladder as the choice names it.
+pub(crate) fn mode_name(mode: Mode) -> String {
+    t!(&format!("settings-page.mode-{}", mode.key()))
+}
+
+/// What `mode` does here, said under the choice. The install step names its script and the
+/// sudoers line to add, since qpac never adds it itself.
+fn mode_text(mode: Mode, here: &Here) -> String {
+    match mode {
+        Mode::Notify => t!("settings-page.mode-notify-text"),
+        Mode::Download => t!("settings-page.mode-download-text"),
+        Mode::Install => {
+            let line = ladder::sudoers_line(here.user.as_deref().unwrap_or("%wheel"));
+            t!("settings-page.mode-install-text", script = ladder::SCRIPT, line = line.as_str())
+        }
+    }
 }
 
 /// How often, as the interval choice says it.

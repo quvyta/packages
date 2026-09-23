@@ -4,6 +4,7 @@
 //! [updates]
 //! autostart = "off"   # "on" runs `qpac --check` from a user timer
 //! interval = 6        # hours between checks, 1 to 168
+//! mode = "notify"     # "notify", "download" or "install": what the check does with what it finds
 //!
 //! [backup]
 //! tool = "snapper"    # "off", "snapper" or "timeshift"; unset picks what is installed
@@ -25,11 +26,16 @@ use qframe::storage::{Schema, SettingKind, Settings};
 use qpackages_core::backup::{Detected, Setting, Tool};
 use qpackages_core::reflector::{Country, MirrorError, Mirrors, Protocol, Sort, is_country_code};
 
+use crate::ladder::Mode;
+
 /// Whether the background check runs.
 pub const AUTOSTART: &str = "updates.autostart";
 
 /// Hours between background checks.
 pub const INTERVAL: &str = "updates.interval";
+
+/// What the background check does with the updates it finds: the ladder's step.
+pub const MODE: &str = "updates.mode";
 
 /// Which tool takes a snapshot before an update.
 pub const BACKUP_TOOL: &str = "backup.tool";
@@ -86,7 +92,8 @@ pub const DEFAULT_INTERVAL: u32 = 6;
 const INTERVALS: std::ops::RangeInclusive<i64> = 1..=168;
 
 /// `schema` with the keys above: `updates.autostart` is `off` or `on`, off by default;
-/// `updates.interval` a whole number of hours from 1 to 168, 6 by default; `backup.tool` `off`,
+/// `updates.interval` a whole number of hours from 1 to 168, 6 by default; `updates.mode`
+/// `notify`, `download` or `install`, `notify` by default; `backup.tool` `off`,
 /// `snapper` or `timeshift`, with no default, since the default depends on what is installed;
 /// `cleanup.orphans` `never`, `ask` or `auto`, `ask` by default; the `mirrors.*` keys as reflector
 /// accepts them, every country, 10 mirrors, 12 hours and by speed by default.
@@ -95,6 +102,7 @@ pub fn declare(schema: Schema) -> Schema {
     schema
         .choice(AUTOSTART, ["off", "on"], "off")
         .check::<i64>(INTERVAL, i64::from(DEFAULT_INTERVAL), |hours| INTERVALS.contains(hours))
+        .choice(MODE, Mode::ALL.map(|(_, key)| key), "notify")
         .optional(BACKUP_TOOL, SettingKind::choice(["off", "snapper", "timeshift"]))
         .choice(ORPHANS, Orphans::ALL.map(|(_, value)| value), "ask")
         .check::<Vec<String>>(MIRROR_COUNTRIES, Vec::new(), |codes| {
@@ -119,6 +127,18 @@ pub fn interval_hours(settings: &Settings) -> u32 {
         .map(|hours| hours.clamp(*INTERVALS.start(), *INTERVALS.end()))
         .and_then(|hours| u32::try_from(hours).ok())
         .unwrap_or(DEFAULT_INTERVAL)
+}
+
+/// The ladder's step the user chose; the lowest, telling, when nothing readable is written. What
+/// runs on this machine is [`Mode::effective`] of it.
+#[must_use]
+pub fn update_mode(settings: &Settings) -> Mode {
+    settings.get::<String>(MODE).as_deref().and_then(Mode::parse).unwrap_or(Mode::Notify)
+}
+
+/// Chooses the ladder's step and says whether that changed anything.
+pub fn set_update_mode(settings: &mut Settings, mode: Mode) -> bool {
+    settings.set(MODE, mode.key().to_owned())
 }
 
 /// The snapshot setting: the user's choice, or, when there is none, the tool installed on the
@@ -268,6 +288,18 @@ mod tests {
         assert_eq!(backup_tool(&settings, &timeshift), Setting::Tool(Tool::Timeshift));
         assert_eq!(backup_tool(&settings, &Detected::default()), Setting::Off);
         assert_eq!(orphans(&settings), Orphans::Ask);
+        assert_eq!(update_mode(&settings), Mode::Notify);
+    }
+
+    #[test]
+    fn the_ladder_step_is_read_healed_and_written() {
+        assert_eq!(update_mode(&read("[updates]\nmode = \"download\"\n")), Mode::Download);
+        assert_eq!(update_mode(&read("[updates]\nmode = \"install\"\n")), Mode::Install);
+        let mut healed = read("[updates]\nmode = \"always\"\n");
+        assert_eq!(update_mode(&healed), Mode::Notify, "an unknown step is the lowest");
+        assert!(set_update_mode(&mut healed, Mode::Download));
+        assert!(!set_update_mode(&mut healed, Mode::Download), "the same step changes nothing");
+        assert_eq!(update_mode(&healed), Mode::Download);
     }
 
     #[test]

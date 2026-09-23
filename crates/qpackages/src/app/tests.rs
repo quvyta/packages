@@ -269,7 +269,7 @@ fn the_search_key_reaches_the_installed_search_only_where_it_is() {
 
 #[test]
 fn the_settings_button_and_its_key_open_the_page_and_escape_and_back_close_it() {
-    let mut h = harness(100, 24);
+    let mut h = harness(100, 32);
     let header = h.screen().lines().next().expect("a header").to_owned();
     let x = header.chars().position(|c| c == '▤').expect("the settings button");
     h.click(i32::try_from(x).unwrap(), 0);

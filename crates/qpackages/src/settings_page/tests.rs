@@ -72,7 +72,7 @@ fn a_source_turned_off_is_saved_at_once_and_nothing_is_written_before() {
 
 #[test]
 fn choosing_the_permission_program_takes_effect_and_is_saved() {
-    let (mut h, scratch, _) = page(100, 40);
+    let (mut h, scratch, _) = page(100, 48);
     h.send(AppMsg::Settings(Msg::PrivilegeTool(1)));
     let screen = h.screen();
     assert!(screen.contains("polkit asks, in a window or on the terminal."), "pkexec is used even unfound:\n{screen}");

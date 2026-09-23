@@ -24,8 +24,8 @@ use crate::helper::pkexec::Tool;
 use crate::settings::{self, AUR_HELPERS, PRIVILEGE_TOOLS};
 use crate::sources;
 
-pub(crate) use backend::interval_name;
 pub use backend::{Countries, Msg as BackendMsg, Reflector};
+pub(crate) use backend::{interval_name, mode_rows};
 
 /// Columns a choice takes on the right of its row.
 pub(crate) const CONTROL_WIDTH: u16 = 18;
@@ -57,6 +57,8 @@ pub enum Msg {
     Appearance(AppearanceChange),
     /// A setting of what happens around the packages changed.
     Backend(BackendMsg),
+    /// The family's notice of a newer qpac was switched on (`true`) or off.
+    SelfUpdate(bool),
 }
 
 /// What the page needs from the rest of the application to draw itself.
@@ -78,6 +80,8 @@ pub struct Cx<'a> {
     pub tool: &'a Tool,
     /// Which snapshot tools this machine has.
     pub detected: &'a qpackages_core::backup::Detected,
+    /// Whether the ladder's install step can be chosen here, and for whom.
+    pub ladder: &'a crate::ladder::Here,
     /// Whether the background check can be switched: there is a unit folder and qpac's own path.
     pub background: bool,
     /// What is known about reflector.
@@ -86,6 +90,9 @@ pub struct Cx<'a> {
     pub busy: bool,
     /// The appearance rows, which save themselves.
     pub appearance: &'a Appearance,
+    /// Whether qpac says when a newer qpac is out; `None` where it never asks, which leaves the
+    /// row out so the page offers nothing that does nothing.
+    pub self_update: Option<bool>,
 }
 
 /// Draws the page.
@@ -108,6 +115,7 @@ pub fn view(ui: &mut View<'_, Msg>, cx: Cx<'_>) {
                 backend::mirrors_section(list, cx);
                 privilege_section(list, cx);
                 cx.appearance.section(list, Msg::Appearance);
+                self_update_section(list, cx);
             })
             .fill_width()
             .id("settings-list");
@@ -231,6 +239,20 @@ fn missing_row(list: &mut SettingsRows<'_, Msg>, source: Source, name: String, p
             });
         }
     }
+}
+
+/// qpac itself: whether it says when a newer qpac is out.
+///
+/// A heading of its own, far from the Updates heading, and in qpac's own words rather than the
+/// family's "Say when an update is out": in a package manager that sentence reads as the package
+/// updates, which the Updates heading already switches.
+fn self_update_section(list: &mut SettingsRows<'_, Msg>, cx: Cx<'_>) {
+    let Some(on) = cx.self_update else { return };
+    list.heading(t!("self-update.heading"));
+    let about = t!("self-update.switch-text", family = qframe::storage::Family::QUVYTA.title());
+    list.row(SettingRow::new(t!("self-update.switch")).description(about), |ui| {
+        ui.add(Switch::new(on).on_toggle(Msg::SelfUpdate)).id("self-update");
+    });
 }
 
 /// The program that asks for administrator permission.

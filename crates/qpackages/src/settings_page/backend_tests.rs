@@ -3,6 +3,7 @@
 //! orphan choice, and reflector's rows, whose privileged work goes through the recorded helper.
 
 use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,12 +13,13 @@ use qframe::prelude::*;
 use qframe::runtime::ProcessOutcome;
 use qframe::storage::Settings;
 use qpackages_core::helper::SYSTEMCTL_PATH;
-use qpackages_core::pacman::command::{PACMAN, print_install};
+use qpackages_core::pacman::command::{self as pacman_command, FAKEROOT, PACMAN, print_install};
 use qpackages_core::reflector::{Country, Mirrors, Protocol, REFLECTOR_PATH, Sort, list_countries_args};
 
 use super::{BackendMsg, Msg};
 use crate::app::{Msg as AppMsg, Qpackages};
 use crate::autostart::{self, SYSTEMCTL, TIMER};
+use crate::check;
 use crate::runner::Recorded;
 use crate::testing::{Sample, Scratch, app_with, click_last, programs};
 
@@ -225,5 +227,126 @@ fn the_new_rows_keep_the_rules_in_every_glyph_mode_narrow_and_in_turkish() {
         assert!(!screen.contains('⟦'), "a key is missing in Turkish:\n{screen}");
         send(&mut h, BackendMsg::ChooseCountries);
         assert!(h.screen().contains("Türkiye") || h.screen().contains("Turkey"), "{}", h.screen());
+    }
+}
+
+/// Turns the background check on the way a person does, by its row and the space bar, with the
+/// timer's systemctl calls answered.
+fn turn_on_the_check(h: &mut Harness<Qpackages>, recorded: &Recorded) {
+    recorded.answer(SYSTEMCTL, &autostart::reload_args(), "", 0);
+    recorded.answer(SYSTEMCTL, &autostart::enable_args(), "", 0);
+    h.click_text("Check in the background");
+    h.press("space");
+    h.advance(Duration::from_millis(20));
+}
+
+/// Opens the ladder's choice, which shows `shown`, and moves `steps` down its list (up when
+/// negative) before taking the step there, as someone does with the keys once the list is open.
+fn choose_step(h: &mut Harness<Qpackages>, shown: &str, steps: i32) {
+    h.click_text(shown);
+    h.advance(Duration::from_millis(300));
+    for _ in 0..steps.unsigned_abs() {
+        h.press(if steps > 0 { "down" } else { "up" });
+    }
+    h.press("enter");
+    h.advance(Duration::from_millis(20));
+}
+
+/// What the next background check runs with the settings the page wrote to `scratch`, on a
+/// pretend machine of its own with two repository updates pending.
+fn next_check(scratch: &Scratch, name: &str) -> Vec<String> {
+    let settings = Settings::open(scratch.root().join("packages.conf")).schema(crate::settings::schema());
+    let (places, root) = check::tests::machine(name);
+    let runner = check::tests::recorded(&places);
+    runner.answer(FAKEROOT, &pacman_command::download(&places.private_db, &places.downloads), "", 0);
+    let outcome = check::check_with(&settings, &places, &runner, check::tests::NOW);
+    assert!(matches!(outcome, check::Outcome::Checked(..)), "{outcome:?}");
+    fs::remove_dir_all(root).ok();
+    runner.command_lines()
+}
+
+#[test]
+fn the_ladder_step_is_chosen_from_its_list_and_the_next_check_climbs_to_it() {
+    let (mut h, scratch, recorded) = page(&[], programs);
+    assert!(h.screen().contains("nothing is downloaded or installed until you confirm"), "{}", h.screen());
+    // Only the check climbs the ladder, so the choice waits while the check is off.
+    h.click_text("Tell me");
+    h.advance(Duration::from_millis(300));
+    assert!(!h.screen().contains("Download"), "no list opens:\n{}", h.screen());
+    turn_on_the_check(&mut h, &recorded);
+    assert!(written(&scratch).contains("autostart = \"on\""), "{}", written(&scratch));
+    choose_step(&mut h, "Tell me", 1);
+    assert!(written(&scratch).contains("mode = \"download\""), "{}", written(&scratch));
+    assert!(h.screen().contains("AUR, Flatpak and Snap updates are only reported."), "{}", h.screen());
+    let fetch = next_check(&scratch, "page-download");
+    assert!(fetch.last().is_some_and(|line| line.starts_with("fakeroot -- pacman -Suw")), "{fetch:?}");
+    // Back down to telling: the next check downloads nothing.
+    choose_step(&mut h, "Download", -1);
+    assert!(written(&scratch).contains("mode = \"notify\""), "{}", written(&scratch));
+    let told = next_check(&scratch, "page-notify");
+    assert!(!told.iter().any(|line| line.contains("-Suw")), "{told:?}");
+}
+
+#[test]
+fn installing_waits_for_a_trusted_script_and_then_names_the_sudoers_line() {
+    let (h, _scratch, _) = page(&[], programs);
+    let screen = h.screen();
+    let row = screen.lines().find(|line| line.trim_start().starts_with("Install") && !line.contains("flatpak"));
+    assert!(row.is_some(), "the step is shown on a row of its own:\n{screen}");
+    assert!(screen.contains("This copy of qpac has no such script"), "with why it cannot be chosen:\n{screen}");
+    assert!(!h.app().ladder.script);
+
+    // A machine whose package brought the script, owned by the one who owns its system files and
+    // writable by nobody else; the test's own user stands in for root.
+    let scratch = Scratch::new("backend-script", &[Sample::new("bash", "5.3-1", "Shell")]);
+    let script = scratch.root().join("usr/lib/quvyta-packages/upgrade");
+    fs::create_dir_all(script.parent().expect("a folder")).expect("its folder");
+    fs::write(&script, "#!/bin/sh\n").expect("the script");
+    fs::create_dir_all(scratch.root().join("etc")).expect("etc");
+    fs::write(scratch.root().join("etc/passwd"), "ayse:x:1000:1000::/home/ayse:/bin/sh\n")
+        .expect("a password database");
+    for path in [scratch.root().to_path_buf(), scratch.root().join("usr"), scratch.root().join("usr/lib")] {
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("its permissions");
+    }
+    fs::set_permissions(script.parent().expect("a folder"), fs::Permissions::from_mode(0o755)).expect("perms");
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).expect("perms");
+    let recorded = Arc::new(Recorded::default());
+    let settings = Settings::open(scratch.root().join("packages.conf"));
+    let owner = crate::current_uid().expect("the test's own user id");
+    let app = app_with(&scratch, settings, &recorded, programs).system_owned_by(owner);
+    let mut h = Harness::with_env(app, crate::locales::env(), 110, 90);
+    h.set_locale("en").set_glyph_mode(GlyphMode::Unicode).set_reduced_motion(true);
+    h.advance(Duration::from_millis(20));
+    h.send(AppMsg::OpenSettings);
+    h.advance(Duration::from_millis(20));
+    assert!(h.app().ladder.script, "the script is found trusted");
+    assert!(!h.screen().contains("This copy of qpac has no such script"), "{}", h.screen());
+    turn_on_the_check(&mut h, &recorded);
+    choose_step(&mut h, "Tell me", 2);
+    assert!(written(&scratch).contains("mode = \"install\""), "{}", written(&scratch));
+    let screen = h.screen();
+    for text in ["installs those from the official repositories through qpac", "ayse ALL=(root)", "NOPASSWD:"] {
+        assert!(screen.contains(text), "`{text}` is missing:\n{screen}");
+    }
+}
+
+#[test]
+fn the_ladder_s_labels_stand_whole_in_every_language_and_width() {
+    let keys = ["settings-page.mode", "settings-page.mode-notify", "settings-page.mode-install"];
+    for code in crate::locales::tests::codes() {
+        for width in [36, 60, 80, 120] {
+            let (mut h, _scratch, _) = page(&[], programs);
+            h.resize(width, 200);
+            h.set_locale(&code);
+            let screen = h.screen();
+            for key in keys {
+                let text = crate::locales::tests::label(&code, key);
+                assert!(screen.contains(&text), "`{key}` is cut in `{code}` at {width}:\n{screen}");
+            }
+            for line in screen.lines() {
+                assert!(qframe::text::width(line) <= width, "`{line}` is too wide in `{code}` at {width}");
+            }
+            assert!(!screen.contains('⟦'), "a key is missing in `{code}`:\n{screen}");
+        }
     }
 }

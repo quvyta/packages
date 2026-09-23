@@ -56,6 +56,36 @@ pub const BUILT_ENDINGS: [&str; 2] = [".pkg.tar.zst", ".pkg.tar.xz"];
 /// under one of these is installed with [`Request::InstallBuilt`].
 pub const BUILD_CACHES: [&str; 2] = [".cache/paru/clone", ".cache/yay"];
 
+/// Where the background check downloads pending updates ahead, under the calling user's home
+/// folder. Before a system update the helper copies what it finds here into pacman's own cache;
+/// pacman then checks every copy's signature and checksum there, where the user cannot touch it
+/// any more.
+///
+/// A fixed place under the home folder rather than the user's `XDG_CACHE_HOME`: the helper runs
+/// as root with an environment of its own and finds the folder only through the password
+/// database.
+pub const DOWNLOADS: &str = ".cache/quvyta/packages/downloads";
+
+/// pacman-conf by its absolute path, which says where pacman keeps its cache.
+pub const PACMAN_CONF_PATH: &str = "/usr/bin/pacman-conf";
+
+/// The endings of what `pacman -Sw` leaves in a cache: package files and their signatures.
+const DOWNLOAD_ENDINGS: [&str; 4] = [".pkg.tar.zst", ".pkg.tar.xz", ".pkg.tar.zst.sig", ".pkg.tar.xz.sig"];
+
+/// Whether `name` is a file name `pacman -Sw` writes: a package or its signature, as
+/// `name-version-release-arch.pkg.tar.zst`, with no path in it and nothing hidden.
+///
+/// The helper copies only such names into pacman's cache, where pacman looks for exactly those.
+#[must_use]
+pub fn is_download_name(name: &str) -> bool {
+    let Some(stem) = DOWNLOAD_ENDINGS.iter().find_map(|ending| name.strip_suffix(ending)) else { return false };
+    // Name, version, release and architecture: at least three dashes in what is left.
+    name.len() <= MAX_NAME
+        && !name.starts_with(['.', '-'])
+        && stem.matches('-').count() >= 3
+        && name.bytes().all(|b| b.is_ascii_alphanumeric() || b"@._+-:".contains(&b))
+}
+
 /// The variables that name the user who started the helper: pkexec sets the first, sudo the
 /// second. Both are set by the program that grants root, not by the user, so the helper can
 /// believe them.
@@ -472,6 +502,19 @@ pub fn passwd_home(passwd: &str, uid: u32) -> Option<PathBuf> {
         let fields: Vec<&str> = line.split(':').collect();
         match fields[..] {
             [_, _, id, _, _, home, _] if id == wanted && home.starts_with('/') => Some(PathBuf::from(home)),
+            _ => None,
+        }
+    })
+}
+
+/// The login name of `uid` in the password database text `passwd`.
+#[must_use]
+pub fn passwd_name(passwd: &str, uid: u32) -> Option<String> {
+    let wanted = uid.to_string();
+    passwd.lines().find_map(|line| {
+        let fields: Vec<&str> = line.split(':').collect();
+        match fields[..] {
+            [name, _, id, _, _, _, _] if id == wanted && !name.is_empty() => Some(name.to_owned()),
             _ => None,
         }
     })

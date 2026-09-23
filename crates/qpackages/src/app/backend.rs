@@ -50,6 +50,11 @@ impl Qpackages {
                 self.transaction.set_backup(self.backup_plan());
                 self.saved_if(changed)
             }
+            Page::Mode(index) => {
+                let Some(&mode) = self.ladder.offered().get(index) else { return Command::none() };
+                let changed = backend_settings::set_update_mode(&mut self.settings, mode);
+                self.saved_if(changed)
+            }
             Page::Orphans(index) => {
                 let Some(&(choice, _)) = Orphans::ALL.get(index) else { return Command::none() };
                 let changed = backend_settings::set_orphans(&mut self.settings, choice);

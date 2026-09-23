@@ -106,6 +106,12 @@ of the Quvyta family of terminal applications, is built on
   timer runs `qpac --check` every few hours (6 by default, never more often than hourly): it
   looks for updates without opening the screen and without privileges, and writes what it found
   to `~/.local/state/quvyta/packages/state.json`. Nothing runs as root and nothing is installed.
+  It can also *download* the pending updates from the official repositories ahead, still as you
+  and without root, into `~/.cache/quvyta/packages/downloads`; the next update you confirm copies
+  them into pacman's cache, where pacman checks them as its own, and finishes without waiting for
+  the mirrors. A third step, *install*, needs a root-owned script that a distribution package
+  brings and a sudoers line you add yourself; a `cargo install` has no such script, so there the
+  settings show the step with that reason and it cannot be chosen.
 
 The interface follows your system language. Nine are included: English, Turkish, German,
 Spanish, French, Brazilian Portuguese, Russian, Simplified Chinese and Japanese. Every one of
@@ -183,6 +189,28 @@ helper = "auto"   # "auto", "paru" or "yay"; auto takes paru when both are insta
 [privilege]
 tool = "auto"     # "auto", "pkexec" or "sudo"; auto takes pkexec when polkit is installed
 ```
+
+## No telemetry, and what goes over the network
+
+qpac collects no statistics and has no account, cookie or identifier of its own. What it sends over the network is what the requests below need, to the servers named, and nothing else. Two different things are called updates below, and they are kept apart on screen as well: **updates for your packages**, which the Updates tab and the background check look for, and **a newer qpac**, which is about the program itself.
+
+### A newer qpac
+
+When qpac starts, at most once a day, it asks crates.io whether a newer version of qpac itself is out, reading the same file `cargo install` reads: one HTTPS `GET` of `https://index.crates.io/qu/vy/quvyta-packages`. The request carries no cookie and no identifier; its headers are `User-Agent: quvyta-packages/<the version you run>`, `Accept: */*` and `Accept-Encoding: gzip`. crates.io sees, as with any connection, the address it comes from. When a newer qpac is out, a notice says *qpac 0.2.0 is out*, that it is about qpac and not your packages, and how to update it: from the Quvyta launcher, or with `cargo install quvyta-packages`. When there is no network, or crates.io does not answer within ten seconds, nothing is said and the next day asks again; qpac never waits for the answer before it opens. Nothing is asked while the first-run setup is open, and the background check (`qpac --check`) never asks it. The time of the last question is kept in `~/.local/state/quvyta/packages/update-check`.
+
+To turn it off, switch off **Say when a newer qpac is out** under **qpac itself** at the bottom of the settings. The switch belongs to the whole Quvyta family: it is `update-notice = false` in `~/.config/quvyta/quvyta.conf`, and turning it off stops the same question in every Quvyta application. While it is off, qpac asks nothing at all. It is a different switch from **Check in the background** under **Updates**, which is about your packages.
+
+### Updates for your packages, and everything else
+
+Everything else goes through programs Arch already has, run as you, and reaches the same servers they would reach without qpac. qpac's own requests are made with `curl` over HTTPS only, and carry curl's own `User-Agent: curl/<its version>`.
+
+- **Checking your packages for updates**, when qpac opens, when you press *Check now*, after an update, and from the background timer if you turned it on (which skips the mirrors when the last check is less than an hour old): `pacman -Sy` refreshes a private copy of the repository databases from your own mirrors; the AUR is asked about the packages no repository offers, through `https://aur.archlinux.org/rpc/v5/info` (the timer) or your `paru` or `yay` (the screen), which sends their names; and with Snap on, `snap refresh --list` asks snapd, which asks the Snap Store.
+- **Arch news**, with each check on the Updates tab: `https://archlinux.org/feeds/news/`.
+- **Discover's home page**: the packages most machines report to `https://pkgstats.archlinux.de/api/packages` and Flathub's popular and recently updated apps from `https://flathub.org/api/v2/collection/`, both kept for a day, and the AUR's votes and popularity for the AUR row from its RPC.
+- **Searching in Discover**: a search with the AUR on sends your search words to `https://aur.archlinux.org/rpc/v5/search`; with Snap on, snapd searches the Snap Store for them. The repositories and Flatpak are searched in the catalogs already on your disk.
+- **Reading an AUR recipe before a build**: `git clone` of `https://aur.archlinux.org/<package>.git`.
+- **Installing, removing and updating**, only after you confirm: pacman, `paru` or `yay`, flatpak and snapd download from your mirrors, the AUR and the sources a recipe names, Flathub and the Snap Store. **Add Flathub** adds `https://dl.flathub.org/repo/flathub.flatpakrepo` as a remote.
+- **Mirrors**, with reflector installed: opening the settings runs `reflector --list-countries`, which reads the mirror status from archlinux.org, and choosing the mirrors, only when you press it, has reflector read it again and test the mirrors it picks.
 
 ## Trying it in a container
 

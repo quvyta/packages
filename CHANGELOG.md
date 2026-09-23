@@ -2,6 +2,18 @@
 
 Every release of quvyta-packages, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/); while the version starts with 0, a minor release may change the interface, the command line or the files qpac keeps under `~/.config/quvyta/` and `~/.local/state/quvyta/packages/`, and the notes say so when it does.
 
+## 0.1.10 - 2026-09-23
+
+### Added
+
+- qpac says when a newer qpac is out, as every Quvyta application does. When it starts, at most once a day, it asks crates.io for the newest version of `quvyta-packages`, without waiting for the answer and silently when there is no network; a newer one is shown in a notice that names qpac, says it is about qpac itself and not your packages, and says how to update it. Nothing is asked while the first-run setup is open. It is on by default and switched off under **qpac itself** at the bottom of the settings with **Say when a newer qpac is out**, the family's one switch (`update-notice` in `~/.config/quvyta/quvyta.conf`), which stops the question in every Quvyta application at once. It is a separate thing from the check for updates to your packages, and the settings and the notice say it apart.
+- The README lists everything qpac sends over the network and to whom: this question, with its exact address and headers, and what the package checks, Discover, the Arch news, the AUR recipe review, the installations and reflector reach.
+- What the background check does with the updates it finds, chosen in the settings and on the first-run setup's updates step: *Tell me* (as before, and still the default), *Download* or *Install*. *Download* fetches the pending updates from the official repositories as you, without root, into `~/.cache/quvyta/packages/downloads`; the next system update you confirm copies them into pacman's own cache, where pacman checks each signature as it does for its own downloads, so it no longer waits for the mirrors. The folder only ever holds what is pending, and going back to *Tell me* empties it. AUR, Flatpak and Snap updates are only reported: building AUR packages ahead would run recipes nobody has reviewed yet, qpac does not update Flatpak applications yet, and snapd refreshes snaps by itself. *Install* runs a root-owned script that takes no arguments, `/usr/lib/quvyta-packages/upgrade`, through a sudoers line the settings show and you add yourself; qpac never writes it. The script comes with a distribution package, so a `cargo install` does not have it: there *Install* is shown with that reason and cannot be chosen.
+
+### Changed
+
+- Needs quvyta-packages-core 0.1.7, which carries the root helper's new step: before a system update it takes the packages downloaded ahead into pacman's cache, only regular files that belong to you, opened without following a link.
+
 ## 0.1.9 - 2026-09-23
 
 ### Added

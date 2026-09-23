@@ -12,7 +12,8 @@
 //! Settings page's install or build button opens, so nothing is installed that the person did not
 //! agree to in the normal dialog. The background step asks whether the user timer looks for
 //! updates, Yes by default (the design's "on by default" is a question whose answer starts as
-//! Yes), and how often.
+//! Yes), how often, and what it does with what it finds: the update ladder's step, with the same
+//! rows and choices as the Settings page.
 
 use std::path::{Path, PathBuf};
 
@@ -23,7 +24,8 @@ use qpackages_core::sources::{Availability, Source};
 
 use super::{Msg, Qpackages, store_sources};
 use crate::backend_settings::{self, DEFAULT_INTERVAL, OFFERED_INTERVALS};
-use crate::settings_page::{self, CONTROL_WIDTH, interval_name};
+use crate::ladder::Mode;
+use crate::settings_page::{self, CONTROL_WIDTH, interval_name, mode_rows};
 use crate::{settings, sources};
 
 /// The widget id the keyboard starts on: the appearance rows of the framework's step.
@@ -82,6 +84,8 @@ pub enum WizardMsg {
     Background(bool),
     /// An interval was chosen, by position in `OFFERED_INTERVALS`.
     Interval(usize),
+    /// A step of the update ladder was chosen, by position among those this machine offers.
+    Mode(usize),
 }
 
 /// What qpac's own steps hold until Finish.
@@ -94,11 +98,13 @@ pub(super) struct Choices {
     background: bool,
     /// Hours between background checks.
     interval: u32,
+    /// What the background check does with what it finds.
+    pub(super) mode: Mode,
 }
 
 impl Default for Choices {
     fn default() -> Self {
-        Self { picked: [None; 4], background: true, interval: DEFAULT_INTERVAL }
+        Self { picked: [None; 4], background: true, interval: DEFAULT_INTERVAL, mode: Mode::Notify }
     }
 }
 
@@ -166,6 +172,11 @@ impl Qpackages {
                     self.choices.interval = hours;
                 }
             }
+            WizardMsg::Mode(index) => {
+                if let Some(&mode) = self.ladder.offered().get(index) {
+                    self.choices.mode = mode;
+                }
+            }
         }
     }
 
@@ -207,6 +218,9 @@ impl Qpackages {
         // The timer is switched on the way the Settings page switches it, which saves too; turned
         // down, there is nothing to switch off, since nothing was ever written.
         let timer = if self.choices.background && self.background_possible() {
+            // Only the check climbs the ladder, so the step is kept only with the check on.
+            let mode = self.choices.mode.effective(self.ladder.script);
+            store(&mut self.settings, backend_settings::MODE, mode.key().to_owned(), mode == Mode::Notify);
             self.switch_background(true)
         } else {
             self.settings.remove(backend_settings::AUTOSTART);
@@ -324,10 +338,12 @@ impl Qpackages {
         }
     }
 
-    /// The background check: the same two rows the Settings page has, answered here before
+    /// The background check: the same rows the Settings page has, answered here before
     /// anything is switched.
     fn updates_step(&self, ui: &mut View<'_, Msg>) {
-        ui.add(Text::new(t!("wizard.updates-intro")).role("secondary")).fill_width();
+        let mode = self.choices.mode.effective(self.ladder.script);
+        let intro = if mode == Mode::Install { t!("wizard.updates-intro-install") } else { t!("wizard.updates-intro") };
+        ui.add(Text::new(intro).role("secondary")).fill_width();
         ui.spacer().height(Length::Cells(1));
         let possible = self.background_possible();
         let on = self.choices.background && possible;
@@ -351,6 +367,7 @@ impl Qpackages {
                         Select::new(names).selected(chosen).on_select(|index| Msg::Wizard(WizardMsg::Interval(index)));
                     ui.add(select).width(Length::Cells(CONTROL_WIDTH)).id("wizard-interval");
                 });
+                mode_rows(list, &self.ladder, mode, on, |index| Msg::Wizard(WizardMsg::Mode(index)));
             })
             .fill_width()
             .id("wizard-updates");

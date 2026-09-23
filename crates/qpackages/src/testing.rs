@@ -271,11 +271,12 @@ impl Drop for Scratch {
     }
 }
 
-/// Where `label` stands as a whole word in `line`: `Install` in a button, not in `Installed`.
+/// Where `label` stands as a whole word in `line`: `Install` in a button, not in `Installed`, and
+/// Chinese `安装` in a button, not in `未安装` ("not installed") beside it.
 fn word_at(line: &str, label: &str) -> Option<usize> {
-    line.match_indices(label)
-        .map(|(start, _)| start)
-        .find(|&start| !line[start + label.len()..].starts_with(char::is_alphabetic))
+    line.match_indices(label).map(|(start, _)| start).find(|&start| {
+        !line[start + label.len()..].starts_with(char::is_alphabetic) && !line[..start].ends_with(char::is_alphabetic)
+    })
 }
 
 /// Clicks the last place `label` appears on screen as a word: a dialog's action buttons sit at

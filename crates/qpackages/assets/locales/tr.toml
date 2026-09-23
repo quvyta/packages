@@ -232,6 +232,7 @@ tool-uses-sudo = "sudo terminalde sorar."
 updates = "Güncellemeler"
 check = "Arka planda kontrol et"
 check-text = "Bir kullanıcı zamanlayıcısı güncellemelere bakar ve haber verir; hiçbir şey kurulmaz."
+check-text-install = "Bir kullanıcı zamanlayıcısı güncellemelere bakar, resmi depolardakileri qpac'ın betiğiyle kurar."
 check-no-home = "Zamanlayıcısı için bir ev klasörü ve qpac'ın kendi yolu gerekiyor."
 check-not-on = "Arka plan kontrolü açılamadı"
 check-not-off = "Arka plan kontrolü kapatılamadı"
@@ -240,6 +241,14 @@ interval-text = "Aynaları yormamak için saatte birden sık değil."
 interval-hours = { one = "saatte bir", other = "{n} saatte bir" }
 interval-day = "günde bir"
 interval-week = "haftada bir"
+mode = "Güncelleme bulununca"
+mode-notify = "Bildirilsin"
+mode-download = "İndirilsin"
+mode-install = "Kurulsun"
+mode-notify-text = "Sana haber verilir; sen onaylayana kadar hiçbir şey indirilmez ya da kurulmaz."
+mode-download-text = "Resmi depolardaki paketler root olmadan, senin kullanıcınla önceden indirilir; onayladığın güncelleme çabucak biter. AUR, Flatpak ve Snap güncellemeleri yalnızca bildirilir."
+mode-install-text = "Resmi depolardaki paketler sorulmadan {script} ile kurulur; bunun için şu satırı visudo ile senin eklemen gerekir: {line} Gözetimsiz bir güncelleme geride .pacnew dosyaları bırakabilir ve ilgilenmen gereken duyuruları kaçırabilir."
+mode-install-missing = "Root'a ait, bir dağıtım paketiyle gelen bir betik ve senin ekleyeceğin bir sudoers satırı gerekir. qpac'ın bu kopyasında böyle bir betik yok; cargo install ile kurulanda hiç olmaz."
 backup = "Yedek"
 backup-tool = "Güncellemeden önce ve sonra"
 backup-off = "Yedek alınmaz."
@@ -274,6 +283,14 @@ code = "Kod"
 mirror-count = "Ayna"
 done = "Tamam"
 mirrors-invalid = "Bu ayna ayarları kullanılamaz"
+
+[self-update]
+heading = "qpac'in kendisi"
+switch = "Yeni qpac çıkınca haber ver"
+switch-text = "Paketleriniz değil, qpac'in kendisi: günde bir kez crates.io'ya en yeni sürümünü sorar, yalnızca adını gönderir. Bütün {family} uygulamaları için tek ayar."
+notice = "qpac {latest} çıktı"
+notice-body = "Bu, paketleriniz değil qpac'in kendisi. Sizdeki sürüm {current}; {launcher} içinden ya da cargo install {package} ile güncelleyebilirsiniz."
+
 [review]
 disclaimer = "Bu kontrol bilinen tehlikeli kalıpları arar; temiz çıkması paketin güvenli olduğu anlamına gelmez."
 reading = "Tarifler AUR'dan okunuyor"
@@ -329,6 +346,10 @@ locked = "pacman veritabanını değiştiriyor; kontrol bir sonraki sırasını 
 done = "Bekleyen güncellemeler: depolardan {pacman}, AUR'dan {aur}."
 failed = "Güncelleme kontrolü bitmedi: {reason}"
 no-home = "Güncelleme kontrolünün bulduklarını saklayacak bir ev klasörüne ihtiyacı var."
+downloaded = { one = "Depolardan {n} paket indirildi, güncellemeni bekliyor.", other = "Depolardan {n} paket indirildi, güncellemeni bekliyor." }
+download-failed = "Önceden indirme bitmedi: {reason}"
+installed = "Depolardaki güncellemeler qpac'ın betiğiyle kuruldu."
+install-failed = "Güncellemeler qpac'ın betiğiyle kurulamadı: {reason}"
 
 [store]
 back = "Geri"
@@ -598,3 +619,4 @@ aur-root = "qpac root olarak çalışırken olmaz: AUR paketleri asla root olara
 snap-root = "Kurulu değil; AUR'dan derlenir ve qpac bunu root olarak yapmaz."
 step-updates = "Güncellemeler"
 updates-intro = "qpac güncellemelere arka planda, kendi kullanıcının bir zamanlayıcısıyla bakar ve bulduğunu sana söyler; kendi başına hiçbir şey kurmaz."
+updates-intro-install = "qpac güncellemelere arka planda, kendi kullanıcının bir zamanlayıcısıyla bakar; aşağıdaki seçimle resmi depolardakileri betiğiyle kendisi de kurar."

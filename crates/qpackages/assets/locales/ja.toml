@@ -234,6 +234,7 @@ tool-uses-sudo = "sudo がターミナルで尋ねます。"
 updates = "更新"
 check = "バックグラウンドで確認"
 check-text = "ユーザータイマーが更新を探して知らせます。何もインストールしません。"
+check-text-install = "ユーザーのタイマーが定期的に更新を探し、公式リポジトリのものは qpac のスクリプトでインストールします。"
 check-no-home = "タイマーと qpac 自身の場所を書くにはホームフォルダーが要ります。"
 check-not-on = "バックグラウンドでの確認を有効にできませんでした"
 check-not-off = "バックグラウンドでの確認を無効にできませんでした"
@@ -242,6 +243,14 @@ interval-text = "ミラーに優しくするため、1 時間に 1 回より細�
 interval-hours = { other = "{n} 時間" }
 interval-day = "1 日"
 interval-week = "1 週間"
+mode = "更新が見つかったとき"
+mode-notify = "知らせる"
+mode-download = "ダウンロード"
+mode-install = "インストール"
+mode-notify-text = "知らせが来ます。あなたが確認するまでは、何もダウンロードもインストールもされません。"
+mode-download-text = "公式リポジトリのパッケージは root なしであなたとしてダウンロードされるので、確認した更新はすぐ終わります。AUR・Flatpak・Snap の更新は報告だけです。"
+mode-install-text = "公式リポジトリのパッケージは、visudo で次の行を加えたあとは {script} を通して、確認なしにインストールされます: {line} その更新は .pacnew ファイルを残したり、対応が必要なニュースを見落としたりすることがあります。"
+mode-install-missing = "root 所有のスクリプトが必要です。それはディストリビューションのパッケージが持ち込み、sudoers の行は自分で加えます。この qpac にはそのスクリプトがありません。cargo install では絶対に入りません。"
 backup = "バックアップ"
 backup-tool = "更新の前後"
 backup-off = "スナップショットは取りません。"
@@ -331,6 +340,10 @@ locked = "pacman がデータベースを書き換えています。確認は次
 done = "待っている更新：リポジトリから {pacman} 件、AUR から {aur} 件。"
 failed = "更新の確認は終わりませんでした：{reason}"
 no-home = "更新の確認には、結果を置くホームフォルダーが要ります。"
+downloaded = { other = "リポジトリの {n} 件のパッケージがダウンロードされ、更新されるのを待っています。" }
+download-failed = "先回りのダウンロードが完了しませんでした: {reason}"
+installed = "リポジトリからの更新は qpac のスクリプトでインストールされました。"
+install-failed = "更新は qpac のスクリプトでインストールできませんでした: {reason}"
 
 [store]
 back = "戻る"
@@ -600,3 +613,11 @@ aur-root = "qpac を root で実行中は使えません。AUR パッケージ�
 snap-root = "未インストールです。AUR からビルドされますが、qpac は root ではビルドしません。"
 step-updates = "更新"
 updates-intro = "qpac はあなた自身のユーザーのタイマーでバックグラウンドに更新を探し、見つけたものをお知らせします。自分で何かをインストールすることはありません。"
+updates-intro-install = "qpac は自分のユーザーのタイマーでバックグラウンドに更新を探します。下の選択では、公式リポジトリのものもそのスクリプトでインストールします。"
+
+[self-update]
+heading = "qpac 自体"
+switch = "新しい qpac が出たら知らせる"
+switch-text = "パッケージではなく qpac 自体の話です。1 日 1 回 crates.io に最新版を聞きに行きますが、送るのは名前だけです。{family} アプリ共通の設定です。"
+notice = "qpac {latest} が出ました"
+notice-body = "これはパッケージではなく qpac 自体です。手元は {current} です。{launcher} で更新するか、cargo install {package} で更新してください。"

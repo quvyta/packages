@@ -159,6 +159,31 @@ pub fn refresh(dbpath: &Path) -> Vec<String> {
     ]
 }
 
+/// The arguments for [`FAKEROOT`] that download every pending update into `cachedir`, against the
+/// private copy under `dbpath` that [`refresh`] just refreshed, and install nothing.
+///
+/// `-Suw` rather than `-Syuw`: the copy is fresh already, and the system database is never
+/// synchronised here. `--cachedir` given on the command line replaces pacman's own cache rather
+/// than adding to it (measured with pacman 7.1), so the files land only in the user's folder,
+/// which is the one place a user can write. pacman still checks each file's signature against the
+/// system's keyring as it downloads.
+#[must_use]
+pub fn download(dbpath: &Path, cachedir: &Path) -> Vec<String> {
+    vec![
+        "--".to_owned(),
+        PACMAN.to_owned(),
+        "-Suw".to_owned(),
+        "--noconfirm".to_owned(),
+        "--dbpath".to_owned(),
+        dbpath.to_string_lossy().into_owned(),
+        "--cachedir".to_owned(),
+        cachedir.to_string_lossy().into_owned(),
+        "--logfile".to_owned(),
+        "/dev/null".to_owned(),
+        "--disable-sandbox".to_owned(),
+    ]
+}
+
 /// The arguments for [`SUDO`] that warm its ticket by asking for the password and nothing more,
 /// so the root helper can be started right after without a prompt.
 #[must_use]
@@ -248,6 +273,26 @@ mod tests {
     fn the_read_only_queries_carry_only_their_query_flags() {
         assert_eq!(foreign(), ["-Qqm"]);
         assert_eq!(aur_update_check(), ["-Qua"]);
+    }
+
+    #[test]
+    fn the_download_fills_the_users_folder_from_the_private_copy_and_syncs_nothing() {
+        assert_eq!(
+            download(Path::new("/tmp/qpackages/db"), Path::new("/home/a/.cache/quvyta/packages/downloads")),
+            [
+                "--",
+                "pacman",
+                "-Suw",
+                "--noconfirm",
+                "--dbpath",
+                "/tmp/qpackages/db",
+                "--cachedir",
+                "/home/a/.cache/quvyta/packages/downloads",
+                "--logfile",
+                "/dev/null",
+                "--disable-sandbox"
+            ]
+        );
     }
 
     #[test]
