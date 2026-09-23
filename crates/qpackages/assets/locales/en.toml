@@ -288,7 +288,7 @@ mirrors-invalid = "These mirror settings cannot be used"
 [self-update]
 heading = "qpac itself"
 switch = "Say when a newer qpac is out"
-switch-text = "About qpac itself, not your packages: once a day it asks crates.io for its newest version, sending only its name. One setting for all {family} applications."
+switch-text = "About qpac itself, not your packages: once a day it asks crates.io for its newest version, sending only its name. One setting for all {ecosystem} applications."
 notice = "qpac {latest} is out"
 notice-body = "This is qpac itself, not your packages. You have {current}; update it in {launcher}, or with cargo install {package}."
 

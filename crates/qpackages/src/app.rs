@@ -81,7 +81,7 @@ pub struct Machine<'a> {
     pub app_catalog: &'a Path,
     /// The folders Flatpak keeps its remotes' AppStream catalogs in.
     pub flatpak_catalogs: &'a [PathBuf],
-    /// The appearance rows of the settings page, over the family folder they save into: the
+    /// The appearance rows of the settings page, over the shared Quvyta folder they save into: the
     /// user's own in `run`, a folder of the test's own in a test.
     pub appearance: Appearance,
     /// snapd's socket, which Discover reads the snaps and a job's progress from as the user.
@@ -202,14 +202,15 @@ pub struct Qpackages {
     /// The first-run wizard while it has the screen; `None` once it is over, and from the start
     /// for someone who has `packages.conf` already.
     setup: Option<Setup<Msg>>,
-    /// The family folder the wizard writes into, which the appearance rows save into after it.
+    /// The shared Quvyta folder the wizard writes into, which the appearance rows save into after
+    /// it.
     setup_folder: Option<PathBuf>,
     /// What the wizard's own steps hold until Finish.
     choices: wizard::Choices,
     /// What the Settings page would start for the sources the wizard was asked to bring, taken
     /// one after another once it is over.
     after_setup: VecDeque<settings_page::Msg>,
-    /// Where the family's switch for the notice of a newer qpac is kept, and whether it is on;
+    /// Where the ecosystem's switch for the notice of a newer qpac is kept, and whether it is on;
     /// `None` where qpac asks about itself not at all.
     self_update: Option<self_update::SelfUpdate>,
 }
@@ -267,7 +268,7 @@ pub enum Msg {
     SetUp,
     /// crates.io has a newer qpac than the one running: qpac itself, not a package.
     NewerQpac(qframe::runtime::Update),
-    /// The family's switch for that notice was written, or why not.
+    /// The ecosystem's switch for that notice was written, or why not.
     SelfUpdateSaved(Result<(), String>),
 }
 

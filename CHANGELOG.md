@@ -2,6 +2,13 @@
 
 Every release of quvyta-packages, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/); while the version starts with 0, a minor release may change the interface, the command line or the files qpac keeps under `~/.config/quvyta/` and `~/.local/state/quvyta/packages/`, and the notes say so when it does.
 
+## 0.1.11 - 2026-09-23
+
+### Changed
+
+- The words of the switch for a newer qpac, the README and the documentation now speak of the Quvyta ecosystem rather than a family of applications. The Turkish texts of that switch and its notice address you as the rest of qpac does.
+- Built against quvyta-framework 0.1.19.
+
 ## 0.1.10 - 2026-09-23
 
 ### Added

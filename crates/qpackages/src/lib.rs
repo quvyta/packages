@@ -110,17 +110,17 @@ pub fn run() -> std::io::Result<()> {
         }
     }
     let settings = settings::load();
-    let family = Family::QUVYTA;
+    let ecosystem = Family::QUVYTA;
     // Read after the settings, which bring over an older file first: someone who used an earlier
     // release has a `packages.conf` by now and is not asked.
-    let first_run = family.config_dir().and_then(|folder| app::FirstRun::in_folder(&folder));
-    // While the wizard is to open nothing may be written, not even the family's shared file, so
+    let first_run = ecosystem.config_dir().and_then(|folder| app::FirstRun::in_folder(&folder));
+    // While the wizard is to open nothing may be written, not even the ecosystem's shared file, so
     // the preferences are the ones it resolved without saving.
     let preferences = match &first_run {
         Some(first_run) => first_run.preferences().clone(),
-        None => family.preferences(settings::APP, &i18n()),
+        None => ecosystem.preferences(settings::APP, &i18n()),
     };
-    let check_dir = family.cache_dir(settings::APP).map(|cache| cache.join(CHECK_DIR));
+    let check_dir = ecosystem.cache_dir(settings::APP).map(|cache| cache.join(CHECK_DIR));
     let machine = app::Machine {
         dbpath: Path::new(LOCAL_DB),
         sync_dir: Path::new(SYNC_DB),
@@ -134,7 +134,7 @@ pub fn run() -> std::io::Result<()> {
         utc_offset: qframe::date::local_offset_minutes(),
         app_catalog: Path::new(store::SWCATALOG),
         flatpak_catalogs: &store::flatpak_catalogs(),
-        appearance: Appearance::new(family, settings::APP, preferences.clone()),
+        appearance: Appearance::new(ecosystem, settings::APP, preferences.clone()),
         snap_socket: Path::new(qpackages_core::snap::SOCKET),
         first_run,
     };
@@ -159,12 +159,12 @@ pub fn run() -> std::io::Result<()> {
     result
 }
 
-/// The appearance rows of the settings page with `folder` as the family's settings folder, for
+/// The appearance rows of the settings page with `folder` as the shared Quvyta folder, for
 /// building the screen outside a terminal: a test or a picture then never reads or writes the
-/// user's own settings. [`run`] uses the user's own family folder.
+/// user's own settings. [`run`] uses the user's own shared Quvyta folder.
 #[must_use]
 pub fn appearance_in(folder: &Path) -> Appearance {
-    let family = Family::QUVYTA;
-    let preferences = family.preferences_in(folder, settings::APP, &i18n());
-    Appearance::new(family, settings::APP, preferences).in_folder(folder)
+    let ecosystem = Family::QUVYTA;
+    let preferences = ecosystem.preferences_in(folder, settings::APP, &i18n());
+    Appearance::new(ecosystem, settings::APP, preferences).in_folder(folder)
 }

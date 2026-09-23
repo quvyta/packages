@@ -618,6 +618,6 @@ updates-intro-install = "qpac は自分のユーザーのタイマーでバッ�
 [self-update]
 heading = "qpac 自体"
 switch = "新しい qpac が出たら知らせる"
-switch-text = "パッケージではなく qpac 自体の話です。1 日 1 回 crates.io に最新版を聞きに行きますが、送るのは名前だけです。{family} アプリ共通の設定です。"
+switch-text = "パッケージではなく qpac 自体の話です。1 日 1 回 crates.io に最新版を聞きに行きますが、送るのは名前だけです。{ecosystem} アプリ共通の設定です。"
 notice = "qpac {latest} が出ました"
 notice-body = "これはパッケージではなく qpac 自体です。手元は {current} です。{launcher} で更新するか、cargo install {package} で更新してください。"

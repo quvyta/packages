@@ -618,6 +618,6 @@ updates-intro-install = "qpac 会用你自己的用户级定时任务在后台�
 [self-update]
 heading = "qpac 自身"
 switch = "有新版 qpac 时提醒我"
-switch-text = "说的是 qpac 自身，不是你的软件包：它每天向 crates.io 查询一次最新版本，只发送自己的名字。{family} 系列应用共用这一个设置。"
+switch-text = "说的是 qpac 自身，不是你的软件包：它每天向 crates.io 查询一次最新版本，只发送自己的名字。所有 {ecosystem} 应用共用这一个设置。"
 notice = "qpac {latest} 已发布"
 notice-body = "这是 qpac 自身，不是你的软件包。你用的是 {current}；可以在 {launcher} 里更新它，或者用 cargo install {package}。"

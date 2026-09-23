@@ -53,11 +53,12 @@ pub enum Msg {
     SnapSocket(bool),
     /// The user asked to add Flathub as a Flatpak remote.
     AddFlathub,
-    /// An appearance row was changed: a setting the family shares, or motion and the pillar.
+    /// An appearance row was changed: a setting every Quvyta application shares, or motion and the
+    /// pillar.
     Appearance(AppearanceChange),
     /// A setting of what happens around the packages changed.
     Backend(BackendMsg),
-    /// The family's notice of a newer qpac was switched on (`true`) or off.
+    /// The ecosystem's notice of a newer qpac was switched on (`true`) or off.
     SelfUpdate(bool),
 }
 
@@ -244,12 +245,12 @@ fn missing_row(list: &mut SettingsRows<'_, Msg>, source: Source, name: String, p
 /// qpac itself: whether it says when a newer qpac is out.
 ///
 /// A heading of its own, far from the Updates heading, and in qpac's own words rather than the
-/// family's "Say when an update is out": in a package manager that sentence reads as the package
+/// framework's "Say when an update is out": in a package manager that sentence reads as the package
 /// updates, which the Updates heading already switches.
 fn self_update_section(list: &mut SettingsRows<'_, Msg>, cx: Cx<'_>) {
     let Some(on) = cx.self_update else { return };
     list.heading(t!("self-update.heading"));
-    let about = t!("self-update.switch-text", family = qframe::storage::Family::QUVYTA.title());
+    let about = t!("self-update.switch-text", ecosystem = qframe::storage::Family::QUVYTA.title());
     list.row(SettingRow::new(t!("self-update.switch")).description(about), |ui| {
         ui.add(Switch::new(on).on_toggle(Msg::SelfUpdate)).id("self-update");
     });

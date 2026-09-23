@@ -42,15 +42,15 @@ const LEAST_PAGE_ROWS: u16 = 8;
 /// than under its checkbox.
 const LINE_INDENT: u16 = 4;
 
-/// The wizard qpac opens on its first start, and the family folder it writes into.
+/// The wizard qpac opens on its first start, and the shared Quvyta folder it writes into.
 pub struct FirstRun {
     pub(super) setup: Setup<Msg>,
     pub(super) folder: PathBuf,
 }
 
 impl FirstRun {
-    /// The wizard over the family folder `folder` while qpac has no `packages.conf` there; `None`
-    /// once it has one, and then the wizard never opens.
+    /// The wizard over the shared Quvyta folder `folder` while qpac has no `packages.conf` there;
+    /// `None` once it has one, and then the wizard never opens.
     #[must_use]
     pub fn in_folder(folder: &Path) -> Option<Self> {
         let setup =

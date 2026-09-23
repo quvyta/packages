@@ -52,13 +52,13 @@ pub struct Places {
 }
 
 impl Places {
-    /// The places for the user this process runs as: the state file in the family's state folder
+    /// The places for the user this process runs as: the state file in the ecosystem's state folder
     /// for qpac, the private copy of the database in its cache folder. `None` without a home
     /// folder to keep them in, in which case no check can remember anything.
     #[must_use]
     pub fn for_user() -> Option<Self> {
-        let family = Family::QUVYTA;
-        let places = Self::under(&family.state_dir(APP)?, &family.cache_dir(APP)?);
+        let ecosystem = Family::QUVYTA;
+        let places = Self::under(&ecosystem.state_dir(APP)?, &ecosystem.cache_dir(APP)?);
         // The downloads are under the home folder itself, whatever `XDG_CACHE_HOME` says: the
         // helper that takes them runs as root and finds the folder only through the password
         // database.
@@ -600,7 +600,8 @@ pub(crate) mod tests {
 
     #[test]
     fn the_user_keeps_them_in_the_family_folders() {
-        // Reads the environment, writes nothing: the folders are the family's, under qpac's name.
+        // Reads the environment, writes nothing: the folders are the ecosystem's, under qpac's
+        // name.
         let Some(places) = Places::for_user() else { return };
         assert!(places.state_file.ends_with("quvyta/packages/state.json"), "{}", places.state_file.display());
         assert!(places.private_db.ends_with("quvyta/packages/db"), "{}", places.private_db.display());

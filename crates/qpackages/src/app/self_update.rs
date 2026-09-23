@@ -1,4 +1,4 @@
-//! Saying when a newer qpac is out: the family's once-a-day question to crates.io about qpac
+//! Saying when a newer qpac is out: the ecosystem's once-a-day question to crates.io about qpac
 //! itself.
 //!
 //! This is not the Updates tab. That one is about the packages on this computer and asks the
@@ -16,17 +16,17 @@ use qframe::widgets::Toast;
 use super::{Msg, Qpackages};
 use crate::settings;
 
-/// How long the notice stays, as long as the family's own: it carries a command to read.
+/// How long the notice stays, as long as the ecosystem's own: it carries a command to read.
 const NOTICE_SECONDS: u64 = 12;
 
-/// Where the family's switch is kept and where qpac remembers when it last asked.
+/// Where the ecosystem's switch is kept and where qpac remembers when it last asked.
 ///
-/// The switch is the family's, one for every Quvyta application, so it is read from the family's
+/// The switch is shared, one for every Quvyta application, so it is read from the ecosystem's
 /// folder rather than from `packages.conf`. A test gives folders of its own, so nothing it does
 /// reads or turns off the person's own switch.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SelfUpdateFolders {
-    /// The family's configuration folder, whose shared file holds the switch.
+    /// The ecosystem's configuration folder, whose shared file holds the switch.
     pub config: PathBuf,
     /// qpac's state folder, which remembers when the question was last asked.
     pub state: PathBuf,
@@ -37,8 +37,8 @@ impl SelfUpdateFolders {
     /// switch or the last question and so nothing is asked.
     #[must_use]
     pub fn here() -> Option<Self> {
-        let family = Family::QUVYTA;
-        family.config_dir().zip(family.state_dir(settings::APP)).map(|(config, state)| Self { config, state })
+        let ecosystem = Family::QUVYTA;
+        ecosystem.config_dir().zip(ecosystem.state_dir(settings::APP)).map(|(config, state)| Self { config, state })
     }
 }
 
@@ -57,7 +57,7 @@ impl SelfUpdate {
 }
 
 impl Qpackages {
-    /// The same application, asking at start whether a newer qpac is out while the family's
+    /// The same application, asking at start whether a newer qpac is out while the ecosystem's
     /// switch in `folders` is on, and showing that switch in the settings. `None` asks nothing
     /// and shows no switch, which is every test that has not said otherwise.
     #[must_use]
@@ -69,10 +69,10 @@ impl Qpackages {
         self
     }
 
-    /// The question for a newer qpac, when the family's switch is on.
+    /// The question for a newer qpac, when the ecosystem's switch is on.
     ///
     /// The switch is read from the file here rather than taken from what the page shows: another
-    /// Quvyta application may have turned it off since, and a family that turned it off asks
+    /// Quvyta application may have turned it off since, and a switch turned off anywhere asks
     /// nothing at all.
     pub(super) fn ask_for_newer_qpac(&self) -> Command<Msg> {
         let Some(SelfUpdate { folders, .. }) = &self.self_update else { return Command::none() };
@@ -90,7 +90,7 @@ impl Qpackages {
         Command::check_for_update(check)
     }
 
-    /// Turns the family's switch on or off in its shared file, off the render path.
+    /// Turns the ecosystem's switch on or off in its shared file, off the render path.
     pub(super) fn switch_self_update(&mut self, on: bool) -> Command<Msg> {
         let Some(self_update) = &mut self.self_update else { return Command::none() };
         self_update.on = on;
@@ -111,10 +111,10 @@ impl Qpackages {
 
 /// The notice for a newer qpac.
 ///
-/// The family's own notice names the package, `quvyta-packages … is out`, which in a package
+/// The framework's own notice names the package, `quvyta-packages … is out`, which in a package
 /// manager reads like news about packages. This one names qpac and says outright that it is not
-/// about the packages on this computer; how to update is the family's: from the launcher, or with
-/// `cargo install`.
+/// about the packages on this computer; how to update is the same as in every Quvyta application:
+/// from the launcher, or with `cargo install`.
 pub(super) fn notice(update: &Update) -> Toast<Msg> {
     let title = t!("self-update.notice", latest = update.latest());
     let body = t!(

@@ -13,7 +13,7 @@
 **quvyta-packages**, or **qpac** for short, is a package manager for Arch Linux that runs in the
 terminal. It is meant to bring pacman, the AUR, Flatpak and Snap together in one simple interface
 that feels like an app store, and shows exactly what will change before anything does. It is part
-of the Quvyta family of terminal applications, is built on
+of the Quvyta ecosystem of terminal applications, is built on
 [quvyta-framework](https://github.com/quvyta/framework) and is open source under the MIT licence.
 
 > **Beta.** qpac is new. It finds software in the repositories, the AUR, Flatpak and Snap,
@@ -96,7 +96,7 @@ of the Quvyta family of terminal applications, is built on
 - **A locked database is explained, never forced.** If another transaction holds pacman's lock,
   qpac says so, and by which process when it can tell. It never removes the lock.
 - **Settings.** The gear at the top right (or `ctrl+,`) opens them: which sources are on, the AUR
-  helper, who asks for permission, and the appearance rows the family shares: language, theme,
+  helper, who asks for permission, and the appearance rows every Quvyta application shares: language, theme,
   icons, reduced motion and the pillar, each shared one with a box under it that says whether the
   change applies in every Quvyta application or here only. A missing source is shown with the
   reason, and where its program is in the official repositories (`paru` for the AUR,
@@ -117,7 +117,7 @@ The interface follows your system language. Nine are included: English, Turkish,
 Spanish, French, Brazilian Portuguese, Russian, Simplified Chinese and Japanese. Every one of
 them is held to the same screens at the same narrow widths, so a translated button is never
 cut short or pushed out of its panel. The themes, icons, keys and mouse behaviour are the
-family's own.
+same across the Quvyta ecosystem.
 
 ### Not yet
 
@@ -198,7 +198,7 @@ qpac collects no statistics and has no account, cookie or identifier of its own.
 
 When qpac starts, at most once a day, it asks crates.io whether a newer version of qpac itself is out, reading the same file `cargo install` reads: one HTTPS `GET` of `https://index.crates.io/qu/vy/quvyta-packages`. The request carries no cookie and no identifier; its headers are `User-Agent: quvyta-packages/<the version you run>`, `Accept: */*` and `Accept-Encoding: gzip`. crates.io sees, as with any connection, the address it comes from. When a newer qpac is out, a notice says *qpac 0.2.0 is out*, that it is about qpac and not your packages, and how to update it: from the Quvyta launcher, or with `cargo install quvyta-packages`. When there is no network, or crates.io does not answer within ten seconds, nothing is said and the next day asks again; qpac never waits for the answer before it opens. Nothing is asked while the first-run setup is open, and the background check (`qpac --check`) never asks it. The time of the last question is kept in `~/.local/state/quvyta/packages/update-check`.
 
-To turn it off, switch off **Say when a newer qpac is out** under **qpac itself** at the bottom of the settings. The switch belongs to the whole Quvyta family: it is `update-notice = false` in `~/.config/quvyta/quvyta.conf`, and turning it off stops the same question in every Quvyta application. While it is off, qpac asks nothing at all. It is a different switch from **Check in the background** under **Updates**, which is about your packages.
+To turn it off, switch off **Say when a newer qpac is out** under **qpac itself** at the bottom of the settings. The switch is shared across the whole Quvyta ecosystem: it is `update-notice = false` in `~/.config/quvyta/quvyta.conf`, and turning it off stops the same question in every Quvyta application. While it is off, qpac asks nothing at all. It is a different switch from **Check in the background** under **Updates**, which is about your packages.
 
 ### Updates for your packages, and everything else
 

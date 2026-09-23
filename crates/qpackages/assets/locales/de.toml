@@ -618,6 +618,6 @@ updates-intro-install = "qpac sucht mit einem Timer deines eigenen Benutzers im 
 [self-update]
 heading = "qpac selbst"
 switch = "Neues qpac melden"
-switch-text = "Geht um qpac selbst, nicht um deine Pakete: einmal am Tag fragt es crates.io nach der neuesten Version und schickt nur seinen Namen. Eine Einstellung für alle {family}-Anwendungen."
+switch-text = "Geht um qpac selbst, nicht um deine Pakete: einmal am Tag fragt es crates.io nach der neuesten Version und schickt nur seinen Namen. Eine Einstellung für alle {ecosystem}-Anwendungen."
 notice = "qpac {latest} ist draußen"
 notice-body = "Das ist qpac selbst, nicht deine Pakete. Du hast {current}; aktualisiere es in {launcher} oder mit cargo install {package}."

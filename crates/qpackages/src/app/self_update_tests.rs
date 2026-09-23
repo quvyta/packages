@@ -2,7 +2,7 @@
 //! page, and the notice itself.
 //!
 //! No test reaches the network: the harness records the question instead of asking it and answers
-//! with the version a test names. The family's folder and qpac's state folder are the scratch
+//! with the version a test names. The shared Quvyta folder and qpac's state folder are the scratch
 //! machine's own, so the person's own switch is never read or turned off.
 
 use std::fs;
@@ -27,7 +27,7 @@ fn machine(name: &str) -> Scratch {
     Scratch::new(name, &[Sample::new("bash", "5.3-1", "Shell")])
 }
 
-/// The family's folder and qpac's state folder of `scratch`. The family folder is the one the
+/// The shared Quvyta folder and qpac's state folder of `scratch`. The shared folder is the one the
 /// appearance rows of [`app_in`] save into, so the switch and those rows share one file, as they
 /// do on a real machine.
 fn folders(scratch: &Scratch) -> SelfUpdateFolders {
@@ -105,8 +105,8 @@ fn a_newer_qpac_is_said_as_qpac_not_as_the_packages_and_the_same_one_is_not() {
 fn nothing_is_asked_while_the_setup_wizard_is_open() {
     let scratch = machine("self-update-wizard");
     let recorded = Arc::new(Recorded::default());
-    let family = SelfUpdateFolders { config: scratch.config(), state: scratch.root().join("state") };
-    let app = first_start(&scratch, &recorded, programs, 1000).with_self_update(Some(family));
+    let folders = SelfUpdateFolders { config: scratch.config(), state: scratch.root().join("state") };
+    let app = first_start(&scratch, &recorded, programs, 1000).with_self_update(Some(folders));
     let mut h = Harness::with_env(app, crate::locales::env(), 100, 40);
     settle(&mut h);
     assert!(h.app().setting_up(), "the wizard is open:\n{}", h.screen());
@@ -121,7 +121,7 @@ fn the_switch_on_the_settings_page_turns_the_question_off_for_the_family_and_bac
     open_settings(&mut h);
     click_switch(&mut h, "Say when a newer qpac is out");
     assert!(!Family::QUVYTA.update_notice_in(scratch.root()), "off:\n{}", h.screen());
-    let shared = fs::read_to_string(scratch.root().join("quvyta.conf")).expect("the family's file");
+    let shared = fs::read_to_string(scratch.root().join("quvyta.conf")).expect("the ecosystem's file");
     assert!(shared.contains("update-notice = false"), "{shared}");
 
     let mut off = started(&scratch, 120);
@@ -142,7 +142,7 @@ fn the_switch_turned_off_elsewhere_in_the_family_is_off_here_too() {
     let scratch = machine("self-update-elsewhere");
     Family::QUVYTA.set_update_notice_in(scratch.root(), false).expect("written");
     let mut h = started(&scratch, 120);
-    assert!(h.update_checks().is_empty(), "the family's file says off");
+    assert!(h.update_checks().is_empty(), "the ecosystem's file says off");
     open_settings(&mut h);
     // The page shows it off: turning it on is one click, and asks nothing until the next start.
     click_switch(&mut h, "Say when a newer qpac is out");
@@ -161,7 +161,7 @@ fn the_package_updates_and_qpac_itself_stand_under_headings_of_their_own() {
     assert!(at("Check in the background") < at("Appearance"), "{screen}");
     assert!(at("Appearance") < at("qpac itself"), "{screen}");
     assert!(at("qpac itself") < at("Say when a newer qpac is out"), "{screen}");
-    assert!(!screen.contains("Say when an update is out"), "the family's words, ambiguous here:\n{screen}");
+    assert!(!screen.contains("Say when an update is out"), "the framework's words, ambiguous here:\n{screen}");
 
     let scratch = machine("self-update-none");
     let recorded = Arc::new(Recorded::default());
@@ -187,7 +187,8 @@ fn the_heading_and_the_switch_stand_whole_in_every_language_on_a_narrow_screen()
             open_settings(&mut h);
             let screen = h.screen();
             for key in ["self-update.heading", "self-update.switch"] {
-                // A language still waiting for the key shows English, as the framework's lookup does.
+                // A language still waiting for the key shows English, as the framework's lookup
+                // does.
                 let shown = if PENDING.contains(&key) && !["en", "tr"].contains(&code.as_str()) { "en" } else { &code };
                 let text = label(shown, key);
                 assert!(screen.contains(&text), "`{key}` is cut in `{code}` at {width}; it reads `{text}`:\n{screen}");

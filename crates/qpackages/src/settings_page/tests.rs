@@ -23,7 +23,7 @@ fn page(width: u16, height: u16) -> (Harness<Qpackages>, Scratch, Arc<Recorded>)
     (h, scratch, recorded)
 }
 
-/// What the family's shared file says.
+/// What the ecosystem's shared file says.
 fn shared_file(scratch: &Scratch) -> String {
     fs::read_to_string(scratch.root().join("quvyta.conf")).unwrap_or_default()
 }
@@ -101,8 +101,8 @@ fn an_appearance_choice_applies_and_goes_to_the_family_s_file() {
     h.send(AppMsg::Settings(Msg::Appearance(AppearanceChange::Icons(IconMode::Ascii))));
     h.send(AppMsg::Settings(Msg::Appearance(AppearanceChange::Language("tr".to_owned()))));
     assert!(h.screen().contains("Ayarlar"), "the language changed at once:\n{}", h.screen());
-    // The rows open following the family, so the value goes to the shared file and qpac's own
-    // file says that it follows.
+    // The rows open following the shared settings, so the value goes to the shared file and qpac's
+    // own file says that it follows.
     let shared = shared_file(&scratch);
     assert!(shared.contains("icons = \"ascii\"") && shared.contains("language = \"tr\""), "{shared}");
     let own = written(&mut h, &scratch);
@@ -114,12 +114,13 @@ fn a_choice_made_here_only_goes_to_qpac_s_own_file() {
     let (mut h, scratch, _) = page(100, 40);
     let icons = AppearanceChange::Everywhere(qframe::storage::Shared::Icons, false);
     h.send(AppMsg::Settings(Msg::Appearance(icons)));
-    // What the family said before the change; the machine's own detection decides what that is.
+    // What the shared file said before the change; the machine's own detection decides what that
+    // is.
     let before = shared_file(&scratch);
     h.send(AppMsg::Settings(Msg::Appearance(AppearanceChange::Icons(IconMode::Nerd))));
     let own = written(&mut h, &scratch);
     assert!(own.contains("icons = \"nerd\""), "{own}");
-    assert_eq!(shared_file(&scratch), before, "the family is left alone");
+    assert_eq!(shared_file(&scratch), before, "the shared file is left alone");
 }
 
 #[test]
@@ -142,7 +143,8 @@ fn a_page_taller_than_the_screen_stays_put_on_a_click_and_follows_the_keys() {
     let (x, y) = h.find("AUR helper").expect("a row of the first section");
     h.click(x, y);
     assert_eq!(h.screen().find("Sources"), Some(sources), "a click does not scroll:\n{}", h.screen());
-    // Walking down far enough reaches the last section, which no screen this short can show at once.
+    // Walking down far enough reaches the last section, which no screen this short can show at
+    // once.
     for _ in 0..40 {
         h.press("down");
     }

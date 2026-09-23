@@ -285,11 +285,11 @@ done = "Tamam"
 mirrors-invalid = "Bu ayna ayarları kullanılamaz"
 
 [self-update]
-heading = "qpac'in kendisi"
+heading = "qpac'ın kendisi"
 switch = "Yeni qpac çıkınca haber ver"
-switch-text = "Paketleriniz değil, qpac'in kendisi: günde bir kez crates.io'ya en yeni sürümünü sorar, yalnızca adını gönderir. Bütün {family} uygulamaları için tek ayar."
+switch-text = "Paketlerin değil, qpac'ın kendisi: günde bir kez crates.io'ya en yeni sürümünü sorar, yalnızca adını gönderir. Bütün {ecosystem} uygulamaları için tek ayar."
 notice = "qpac {latest} çıktı"
-notice-body = "Bu, paketleriniz değil qpac'in kendisi. Sizdeki sürüm {current}; {launcher} içinden ya da cargo install {package} ile güncelleyebilirsiniz."
+notice-body = "Bu, paketlerin değil qpac'ın kendisi. Sendeki sürüm {current}; {launcher} içinden ya da cargo install {package} ile güncelleyebilirsin."
 
 [review]
 disclaimer = "Bu kontrol bilinen tehlikeli kalıpları arar; temiz çıkması paketin güvenli olduğu anlamına gelmez."

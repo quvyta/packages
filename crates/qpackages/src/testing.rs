@@ -41,13 +41,13 @@ pub fn app_with(
     recorded: &Arc<Recorded>,
     lookup: fn(&str) -> Option<PathBuf>,
 ) -> Qpackages {
-    // The family folder is the machine's own, so no test reads or writes the user's.
+    // The shared Quvyta folder is the machine's own, so no test reads or writes the user's.
     let appearance = crate::appearance_in(scratch.root());
     on_machine(scratch, &settings.schema(settings::schema()), recorded, lookup, appearance, None, Some(1000))
         .on_tab(crate::app::Tab::Installed)
 }
 
-/// qpac's first start on `scratch`, running as `uid`: the family folder is `scratch`'s own
+/// qpac's first start on `scratch`, running as `uid`: the shared Quvyta folder is `scratch`'s own
 /// `config`, where qpac has no settings file yet, so the wizard opens. The settings are read the
 /// way the real start reads them, and the fonts the appearance step looks at are the scratch
 /// folder's own. It opens on Discover, as qpac does.
@@ -60,7 +60,7 @@ pub fn first_start(
     let folder = scratch.config();
     let settings = settings::load_in(&folder, &scratch.root().join("legacy"));
     let first_run = crate::app::FirstRun::in_folder(&folder).map(|first_run| first_run.with_fonts(&scratch.fonts()));
-    // While the wizard asks nothing may be written, not even the family's shared file.
+    // While the wizard asks nothing may be written, not even the ecosystem's shared file.
     let preferences = match &first_run {
         Some(first_run) => first_run.preferences().clone(),
         None => qframe::storage::Family::QUVYTA.preferences_in(&folder, settings::APP, &crate::i18n()),
@@ -87,8 +87,8 @@ fn on_machine(
         lock_dir: &scratch.lock(),
         lookup: Arc::new(lookup),
         runner: Arc::clone(recorded) as Arc<dyn Runner>,
-        // The helper works under the scratch folder: the one request that writes a file, the `/snap`
-        // link, then lands there and never anywhere on the real machine.
+        // The helper works under the scratch folder: the one request that writes a file, the
+        // `/snap` link, then lands there and never anywhere on the real machine.
         helper: InProcess::new(recorded, 0).under(scratch.root()).start_fn(),
         uid,
         utc_offset: 0,
@@ -112,12 +112,12 @@ fn on_machine(
     Qpackages::new(machine, settings).with_places(places)
 }
 
-/// [`crate::appearance_in`] over a family folder of its own that is taken away again as soon as it
-/// has been read, for a test that never changes an appearance row: nothing is left behind.
+/// [`crate::appearance_in`] over a shared Quvyta folder of its own that is taken away again as soon
+/// as it has been read, for a test that never changes an appearance row: nothing is left behind.
 pub fn appearance_apart() -> Appearance {
     static TAKEN: AtomicUsize = AtomicUsize::new(0);
     let serial = TAKEN.fetch_add(1, Ordering::Relaxed);
-    let folder = std::env::temp_dir().join(format!("qpackages-family-{}-{serial}", std::process::id()));
+    let folder = std::env::temp_dir().join(format!("qpackages-shared-{}-{serial}", std::process::id()));
     let rows = crate::appearance_in(&folder);
     let _ = fs::remove_dir_all(&folder);
     rows
@@ -200,7 +200,7 @@ impl Scratch {
         self.root.join("swcatalog")
     }
 
-    /// The family's settings folder of a first start, which holds nothing until the wizard ends.
+    /// The ecosystem's settings folder of a first start, which holds nothing until the wizard ends.
     pub fn config(&self) -> PathBuf {
         self.root.join("config")
     }

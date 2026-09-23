@@ -1,7 +1,7 @@
 //! The settings qpackages reads, where they live, and how the framework checks and repairs them.
 //!
-//! The file is `packages.conf` in the Quvyta family's folder, next to the other applications of
-//! the family; any other configuration file goes into the `packages/` folder beside it.
+//! The file is `packages.conf` in the shared Quvyta folder, next to the other Quvyta applications'
+//! settings; any other configuration file goes into the `packages/` folder beside it.
 //!
 //! ```text
 //! ~/.config/quvyta/
@@ -23,8 +23,8 @@ use qpackages_core::sources::{AurPreference, Source};
 
 use crate::sources;
 
-/// The application's id in the family: its settings file is `packages.conf` and its other files
-/// are under `packages/`.
+/// The application's id in the Quvyta ecosystem: its settings file is `packages.conf` and its
+/// other files are under `packages/`.
 pub const APP: &str = "packages";
 
 /// The folder under the platform's config directory that held `settings.toml` before.
@@ -123,7 +123,7 @@ pub fn set_privilege_tool(settings: &mut Settings, tool: PrivilegeTool) -> bool 
 }
 
 /// Brings the settings over from the folder earlier releases used and reads them from the
-/// family's folder, checked and healed. What could not be moved is among the settings'
+/// shared Quvyta folder, checked and healed. What could not be moved is among the settings'
 /// diagnostics, first. Without a home folder the settings stay in memory and say why.
 #[must_use]
 pub fn load() -> Settings {
@@ -133,9 +133,9 @@ pub fn load() -> Settings {
     }
 }
 
-/// The settings as the background check reads them: the family's `packages.conf`, checked
-/// against qpackages's keys but never healed or brought over from an older folder. A check a
-/// timer starts must not change what the person wrote; the screen does that when it next opens.
+/// The settings as the background check reads them: `packages.conf` in the shared Quvyta folder,
+/// checked against qpackages's keys but never healed or brought over from an older folder. A check
+/// a timer starts must not change what the person wrote; the screen does that when it next opens.
 /// Without a home folder there is nothing to read, and every key has its default.
 #[must_use]
 pub fn for_check() -> Settings {
@@ -143,7 +143,7 @@ pub fn for_check() -> Settings {
     path.map_or_else(|| Settings::parse_str("packages.conf", ""), Settings::open).schema(schema())
 }
 
-/// [`load`] with `folder` as the family's folder and `legacy` as the folder earlier releases
+/// [`load`] with `folder` as the shared Quvyta folder and `legacy` as the folder earlier releases
 /// used, so a test never touches the user's own settings.
 ///
 /// The framework copies each file, compares the copy and only then removes the original; a file

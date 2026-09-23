@@ -2,8 +2,8 @@
 //! `packages.conf`, writes nothing until Finish, and then hands the checked sources to the normal
 //! confirmation and the background check to the same timer the Settings page switches.
 //!
-//! Every test lives in a scratch machine: the family folder, the fonts the appearance step looks
-//! at, the unit folder the timer is written into and every program qpac runs are its own, so
+//! Every test lives in a scratch machine: the shared Quvyta folder, the fonts the appearance step
+//! looks at, the unit folder the timer is written into and every program qpac runs are its own, so
 //! neither the user's settings nor a real font, timer or package is ever touched.
 
 use std::fs;
@@ -60,7 +60,7 @@ fn start(scratch: &Scratch, recorded: &Arc<Recorded>, width: u16, height: u16) -
     h
 }
 
-/// What the family folder holds, by name, in order; empty when there is no folder at all.
+/// What the shared Quvyta folder holds, by name, in order; empty when there is no folder at all.
 fn folder(scratch: &Scratch) -> Vec<String> {
     let Ok(entries) = fs::read_dir(scratch.config()) else { return Vec::new() };
     let mut names: Vec<String> =
@@ -443,7 +443,7 @@ fn the_look_chosen_in_the_wizard_is_the_one_the_settings_page_carries_on_from() 
     press(&mut h, "İleri");
     press(&mut h, "Bitir");
     let shared = fs::read_to_string(scratch.config().join("quvyta.conf")).expect("written");
-    assert!(shared.contains("language = \"tr\""), "the family keeps it:\n{shared}");
+    assert!(shared.contains("language = \"tr\""), "the shared file keeps it:\n{shared}");
     h.click_text("Keşfet");
     h.press("ctrl+,");
     settle(&mut h);
@@ -492,7 +492,7 @@ fn a_theme_kept_to_qpac_in_the_wizard_stays_qpac_s_own_on_the_settings_page() {
     h.click_text("Amber");
     settle(&mut h);
     // The Settings page knows the theme is qpac's own, as the wizard left it: the new one goes
-    // into qpac's file, and the family's file is not touched.
+    // into qpac's file, and the ecosystem's file is not touched.
     assert!(written(&scratch).contains("theme = \"amber\""), "{}", written(&scratch));
     let shared = fs::read_to_string(scratch.config().join("quvyta.conf")).expect("written");
     assert!(!shared.contains("amber"), "{shared}");

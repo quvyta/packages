@@ -618,6 +618,6 @@ updates-intro-install = "O qpac procura atualizações em segundo plano com um t
 [self-update]
 heading = "O próprio qpac"
 switch = "Avisar de um qpac novo"
-switch-text = "Sobre o próprio qpac, não sobre seus pacotes: uma vez por dia ele pergunta ao crates.io a sua versão mais nova, enviando apenas o nome. Uma configuração para todos os aplicativos {family}."
+switch-text = "Sobre o próprio qpac, não sobre seus pacotes: uma vez por dia ele pergunta ao crates.io a sua versão mais nova, enviando apenas o nome. Uma configuração para todos os aplicativos {ecosystem}."
 notice = "Saiu o qpac {latest}"
 notice-body = "Isto é o próprio qpac, não seus pacotes. Você tem {current}; atualize no {launcher}, ou com cargo install {package}."
