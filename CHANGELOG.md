@@ -2,6 +2,14 @@
 
 Every release of quvyta-packages, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/); while the version starts with 0, a minor release may change the interface, the command line or the files qpac keeps under `~/.config/quvyta/` and `~/.local/state/quvyta/packages/`, and the notes say so when it does.
 
+## 0.1.12 - 2026-09-24
+
+### Changed
+
+- The recordings the tests replay no longer carry real people's names, user names or email addresses: snap publishers, AUR maintainers and a developer named in the store data are now invented ones, and every address is on `example.com`. Nothing qpac does changed.
+- Needs quvyta-packages-core 0.1.8, whose tests changed the same way.
+- Built against quvyta-framework 0.1.21.
+
 ## 0.1.11 - 2026-09-23
 
 ### Changed

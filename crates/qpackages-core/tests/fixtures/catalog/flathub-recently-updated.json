@@ -1,7 +1,7 @@
 {
  "hits": [
   {
-   "app_id": "io.github.tfuxu.Halftone",
+   "app_id": "io.github.developer15.Halftone",
    "name": "Halftone",
    "summary": "Dither your images",
    "type": "desktop-application",
@@ -16,7 +16,7 @@
    "installs_last_month": 408
   },
   {
-   "app_id": "com.github.Bleuzen.FFaudioConverter",
+   "app_id": "com.github.developer16.FFaudioConverter",
    "name": "FFaudioConverter",
    "summary": "Batch audio converter and effects processor",
    "type": "desktop-application",
@@ -42,7 +42,7 @@
    "installs_last_month": 3094
   },
   {
-   "app_id": "io.github.tfuxu.floodit",
+   "app_id": "io.github.developer15.floodit",
    "name": "Flood It",
    "summary": "Flood the board",
    "type": "desktop-application",
@@ -57,7 +57,7 @@
    "installs_last_month": 1021
   },
   {
-   "app_id": "com.github.skylot.jadx",
+   "app_id": "com.github.developer17.jadx",
    "name": "JADX",
    "summary": "Dex to Java decompiler",
    "type": "desktop-application",
@@ -77,7 +77,7 @@
    "sub_categories": [
     "Video"
    ],
-   "project_license": "LicenseRef-proprietary=https://github.com/HaveAGitGat/Tdarr/blob/8cf7b5204faa98c268d11d3f75ba8b1a5501ee5f/LICENSE.md",
+   "project_license": "LicenseRef-proprietary=https://github.com/developer-11/Tdarr/blob/8cf7b5204faa98c268d11d3f75ba8b1a5501ee5f/LICENSE.md",
    "updated_at": 1789822005,
    "added_at": 1779846762,
    "installs_last_month": 167
@@ -91,7 +91,7 @@
    "sub_categories": [
     "Video"
    ],
-   "project_license": "LicenseRef-proprietary=https://github.com/HaveAGitGat/Tdarr/blob/8cf7b5204faa98c268d11d3f75ba8b1a5501ee5f/LICENSE.md",
+   "project_license": "LicenseRef-proprietary=https://github.com/developer-11/Tdarr/blob/8cf7b5204faa98c268d11d3f75ba8b1a5501ee5f/LICENSE.md",
    "updated_at": 1789821983,
    "added_at": 1778647529,
    "installs_last_month": 104
@@ -109,7 +109,7 @@
    "installs_last_month": 299
   },
   {
-   "app_id": "dev.mariinkys.Clockode",
+   "app_id": "dev.developer18.Clockode",
    "name": "Clockode",
    "summary": "TOTP Client",
    "type": "desktop-application",
@@ -161,7 +161,7 @@
    "installs_last_month": 12486
   },
   {
-   "app_id": "page.codeberg.JakobDev.jdTextEdit",
+   "app_id": "page.codeberg.developer19.jdTextEdit",
    "name": "jdTextEdit",
    "summary": "An advanced text editor",
    "type": "desktop-application",

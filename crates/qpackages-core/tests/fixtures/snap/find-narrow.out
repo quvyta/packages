@@ -1,18 +1,18 @@
 Name                             Version              Publisher     Notes  Summary
 hello-world                      6.4                  canonical**   -      The 'hello-world' of snaps
-hello-world-anurag               0.1                  kvanurag02    -      Hello world program for amd64
-hello-world2jerryattheedge       0.3                  jmackenb      -      super early stage snap example
-hello-world-cli-karimodm         0.1                  karimodm      -      Hello World
-hello-world-moaaz                0.3                  moaazassali   -      Single-line elevator pitch for your amazing snap
-hello-world-electron             0.1.0                jhudielb      -      ElectronReact
-rfid-app                         0.1.0                pt789         -      hello-world
-hello-lhc                        1.0                  cprov         -      Hello world application for LHC☂
-qml-hello-world                  0.1-awesome-version  3v1n0         -      Get started in the fantastic QML world
-hello-hare                       1.0                  zygoon        -      Hello World written in Hare
-boondocks-hello-world            0.3                  boondocks     -      Boondocks Hello World Application
-my-hello-world-app               1.0.0                anasnew99     -      Hello World APP.
-javi-first-hello-world           3.0                  fjbanezares   -      Snapcraft hello world
-pyside2-hello-world              0.1                  om26er        -      Simple hello world program using PySide2
-kraken-hello-world-hollowsaibot  0.2                  hollowsaibot  -      Single-line elevator pitch for your amazing snap
-amueller213-hello-world-snap     0.1                  amueller213   -      Hello World from a Java Snap
-hello-fedora                     0.1                  zygoon        -      A hello-world program using the Fedora base snap
+hello-world-sample               0.1                  busepuvazo    -      Hello world program for amd64
+hello-world2edgeexperiment       0.3                  kivovuli      -      super early stage snap example
+hello-world-cli-demotour         0.1                  nugakeka      -      Hello World
+hello-world-pitch                0.3                  dulovidinep   -      Single-line elevator pitch for your amazing snap
+hello-world-electron             0.1.0                rozononi      -      ElectronReact
+rfid-app                         0.1.0                bufum         -      hello-world
+hello-lhc                        1.0                  sumap         -      Hello world application for LHC☂
+qml-hello-world                  0.1-awesome-version  kenur         -      Get started in the fantastic QML world
+hello-hare                       1.0                  mugata        -      Hello World written in Hare
+boondocks-hello-world            0.3                  nevukoden     -      Boondocks Hello World Application
+my-hello-world-app               1.0.0                fabimemus     -      Hello World APP.
+demo-first-hello-world           3.0                  rirogovelas   -      Snapcraft hello world
+pyside2-hello-world              0.1                  tukora        -      Simple hello world program using PySide2
+kraken-hello-world-examplebuild  0.2                  dutenivolube  -      Single-line elevator pitch for your amazing snap
+javasample1-hello-world-snap     0.1                  kadiresapeb   -      Hello World from a Java Snap
+hello-fedora                     0.1                  mugata        -      A hello-world program using the Fedora base snap

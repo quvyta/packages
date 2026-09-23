@@ -88,7 +88,7 @@
    "PackageBase": "bfg-git",
    "PackageBaseID": 149894,
    "Popularity": 0,
-   "URL": "https://github.com/rtyley/bfg-repo-cleaner",
+   "URL": "https://github.com/developer-10/bfg-repo-cleaner",
    "Version": "r465.aeee9e3-1"
   },
   {
@@ -118,7 +118,7 @@
    "PackageBase": "kernwatch",
    "PackageBaseID": 245405,
    "Popularity": 1,
-   "URL": "https://github.com/matthart1983/kernwatch",
+   "URL": "https://github.com/developer-8/kernwatch",
    "Version": "0.4.1-1"
   },
   {
@@ -133,7 +133,7 @@
    "PackageBase": "obs-vkcapture",
    "PackageBaseID": 185261,
    "Popularity": 1.202832,
-   "URL": "https://github.com/nowrep/obs-vkcapture",
+   "URL": "https://github.com/developer-1/obs-vkcapture",
    "Version": "1.5.6-1"
   },
   {
@@ -148,7 +148,7 @@
    "PackageBase": "obs-backgroundremoval",
    "PackageBaseID": 169899,
    "Popularity": 1.259877,
-   "URL": "https://github.com/royshil/obs-backgroundremoval",
+   "URL": "https://github.com/developer-9/obs-backgroundremoval",
    "Version": "1.4.1-1"
   },
   {
@@ -163,7 +163,7 @@
    "PackageBase": "obs-pipewire-audio-capture",
    "PackageBaseID": 193238,
    "Popularity": 1.579872,
-   "URL": "https://github.com/dimtpap/obs-pipewire-audio-capture",
+   "URL": "https://github.com/developer-6/obs-pipewire-audio-capture",
    "Version": "1.2.1-1"
   },
   {
@@ -208,7 +208,7 @@
    "PackageBase": "obs-studio-kepler-legacy-bin",
    "PackageBaseID": 233135,
    "Popularity": 0,
-   "URL": "https://github.com/cainhooow/obs-studio-kepler-legacy",
+   "URL": "https://github.com/developer-5/obs-studio-kepler-legacy",
    "Version": "30.2.3_kepler.4-1"
   },
   {
@@ -253,7 +253,7 @@
    "PackageBase": "obs-studio-themed-git",
    "PackageBaseID": 221296,
    "Popularity": 0.000342,
-   "URL": "https://codeberg.org/MorsMortium/obs-studio-themed",
+   "URL": "https://codeberg.org/developer-4/obs-studio-themed",
    "Version": "r8.abd7026-1"
   },
   {
@@ -262,10 +262,10 @@
    "ID": 2195437,
    "LastModified": 1786627093,
    "Maintainer": "maintainer-9",
-   "Name": "obs-studio-tytan652",
+   "Name": "obs-studio-patched9",
    "NumVotes": 62,
    "OutOfDate": null,
-   "PackageBase": "obs-studio-tytan652",
+   "PackageBase": "obs-studio-patched9",
    "PackageBaseID": 164474,
    "Popularity": 0.877221,
    "URL": "https://github.com/obsproject/obs-studio",
@@ -283,7 +283,7 @@
    "PackageBase": "obs-vkcapture",
    "PackageBaseID": 185261,
    "Popularity": 1.202832,
-   "URL": "https://github.com/nowrep/obs-vkcapture",
+   "URL": "https://github.com/developer-1/obs-vkcapture",
    "Version": "1.5.6-1"
   },
   {
@@ -298,7 +298,7 @@
    "PackageBase": "obs-wayland-hotkeys-git",
    "PackageBaseID": 222312,
    "Popularity": 1.434856,
-   "URL": "https://github.com/leia-uwu/obs-wayland-hotkeys",
+   "URL": "https://github.com/developer-7/obs-wayland-hotkeys",
    "Version": "r9.e77f8b6-1"
   }
  ],

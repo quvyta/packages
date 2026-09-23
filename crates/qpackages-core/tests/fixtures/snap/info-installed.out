@@ -2,7 +2,7 @@ name:      hello
 summary:   GNU Hello, the "hello world" snap
 publisher: Canonical**
 store-url: https://snapcraft.io/hello
-contact:   snaps@canonical.com
+contact:   publisher@example.com
 license:   unset
 description: |
   GNU hello prints a friendly greeting. This is part of the snapcraft tour at

@@ -128,12 +128,12 @@
   <summary>GPU process monitor for AMD, Intel and NVIDIA</summary>
   <project_license>GPL-3.0-or-later</project_license>
   <developer>
-    <name>Maxime Schmitt</name>
+    <name>Example Developer</name>
   </developer>
-  <developer_name>Maxime Schmitt</developer_name>
+  <developer_name>Example Developer</developer_name>
   <pkgname>nvtop</pkgname>
   <launchable type="desktop-id">nvtop.desktop</launchable>
-  <url type="homepage">https://github.com/Syllo/nvtop</url>
+  <url type="homepage">https://github.com/developer-3/nvtop</url>
   <categories>
     <category>System</category>
     <category>Monitor</category>

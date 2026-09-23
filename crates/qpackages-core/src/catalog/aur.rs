@@ -212,11 +212,11 @@ mod tests {
 
     #[test]
     fn info_asks_for_every_name_in_one_request_when_they_fit() {
-        let urls = info_urls(&["obs-vkcapture", "visual-studio-code-bin", "obs-studio-tytan652"]);
+        let urls = info_urls(&["obs-vkcapture", "visual-studio-code-bin", "obs-studio-patched9"]);
         assert_eq!(
             urls,
             [
-                "https://aur.archlinux.org/rpc/v5/info?arg%5B%5D=obs-vkcapture&arg%5B%5D=visual-studio-code-bin&arg%5B%5D=obs-studio-tytan652"
+                "https://aur.archlinux.org/rpc/v5/info?arg%5B%5D=obs-vkcapture&arg%5B%5D=visual-studio-code-bin&arg%5B%5D=obs-studio-patched9"
             ]
         );
         assert!(info_urls::<&str>(&[]).is_empty());
@@ -251,7 +251,7 @@ mod tests {
         assert_eq!(git.version, "32.2.2.r4.g1bf1379-1");
         assert_eq!(git.votes, 112);
         assert!((git.popularity - 0.030_016).abs() < 1e-9);
-        assert_eq!(git.maintainer.as_deref(), Some("benklett"));
+        assert_eq!(git.maintainer.as_deref(), Some("maintainer-10"));
         assert_eq!(git.out_of_date, None);
         assert_eq!(git.last_modified, Some(1_789_517_803));
         assert!(git.depends.is_empty(), "search answers carry no dependencies");
@@ -269,12 +269,12 @@ mod tests {
     fn reads_a_recorded_info_with_dependencies() {
         let packages = parse_response(INFO).expect("a real answer");
         let names: Vec<&str> = packages.iter().map(|package| package.name.as_str()).collect();
-        assert_eq!(names, ["obs-vkcapture", "visual-studio-code-bin", "obs-studio-tytan652"]);
+        assert_eq!(names, ["obs-vkcapture", "visual-studio-code-bin", "obs-studio-patched9"]);
         let capture = &packages[0];
         assert_eq!(capture.depends, ["vulkan-icd-loader", "libgl", "libegl", "obs-studio>=28"]);
         assert_eq!(capture.make_depends.len(), 7);
         assert!(capture.opt_depends.is_empty(), "a null list is an empty one");
-        assert_eq!(capture.url.as_deref(), Some("https://github.com/nowrep/obs-vkcapture"));
+        assert_eq!(capture.url.as_deref(), Some("https://github.com/developer-1/obs-vkcapture"));
         let code = &packages[1];
         assert_eq!(code.votes, 1708);
         assert_eq!(code.base, "visual-studio-code-bin");

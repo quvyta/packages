@@ -357,9 +357,9 @@ fn a_latest_update_opens_its_page_and_installs_as_a_flatpak() {
     h.click_text("Halftone");
     h.advance(Duration::from_secs(1));
     let screen = h.screen();
-    assert!(screen.contains("Flatpak id  io.github.tfuxu.Halftone"), "{screen}");
+    assert!(screen.contains("Flatpak id  io.github.developer15.Halftone"), "{screen}");
     h.click_text("Install");
-    let halftone = Offer { source: Source::Flatpak, package: String::from("io.github.tfuxu.Halftone") };
+    let halftone = Offer { source: Source::Flatpak, package: String::from("io.github.developer15.Halftone") };
     assert_eq!(h.app().requests, [Request::Install(vec![halftone])]);
 }
 

@@ -1,101 +1,101 @@
 Name                    Version               Publisher[32m[0m           Notes  Summary
 hello                   2.10                  canonical[32m**[0m         -      GNU Hello, the "hello world" snap
 hello-world             6.4                   canonical[32m**[0m         -      The 'hello-world' of snaps
-hello-pasman            0.25                  pasman1[32m[0m             -      Hello and welcome greetings.
-helloworld-gui          1.5                   enjoysoftware[32m[0m       -      GUI version of HelloWorld - Displays the famous "Hello, world!" message
-hello-lhc               1.0                   cprov[32m[0m               -      Hello world application for LHC☂
-hello-node-snap         1.0.2                 bhdouglass[32m[0m          -      A simple hello world command
-hello-snapcrafters      2.10+pkg-fe9f         brlin[32m[0m               -      A familiar, friendly greeting(also a demonstration of snap packaging)
-hello-roadmr-1          2023-07-07-2x         tomechangosubanana[32m[0m  -      say hello to this snap which is ok
-hello-oop               1.0.0                 glen-a-smith[32m[0m        -      A minimal OOP app for the Desktop
-hello-unity             0.5                   mhall119[32m[0m            -      Unity APIs demonstration tool
-hello-java              1.0.0-1+git1.a70e6a0  jgneff[32m[0m              -      Sample Java Swing and console applications
-hello-railarem          2.10                  railarem[32m[0m            -      Apenas um teste com o icone
-hellosound              0+git.dd1e15e         lapisdecor[32m[0m          -      Test a sound with pulseaudio in a snap
-hello-electron          1.0.0                 vthukral94[32m[0m          -      hello-electron
-hello-3sztof            2.14                  3sztof[32m[0m              -      Hello world snap with bash!
-hello-roadmr-pdetest-2  2019-08-28-01         tomechangosubanana[32m[0m  -      say hello to this snap which is ok
-hello-ptro              0.1                   ptro[32m[0m                -      Single-line elevator pitch for your amazing snap of ptro
-hello-kustom            2.11                  kustom-automation[32m[0m   -      GNU Hello, the "hello world" snap
-hello-snap              0.01                  muhammad[32m[0m            -      GNU hello-snap, the "Hello, Snap!" snap
-hello-word              2.10                  huezohuezo-1990[32m[0m     -      GNU Hello, the "hello world" snap
-hello-lucasrangit       2.10                  lucasrangit[32m[0m         -      GNU Hello, the "hello world" snap
-hello-didrocks          2.10                  didrocks[32m[0m            -      GNU Hello, the "hello world" snap
-hello-will              2.11                  will[32m[0m                -      GNU Hello, the "hello world" snap
-hello-vasilys           2.10                  vasilys[32m[0m             -      GNU Hello, the "hello world" snap.
-hello-sagar             2.10                  sagasmnoob[32m[0m          -      GNU Hello, the "hello world" snap
-hello-iahmad            1.0.3                 iahmad[32m[0m              -      GNU Hello by iahmad, the "hello world" snap
-hello-whole-world       2.10                  grillon[32m[0m             -      GNU hello, the "hello world" snap
-hello-davdunc           2.10                  iham[32m[0m                -      GNU Hello, the "hello world" snap
-hello-daniel-yoshizawa  2.10                  snap-test[32m[0m           -      GNU Hello, the "hello world" snap
-hello-testsnap          2.10                  vanapps[32m[0m             -      GNU Hello, the "hello world" snap
-hello-daniellimws       1.0                   daniellimws[32m[0m         -      GNU Hello, the "hello world" snap
-hello-mpf               2.12                  mpf[32m[0m                 -      GNU hello, the "hello world" snap
-hello-menzi             2.10                  embosoft[32m[0m            -      GNU Hello, the 'hello world' sanp
-hello-mfhansen1         2.10                  mfhansen1[32m[0m           -      GNU Hello, the "hello world" snap
-hello-public-private    2.10                  michaelnelson[32m[0m       -      GNU Hello, the "hello world" snap
-hello-kuchau            2.10                  kushalchauhan98[32m[0m     -      GNU Hello, the "hello world" snap
-hello-powerdb           2.10                  powerdb[32m[0m             -      GNU Hello, the "hello world" snap
-hello-sj                2.11                  surjohn[32m[0m             -      GNU Hello, the "hello world" snap
-hello-jpm1234           2.10a                 snaps-dom2[32m[0m          -      GNU Hello, the "hello world" snap.
-hello-mike              2.10                  mikeduong[32m[0m           -      GNU Hello, the "hello Mike" snap
-hello-iotnxt            2.10                  iotnxt[32m[0m              -      GNU Hello, the "hello world" snap
-hello-hafidz            2.10                  hafidz21ub[32m[0m          -      GNU Hello, the "hello world" snap.
-hello-encept            2.10                  encept[32m[0m              -      GNU Hello, the "hello world" snap
-hello-xmppnode          2.10                  ns-monitor[32m[0m          -      GNU Hello, the "hello world" snap
-hello-afernandes        2.10                  apollo[32m[0m              -      GNU Hello, the "hello world" snap
-hello-jriddell          2.10                  jriddell[32m[0m            -      GNU hello, the "hello world" snap
-hello-nyc               2.10                  leow[32m[0m                -      GNU Hello, the "hello world nyc" snap
-hello-arturtee          1.0                   arturtee[32m[0m            -      Implements simple GNU Hello, the "hello world" snap
-hello-superturisto      0.7                   superturisto[32m[0m        -      GNU Hello, the "Hello world" snap
-hello-flavian           2.10                  iot-mraa-upm[32m[0m        -      GNU Hello, the "hello world" snap
-hello-phoyu             2.1                   phoyu[32m[0m               -      GNU Hello, the "hello world" snap
-hello-amodal1           2.10                  amodal1[32m[0m             -      gnu hello, the "hello world" snap.
-hello-batrez            0.1                   batrez[32m[0m              -      GNU Hello, the "hello world" snap
-hello-tcarrondo         2.1                   tcarrondo[32m[0m           -      GNU Hello, the "hello world" snap
-hello-masterdam         2.10                  twerkingmark[32m[0m        -      GNU Hello, the "hello world" snap
-hello-filiberto         2.10                  filiberto[32m[0m           -      GNU Hello, the "hello world" snap
-hello-dalguete          2.10                  dalguete[32m[0m            -      GNU hello, the "hello world" snap
-hello-yifanw            2.10                  yifanw[32m[0m              -      GNU Hello, the "hello world" snap
-hello-logi              2.10                  logileifs[32m[0m           -      GNU Hello, the "hello world" snap
-hello-u21               2.10                  u21[32m[0m                 -      GNU Hello, the "hello world" snap
-hello-feroz             2.10                  feroz[32m[0m               -      GNU Hello, the "hello world" snap
-hello-fabio             1.1                   fabiomirmar[32m[0m         -      GNU Hello, the "hello world" snap
-hello-mdeslaur          2.10                  mdeslaur[32m[0m            -      GNU Hello, the "hello world" snap
-hello-leojimenezcr      2.10                  leojimenezcr[32m[0m        -      GNU Hello, the "hello world" snap
-hello-zibeeze           2.10                  cspplastics[32m[0m         -      GNU Hello, the "hello world" snap
-hello-manolopistolo     2.10                  manolopistolo[32m[0m       -      GNU Hello, the "hello world" snap
-hello-gdsync            2.10                  gdsync[32m[0m              -      GNU Hello, the "hello world" snap
-hello-daniel            2.10                  cumulocity-demelo[32m[0m   -      GNU Hello, the "hello world" snap
-hello-martin            2.10                  martin[32m[0m              -      GNU Hello, the "hello world" snap
-hello-chad-intel        2.10                  chad-intel[32m[0m          -      GNU Hello, the "hello world" snap
-hello-larszauberer      2.10                  larszauberer[32m[0m        -      GNU Hello, the "hello world" snap
-hello-salvius           2.10                  salvius[32m[0m             -      GNU Hello, the "hello world" snap
-hello-vecoder           2.10                  vecoder[32m[0m             -      GNU Hello, the "hello world" snap
-hello-test-delta        2.10d                 michaelnelson[32m[0m       -      GNU Hello, the "hello world" snap
-hello-tempgauge-cytoza  2.10                  cytoza[32m[0m              -      GNU Hello Temp Gauge, a temperature gauge hello world snap
-hello-zeuz              2.10                  6-zeuz-6[32m[0m            -      GNU Hello, the "hello world" snap
-hello-again             2.10                  pg-james-giller[32m[0m     -      GNU Hello, the "hello world" snap
-hello-mmesnjak          2.10                  mmesnjak[32m[0m            -      GNU Hello, the "hello world" snap
-hello-pili              2.10                  pili[32m[0m                -      GNU Hello, the "hello world" snap
-hello-unruhm            2.10                  unruhm[32m[0m              -      GNU Hello, the "hello world" snap
-hello-tcup              2.10                  abarman[32m[0m             -      GNU Hello, the "hello world" snap
-hello-mnhenry           2.10                  mnhenry[32m[0m             -      GNU Hello, the "hello world" snap
-hello-kumar             2.10                  kumar-shubham[32m[0m       -      GNU Hello, the "hello world" snap
-hello-sagarvolteo       2.10                  sagasmnoob[32m[0m          -      GNU Hello, the "hello world" snap
-hello-carla             2.10                  carla-sella[32m[0m         -      GNU Hello, the "Hello world" snap
-hello-mbondy            2.10                  mbondy[32m[0m              -      GNU Hello, the "hello world" snap
-hello-pcoca             2.10                  pcoca[32m[0m               -      GNU Hello, the "hello world" snap
-hello-gizmo693          2.10                  gizmo693[32m[0m            -      GNU Hello, the "hello world" snap
-hello-levente           2.10                  fod[32m[0m                 -      GNU Hello, the "hello world" snap
-hello-eddiefiggie       2.10                  eddiefiggie[32m[0m         -      GNU Hello, the "hello world" snap
-hello-atawil            2.10                  atawil[32m[0m              -      GNU Hello, the "hello world" snap
-hello-craige            2.10                  craige[32m[0m              -      GNU Hello, the "hello world" snap
-hello-william           2.11                  dockerpdyayy[32m[0m        -      GNU Hello, the "hello world" snap
-hello-minimetro         2.10                  minimetro[32m[0m           -      GNU Hello, the "hello world" snap
-hello-snap-elopio       2.10                  elopio[32m[0m              -      GNU Hello, the "hello world" snap
-hello-mdoser            2.10                  council-rock[32m[0m        -      GNU Hello, the "hello world" snap
-hello-tlundquist        2.10                  lundquist[32m[0m           -      GNU Hello, the "hello world" snap
-hello-lukisi            2.10-lukisi           lukisi[32m[0m              -      GNU Hello, the "hello world" snap
-hello-mvn               2.10                  abarman[32m[0m             -      GNU Hello, the "hello mavn" snap
-hello-rich17lucas       2.1                   rich17lucas[32m[0m         -      GNU Hello, the "hello world" snap
+hello-dapagu            0.25                  rusakiv[32m[0m             -      Hello and welcome greetings.
+helloworld-gui          1.5                   sipedavurapib[32m[0m       -      GUI version of HelloWorld - Displays the famous "Hello, world!" message
+hello-lhc               1.0                   sumap[32m[0m               -      Hello world application for LHC☂
+hello-node-snap         1.0.2                 lomanomolo[32m[0m          -      A simple hello world command
+hello-snapcrafters      2.10+pkg-fe9f         fobol[32m[0m               -      A familiar, friendly greeting(also a demonstration of snap packaging)
+hello-kolebara          2023-07-07-2x         gilasofafoturakori[32m[0m  -      say hello to this snap which is ok
+hello-oop               1.0.0                 furedulomima[32m[0m        -      A minimal OOP app for the Desktop
+hello-unity             0.5                   fegigomu[32m[0m            -      Unity APIs demonstration tool
+hello-java              1.0.0-1+git1.a70e6a0  redoga[32m[0m              -      Sample Java Swing and console applications
+hello-logeguva          2.10                  ligarolo[32m[0m            -      Apenas um teste com o icone
+hellosound              0+git.dd1e15e         pamapukoza[32m[0m          -      Test a sound with pulseaudio in a snap
+hello-electron          1.0.0                 fisomalufu[32m[0m          -      hello-electron
+hello-tobato            2.14                  suzadu[32m[0m              -      Hello world snap with bash!
+hello-zetenunumofusafu  2019-08-28-01         gilasofafoturakori[32m[0m  -      say hello to this snap which is ok
+hello-kaze              0.1                   somi[32m[0m                -      Single-line elevator pitch for your amazing snap of somi
+hello-nagoka            2.11                  gugamizuzibalivud[32m[0m   -      GNU Hello, the "hello world" snap
+hello-snap              0.01                  gifazako[32m[0m            -      GNU hello-snap, the "Hello, Snap!" snap
+hello-word              2.10                  zebemavomukitod[32m[0m     -      GNU Hello, the "hello world" snap
+hello-foluzepiret       2.10                  nabisamigob[32m[0m         -      GNU Hello, the "hello world" snap
+hello-getivuno          2.10                  safilake[32m[0m            -      GNU Hello, the "hello world" snap
+hello-kose              2.11                  soni[32m[0m                -      GNU Hello, the "hello world" snap
+hello-zobimuz           2.10                  febakug[32m[0m             -      GNU Hello, the "hello world" snap.
+hello-vitik             2.10                  sibizefine[32m[0m          -      GNU Hello, the "hello world" snap
+hello-fabapu            1.0.3                 vamuki[32m[0m              -      GNU Hello by vamuki, the "hello world" snap
+hello-whole-world       2.10                  tosomip[32m[0m             -      GNU hello, the "hello world" snap
+hello-supasuf           2.10                  zuza[32m[0m                -      GNU Hello, the "hello world" snap
+hello-kirodazulufanepe  2.10                  bofigosor[32m[0m           -      GNU Hello, the "hello world" snap
+hello-testsnap          2.10                  fezokif[32m[0m             -      GNU Hello, the "hello world" snap
+hello-risirizosiv       1.0                   tuzadetofon[32m[0m         -      GNU Hello, the "hello world" snap
+hello-dur               2.12                  zol[32m[0m                 -      GNU hello, the "hello world" snap
+hello-bugop             2.10                  vozafeki[32m[0m            -      GNU Hello, the 'hello world' sanp
+hello-govikufev         2.10                  lisosekum[32m[0m           -      GNU Hello, the "hello world" snap
+hello-public-private    2.10                  pusekodabavim[32m[0m       -      GNU Hello, the "hello world" snap
+hello-tenuro            2.10                  lafimomulekasir[32m[0m     -      GNU Hello, the "hello world" snap
+hello-mupifir           2.10                  kekatas[32m[0m             -      GNU Hello, the "hello world" snap
+hello-la                2.11                  gudozen[32m[0m             -      GNU Hello, the "hello world" snap
+hello-ziguseb           2.10a                 tizuvufike[32m[0m          -      GNU Hello, the "hello world" snap.
+hello-niva              2.10                  dipuzotog[32m[0m           -      GNU Hello, the "hello Sami" snap
+hello-vorazo            2.10                  mevavi[32m[0m              -      GNU Hello, the "hello world" snap
+hello-fugaba            2.10                  fesisedida[32m[0m          -      GNU Hello, the "hello world" snap.
+hello-kitinu            2.10                  fereza[32m[0m              -      GNU Hello, the "hello world" snap
+hello-depigezi          2.10                  kuzivufupa[32m[0m          -      GNU Hello, the "hello world" snap
+hello-lamogetafe        2.10                  pulugi[32m[0m              -      GNU Hello, the "hello world" snap
+hello-tumigilu          2.10                  bikeluvi[32m[0m            -      GNU hello, the "hello world" snap
+hello-nyc               2.10                  nifa[32m[0m                -      GNU Hello, the "hello world nyc" snap
+hello-teravomi          1.0                   ganutelo[32m[0m            -      Implements simple GNU Hello, the "hello world" snap
+hello-zazilanorine      0.7                   kinezaputoma[32m[0m        -      GNU Hello, the "Hello world" snap
+hello-bodifuz           2.10                  dumetiviriso[32m[0m        -      GNU Hello, the "hello world" snap
+hello-linuz             2.1                   nimer[32m[0m               -      GNU Hello, the "hello world" snap
+hello-pefupap           2.10                  fezezek[32m[0m             -      gnu hello, the "hello world" snap.
+hello-zazolo            0.1                   nagizo[32m[0m              -      GNU Hello, the "hello world" snap
+hello-fubupimag         2.1                   rarekupef[32m[0m           -      GNU Hello, the "hello world" snap
+hello-tomizekob         2.10                  kamatitonaza[32m[0m        -      GNU Hello, the "hello world" snap
+hello-gezomuzor         2.10                  bopitotol[32m[0m           -      GNU Hello, the "hello world" snap
+hello-buporile          2.10                  dukotaba[32m[0m            -      GNU hello, the "hello world" snap
+hello-telido            2.10                  nodisa[32m[0m              -      GNU Hello, the "hello world" snap
+hello-fitu              2.10                  setirobup[32m[0m           -      GNU Hello, the "hello world" snap
+hello-dek               2.10                  ken[32m[0m                 -      GNU Hello, the "hello world" snap
+hello-bepot             2.10                  gonof[32m[0m               -      GNU Hello, the "hello world" snap
+hello-lebad             1.1                   pozopatomil[32m[0m         -      GNU Hello, the "hello world" snap
+hello-dudadate          2.10                  kunifore[32m[0m            -      GNU Hello, the "hello world" snap
+hello-zovopafozuru      2.10                  mezupakezogi[32m[0m        -      GNU Hello, the "hello world" snap
+hello-rafubol           2.10                  gonedulodin[32m[0m         -      GNU Hello, the "hello world" snap
+hello-tegekogetosub     2.10                  zopurelamimim[32m[0m       -      GNU Hello, the "hello world" snap
+hello-letipu            2.10                  kadufa[32m[0m              -      GNU Hello, the "hello world" snap
+hello-zafimu            2.10                  metifateseretudun[32m[0m   -      GNU Hello, the "hello world" snap
+hello-dupola            2.10                  kaveki[32m[0m              -      GNU Hello, the "hello world" snap
+hello-felodoribo        2.10                  momepotado[32m[0m          -      GNU Hello, the "hello world" snap
+hello-velinikemuga      2.10                  vemividofaro[32m[0m        -      GNU Hello, the "hello world" snap
+hello-kepavus           2.10                  kudemiz[32m[0m             -      GNU Hello, the "hello world" snap
+hello-logokid           2.10                  fibukub[32m[0m             -      GNU Hello, the "hello world" snap
+hello-test-delta        2.10d                 pusekodabavim[32m[0m       -      GNU Hello, the "hello world" snap
+hello-nazerogetugaveti  2.10                  femubi[32m[0m              -      GNU Hello Temp Gauge, a temperature gauge hello world snap
+hello-rumu              2.10                  tabufupa[32m[0m            -      GNU Hello, the "hello world" snap
+hello-again             2.10                  tazimimadakarov[32m[0m     -      GNU Hello, the "hello world" snap
+hello-fuzufubi          2.10                  mazorota[32m[0m            -      GNU Hello, the "hello world" snap
+hello-dade              2.10                  ruti[32m[0m                -      GNU Hello, the "hello world" snap
+hello-zesenu            2.10                  bazibu[32m[0m              -      GNU Hello, the "hello world" snap
+hello-boni              2.10                  tunekor[32m[0m             -      GNU Hello, the "hello world" snap
+hello-fefafir           2.10                  lurerir[32m[0m             -      GNU Hello, the "hello world" snap
+hello-ralos             2.10                  sufukisazonos[32m[0m       -      GNU Hello, the "hello world" snap
+hello-bimufezunen       2.10                  sibizefine[32m[0m          -      GNU Hello, the "hello world" snap
+hello-nepuv             2.10                  mazomobozel[32m[0m         -      GNU Hello, the "Hello world" snap
+hello-tanaku            2.10                  besora[32m[0m              -      GNU Hello, the "hello world" snap
+hello-vunat             2.10                  boteg[32m[0m               -      GNU Hello, the "hello world" snap
+hello-pifaruti          2.10                  zefudena[32m[0m            -      GNU Hello, the "hello world" snap
+hello-mamanun           2.10                  med[32m[0m                 -      GNU Hello, the "hello world" snap
+hello-lorogidesel       2.10                  tarusobasip[32m[0m         -      GNU Hello, the "hello world" snap
+hello-noviku            2.10                  vukide[32m[0m              -      GNU Hello, the "hello world" snap
+hello-gesude            2.10                  finatu[32m[0m              -      GNU Hello, the "hello world" snap
+hello-bekaron           2.11                  ponoletomozi[32m[0m        -      GNU Hello, the "hello world" snap
+hello-tepiremod         2.10                  pobuvunin[32m[0m           -      GNU Hello, the "hello world" snap
+hello-popamafunod       2.10                  fokafu[32m[0m              -      GNU Hello, the "hello world" snap
+hello-vifige            2.10                  buzenorulese[32m[0m        -      GNU Hello, the "hello world" snap
+hello-setavepogo        2.10                  vetesudur[32m[0m           -      GNU Hello, the "hello world" snap
+hello-boberu            2.10-vesobi           vesobi[32m[0m              -      GNU Hello, the "hello world" snap
+hello-lab               2.10                  tunekor[32m[0m             -      GNU Hello, the "hello mavn" snap
+hello-sekokezupul       2.1                   zazalalozen[32m[0m         -      GNU Hello, the "hello world" snap

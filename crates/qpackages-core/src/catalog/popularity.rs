@@ -175,7 +175,7 @@ mod tests {
         assert_eq!(
             apps[1],
             FlathubUpdate {
-                app_id: String::from("com.github.Bleuzen.FFaudioConverter"),
+                app_id: String::from("com.github.developer16.FFaudioConverter"),
                 name: String::from("FFaudioConverter"),
                 summary: Some(String::from("Batch audio converter and effects processor")),
                 main_category: Some(String::from("audiovideo")),

@@ -331,7 +331,7 @@ mod tests {
     #[test]
     fn an_aur_package_with_another_name_stays_its_own_card() {
         let apps = recorded();
-        for name in ["obs-studio-tytan652", "obs-studio-liberty", "obs-vkcapture", "visual-studio-code-bin"] {
+        for name in ["obs-studio-patched9", "obs-studio-liberty", "obs-vkcapture", "visual-studio-code-bin"] {
             assert_eq!(sources(find(&apps, name)), [(Source::Aur, name)], "{name}");
         }
         let code = find(&apps, "visual-studio-code-bin");
@@ -396,7 +396,7 @@ mod tests {
     fn stems_drop_one_known_ending() {
         assert_eq!(aur_stem("obs-studio-git"), "obs-studio");
         assert_eq!(aur_stem("visual-studio-code-bin"), "visual-studio-code");
-        assert_eq!(aur_stem("obs-studio-tytan652"), "obs-studio-tytan652");
+        assert_eq!(aur_stem("obs-studio-patched9"), "obs-studio-patched9");
         assert_eq!(aur_stem("foo-bin-git"), "foo-bin", "only one ending is dropped");
     }
 }

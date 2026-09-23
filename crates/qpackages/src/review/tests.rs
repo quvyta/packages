@@ -35,17 +35,17 @@ const TARGET: &str = "cbonsai";
 
 /// The recipe as the user approved it once: nothing a rule points at.
 const CLEAN: &str = "\
-# Maintainer: nichobi <nichobi at example dot org>
+# Maintainer: maintainer-16 <maintainer-16 at example dot org>
 pkgname=cbonsai
 pkgver=1.4.2
 pkgrel=1
 pkgdesc='A bonsai tree generator for the terminal'
 arch=('x86_64')
-url='https://gitlab.com/jallbrit/cbonsai'
+url='https://gitlab.com/developer-2/cbonsai'
 license=('GPL3')
 depends=('gcc' 'ncurses')
 makedepends=('scdoc')
-source=(\"$pkgname-$pkgver.tar.gz::https://gitlab.com/jallbrit/cbonsai/-/archive/v$pkgver.tar.gz\")
+source=(\"$pkgname-$pkgver.tar.gz::https://gitlab.com/developer-2/cbonsai/-/archive/v$pkgver.tar.gz\")
 sha256sums=('4a1c9d0e5b7f2c8a3e6d1b4f7a0c3e6d9b2f5a8c1e4d7b0a3f6c9e2d5b8a1f4c')
 
 build() {
@@ -272,7 +272,7 @@ fn up_to_the_review(h: &mut Harness<Qpackages>, confirm: &str) -> String {
 /// Records `pkgbuild` as the recipe the user approved before, as a build that went through would.
 fn already_approved(screen: &Screen, pkgbuild: &str) {
     Store::new(&screen.places.approved)
-        .approve(TARGET, &recipe(pkgbuild), Some("nichobi"))
+        .approve(TARGET, &recipe(pkgbuild), Some("maintainer-16"))
         .expect("the store is writable");
 }
 

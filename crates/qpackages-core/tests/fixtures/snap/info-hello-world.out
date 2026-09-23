@@ -2,7 +2,7 @@ name:      hello-world
 summary:   The 'hello-world' of snaps
 publisher: Canonical**
 store-url: https://snapcraft.io/hello-world
-contact:   snaps@canonical.com
+contact:   publisher@example.com
 license:   MIT
 description: |
   This is a simple hello world example.
