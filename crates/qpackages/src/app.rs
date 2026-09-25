@@ -18,7 +18,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use qframe::icons::GlyphMode;
 use qframe::prelude::*;
-use qframe::storage::{self, Family, Settings};
+use qframe::storage::{self, Ecosystem, Preferences, Settings};
 use qframe::widgets::{Appearance, Badge, IconButton, Setup, SetupMsg, Splitter, Tabs, Toast, Tooltip};
 use qpackages_core::backup;
 use qpackages_core::catalog::net::{CURL, curl_args};
@@ -124,8 +124,8 @@ impl Places {
             exe: std::env::current_exe().ok(),
             runtime: Some(runtime_dir()),
             home: std::env::var_os("HOME").map(PathBuf::from).filter(|home| home.is_absolute()),
-            cache: storage::cache_dir(Family::QUVYTA.id()),
-            data: storage::data_dir(Family::QUVYTA.id()),
+            cache: storage::cache_dir(Ecosystem::QUVYTA.id()),
+            data: storage::data_dir(Ecosystem::QUVYTA.id()),
         }
     }
 
@@ -250,6 +250,9 @@ pub enum Msg {
     Settings(settings_page::Msg),
     /// The screen has this size now.
     Resized(Size),
+    /// The ecosystem's preferences as they stand now: at the start, and whenever another Quvyta
+    /// application, or qpac's own file changed from outside, changed them.
+    Preferences(Preferences),
     /// The local database was read and the sources were looked for: when the application
     /// starts, and again after a transaction.
     Reloaded(Snapshot),
@@ -842,6 +845,10 @@ impl App for Qpackages {
         self.key(name)
     }
 
+    fn preferences(&self, preferences: &Preferences) -> Option<Msg> {
+        Some(Msg::Preferences(preferences.clone()))
+    }
+
     fn resized(&self, size: Size) -> Option<Msg> {
         Some(Msg::Resized(size))
     }
@@ -895,6 +902,9 @@ impl Qpackages {
             Msg::Updates(msg) => return self.updates_message(msg),
             Msg::Settings(msg) => return self.settings_message(msg),
             Msg::Resized(size) => self.size = size,
+            // The runtime has applied them already; the appearance rows take them so their boxes
+            // say where the next change goes.
+            Msg::Preferences(preferences) => self.appearance.refresh(preferences),
             Msg::Reloaded(snapshot) => {
                 let flatpaks = self
                     .discover

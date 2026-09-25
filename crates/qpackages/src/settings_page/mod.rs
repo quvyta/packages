@@ -250,7 +250,7 @@ fn missing_row(list: &mut SettingsRows<'_, Msg>, source: Source, name: String, p
 fn self_update_section(list: &mut SettingsRows<'_, Msg>, cx: Cx<'_>) {
     let Some(on) = cx.self_update else { return };
     list.heading(t!("self-update.heading"));
-    let about = t!("self-update.switch-text", ecosystem = qframe::storage::Family::QUVYTA.title());
+    let about = t!("self-update.switch-text", ecosystem = qframe::storage::Ecosystem::QUVYTA.title());
     list.row(SettingRow::new(t!("self-update.switch")).description(about), |ui| {
         ui.add(Switch::new(on).on_toggle(Msg::SelfUpdate)).id("self-update");
     });

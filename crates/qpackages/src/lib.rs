@@ -44,7 +44,7 @@ use std::sync::Arc;
 
 use qframe::i18n::I18n;
 use qframe::runtime::Runtime;
-use qframe::storage::Family;
+use qframe::storage::Ecosystem;
 use qframe::widgets::Appearance;
 use qpackages_core::sources::on_path;
 
@@ -110,7 +110,7 @@ pub fn run() -> std::io::Result<()> {
         }
     }
     let settings = settings::load();
-    let ecosystem = Family::QUVYTA;
+    let ecosystem = Ecosystem::QUVYTA;
     // Read after the settings, which bring over an older file first: someone who used an earlier
     // release has a `packages.conf` by now and is not asked.
     let first_run = ecosystem.config_dir().and_then(|folder| app::FirstRun::in_folder(&folder));
@@ -146,6 +146,9 @@ pub fn run() -> std::io::Result<()> {
         .icon_source(icons::SET.0, icons::SET.1)
         .settings(&settings)
         .preferences(&preferences)
+        // The settings and preferences read above are used as they are; being a member adds the
+        // watch, so a theme or language another Quvyta application sets reaches qpac at once.
+        .member(ecosystem, settings::APP)
         .run();
     for diagnostic in settings.diagnostics() {
         eprintln!("{diagnostic}");
@@ -164,7 +167,7 @@ pub fn run() -> std::io::Result<()> {
 /// user's own settings. [`run`] uses the user's own shared Quvyta folder.
 #[must_use]
 pub fn appearance_in(folder: &Path) -> Appearance {
-    let ecosystem = Family::QUVYTA;
+    let ecosystem = Ecosystem::QUVYTA;
     let preferences = ecosystem.preferences_in(folder, settings::APP, &i18n());
     Appearance::new(ecosystem, settings::APP, preferences).in_folder(folder)
 }

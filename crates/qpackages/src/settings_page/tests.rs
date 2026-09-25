@@ -96,34 +96,6 @@ fn choosing_the_aur_helper_reads_the_sources_again() {
 }
 
 #[test]
-fn an_appearance_choice_applies_and_goes_to_the_family_s_file() {
-    let (mut h, scratch, _) = page(100, 40);
-    h.send(AppMsg::Settings(Msg::Appearance(AppearanceChange::Icons(IconMode::Ascii))));
-    h.send(AppMsg::Settings(Msg::Appearance(AppearanceChange::Language("tr".to_owned()))));
-    assert!(h.screen().contains("Ayarlar"), "the language changed at once:\n{}", h.screen());
-    // The rows open following the shared settings, so the value goes to the shared file and qpac's
-    // own file says that it follows.
-    let shared = shared_file(&scratch);
-    assert!(shared.contains("icons = \"ascii\"") && shared.contains("language = \"tr\""), "{shared}");
-    let own = written(&mut h, &scratch);
-    assert!(own.contains("icons = \"quvyta\"") && own.contains("language = \"quvyta\""), "{own}");
-}
-
-#[test]
-fn a_choice_made_here_only_goes_to_qpac_s_own_file() {
-    let (mut h, scratch, _) = page(100, 40);
-    let icons = AppearanceChange::Everywhere(qframe::storage::Shared::Icons, false);
-    h.send(AppMsg::Settings(Msg::Appearance(icons)));
-    // What the shared file said before the change; the machine's own detection decides what that
-    // is.
-    let before = shared_file(&scratch);
-    h.send(AppMsg::Settings(Msg::Appearance(AppearanceChange::Icons(IconMode::Nerd))));
-    let own = written(&mut h, &scratch);
-    assert!(own.contains("icons = \"nerd\""), "{own}");
-    assert_eq!(shared_file(&scratch), before, "the shared file is left alone");
-}
-
-#[test]
 fn a_narrow_page_keeps_the_offers_and_the_rules() {
     for width in [40, 60] {
         let (mut h, _scratch, _) = page(width, 40);
@@ -154,7 +126,7 @@ fn a_page_taller_than_the_screen_stays_put_on_a_click_and_follows_the_keys() {
 }
 
 #[test]
-fn the_appearance_rows_read_in_both_languages_and_offer_the_family() {
+fn the_appearance_rows_read_in_both_languages_and_offer_every_app() {
     let (mut h, _scratch, _) = page(100, 80);
     for (locale, heading, everywhere) in
         [("en", "Appearance", "In every Quvyta application"), ("tr", "Görünüm", "Tüm Quvyta uygulamalarında")]
@@ -162,8 +134,152 @@ fn the_appearance_rows_read_in_both_languages_and_offer_the_family() {
         h.set_locale(locale);
         let screen = h.screen();
         assert!(screen.contains(heading), "{locale}:\n{screen}");
-        // One box under each of the three shared rows, none under motion or the pillar.
-        assert_eq!(screen.matches(everywhere).count(), 3, "{locale}:\n{screen}");
+        // One box under each of the four shared rows, reduced motion among them; none under the pillar.
+        assert_eq!(screen.matches(everywhere).count(), 4, "{locale}:\n{screen}");
         assert!(!screen.contains('⟦'), "no key is missing in {locale}:\n{screen}");
     }
+}
+
+/// Walks to the row labelled `label` the way a person does with the keyboard alone: tab until the
+/// settings list has the focus, then down until the row is the selected one, which the pillar in
+/// front of it shows.
+fn keys_to(h: &mut Harness<Qpackages>, label: &str) {
+    let selected = |h: &Harness<Qpackages>, text: &str| h.screen().lines().any(|line| line.starts_with(text));
+    for _ in 0..12 {
+        if selected(h, "▌  ") {
+            break;
+        }
+        h.press("tab");
+    }
+    assert!(selected(h, "▌  "), "tab never reached the settings:\n{}", h.screen());
+    let row = format!("▌  {label}");
+    for _ in 0..60 {
+        if selected(h, &row) {
+            return;
+        }
+        h.press("down");
+    }
+    panic!("down never reached `{label}`:\n{}", h.screen());
+}
+
+/// The line the row labelled `label` is drawn on.
+fn line_of(h: &Harness<Qpackages>, label: &str) -> String {
+    let screen = h.screen();
+    screen
+        .lines()
+        .find(|line| line.trim_start_matches(['▌', '▎', '▏', ' ']).starts_with(label))
+        .unwrap_or_default()
+        .to_owned()
+}
+
+#[test]
+fn the_icons_row_is_turned_with_the_keys_and_the_screen_redraws_in_its_glyphs() {
+    let (mut h, scratch, _) = page(100, 80);
+    assert!(h.screen().contains('▾'), "unicode chevrons first:\n{}", h.screen());
+    keys_to(&mut h, "Icons");
+    // Enter opens the choice, End goes to its last entry, ASCII, and Enter takes it.
+    h.press("enter").press("end").press("enter");
+    let screen = h.screen();
+    assert!(!screen.contains('▾'), "no unicode glyph is left:\n{screen}");
+    assert!(line_of(&h, "Icons").contains("ASCII"), "the row names its mode:\n{screen}");
+    // The row opens following the shared settings, so the value goes to the shared file and qpac's
+    // own file says that it follows.
+    assert!(shared_file(&scratch).contains("icons = \"ascii\""), "{}", shared_file(&scratch));
+    assert!(written(&mut h, &scratch).contains("icons = \"quvyta\""), "{}", written(&mut h, &scratch));
+}
+
+#[test]
+fn the_language_row_is_turned_with_the_keys_and_the_page_speaks_it_at_once() {
+    let (mut h, scratch, _) = page(100, 80);
+    keys_to(&mut h, "Language");
+    // Typing the first letter of a name finds it in the open list.
+    h.press("enter").press("t").press("enter");
+    let screen = h.screen();
+    for text in ["Ayarlar", "Görünüm", "Kaynaklar"] {
+        assert!(screen.contains(text), "`{text}`:\n{screen}");
+    }
+    assert!(!screen.contains("Appearance"), "{screen}");
+    assert!(shared_file(&scratch).contains("language = \"tr\""), "{}", shared_file(&scratch));
+    assert!(written(&mut h, &scratch).contains("language = \"quvyta\""), "{}", written(&mut h, &scratch));
+}
+
+#[test]
+fn the_theme_row_is_turned_with_the_keys_and_the_screen_takes_its_colours() {
+    let (mut h, scratch, _) = page(100, 80);
+    let before = h.env().theme().id().to_owned();
+    let colours = |h: &Harness<Qpackages>| -> Vec<_> { (0..100).map(|x| (h.fg(x, 2), h.bg(x, 2))).collect() };
+    let drawn = colours(&h);
+    keys_to(&mut h, "Theme");
+    h.press("enter").press("down").press("enter");
+    let after = h.env().theme().id().to_owned();
+    assert_ne!(after, before, "{}", h.screen());
+    assert_ne!(colours(&h), drawn, "the page is drawn in the new theme");
+    assert!(shared_file(&scratch).contains(&format!("theme = \"{after}\"")), "{}", shared_file(&scratch));
+}
+
+#[test]
+fn the_box_under_a_row_is_cleared_with_the_keys_and_the_next_choice_stays_with_qpac() {
+    let (mut h, scratch, _) = page(100, 80);
+    keys_to(&mut h, "Icons");
+    h.press("down").press("space");
+    let before = shared_file(&scratch);
+    // Back on the row, Home and one down is the second mode, Nerd Font.
+    h.press("up").press("enter").press("home").press("down").press("enter");
+    let own = written(&mut h, &scratch);
+    assert!(own.contains("icons = \"nerd\""), "{own}");
+    assert_eq!(shared_file(&scratch), before, "the shared file is left alone");
+    assert!(!h.screen().contains('▾'), "the nerd glyphs are drawn:\n{}", h.screen());
+}
+
+#[test]
+fn the_pillar_is_moved_with_the_keys_and_the_selected_row_wears_it() {
+    let (mut h, scratch, _) = page(100, 80);
+    keys_to(&mut h, "Pillar");
+    h.press("right");
+    let screen = h.screen();
+    assert!(!screen.lines().any(|line| line.starts_with('▌')), "the thick pillar is gone:\n{screen}");
+    assert!(screen.lines().any(|line| line.starts_with("▎  Pillar")), "the row wears the thin one:\n{screen}");
+    assert!(written(&mut h, &scratch).contains("pillar = \"thin\""), "{}", written(&mut h, &scratch));
+}
+
+#[test]
+fn reduced_motion_is_switched_with_the_keys() {
+    let (mut h, scratch, _) = page(100, 80);
+    let before = h.env().reduced_motion();
+    keys_to(&mut h, "Reduce motion");
+    h.press("space");
+    assert_ne!(h.env().reduced_motion(), before, "{}", h.screen());
+    let shared = shared_file(&scratch);
+    assert!(shared.contains(&format!("reduced-motion = {}", !before)), "{shared}");
+}
+
+#[test]
+fn a_theme_another_application_gives_qpac_while_it_is_open_is_where_the_next_pick_goes() {
+    use qframe::storage::{Ecosystem, Scope, Shared};
+    let scratch = Scratch::new("follow", &[Sample::new("bash", "5.3-1", "Shell")]);
+    let folder = scratch.root().to_path_buf();
+    fs::write(folder.join("quvyta.conf"), "language = \"en\"\ntheme = \"monochrome\"\nicons = \"unicode\"\n")
+        .expect("the shared file");
+    let recorded = Arc::new(Recorded::default());
+    let app = app_in(&scratch, Settings::open(folder.join("packages.conf")), &recorded);
+    let mut h = Harness::member_in(app, Ecosystem::QUVYTA, &folder, settings::APP, 100, 80);
+    h.set_glyph_mode(GlyphMode::Unicode).set_reduced_motion(true);
+    h.send(AppMsg::OpenSettings);
+    // Another member, the launcher say, gives qpac a theme of its own in qpac's file.
+    Ecosystem::QUVYTA.set_in(&folder, settings::APP, Shared::Theme, "iris", Scope::App).expect("saved");
+    h.poll_preferences();
+    assert_eq!(h.env().theme().id(), "iris", "the screen follows");
+    assert!(line_of(&h, "Theme").contains("Iris"), "and the row says so:\n{}", h.screen());
+    // qpac keeps its own theme now, so the next one picked here stays with qpac.
+    keys_to(&mut h, "Theme");
+    h.press("enter").press("down").press("enter");
+    let picked = h.env().theme().id().to_owned();
+    assert_ne!(picked, "iris", "{}", h.screen());
+    let own = written(&mut h, &scratch);
+    assert!(own.contains(&format!("theme = \"{picked}\"")), "{own}");
+    assert!(
+        shared_file(&scratch).contains("theme = \"monochrome\""),
+        "the others keep theirs:\n{}",
+        shared_file(&scratch)
+    );
 }

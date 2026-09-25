@@ -18,7 +18,7 @@
 
 use std::path::Path;
 
-use qframe::storage::{Family, Schema, Settings, config_dir};
+use qframe::storage::{Ecosystem, Schema, Settings, config_dir};
 use qpackages_core::sources::{AurPreference, Source};
 
 use crate::sources;
@@ -127,9 +127,9 @@ pub fn set_privilege_tool(settings: &mut Settings, tool: PrivilegeTool) -> bool 
 /// diagnostics, first. Without a home folder the settings stay in memory and say why.
 #[must_use]
 pub fn load() -> Settings {
-    match (Family::QUVYTA.config_dir(), config_dir(LEGACY)) {
+    match (Ecosystem::QUVYTA.config_dir(), config_dir(LEGACY)) {
         (Some(folder), Some(legacy)) => load_in(&folder, &legacy),
-        _ => checked(Settings::load_member(&Family::QUVYTA, APP)),
+        _ => checked(Settings::load_member(&Ecosystem::QUVYTA, APP)),
     }
 }
 
@@ -139,7 +139,7 @@ pub fn load() -> Settings {
 /// Without a home folder there is nothing to read, and every key has its default.
 #[must_use]
 pub fn for_check() -> Settings {
-    let path = Family::QUVYTA.config_dir().map(|folder| folder.join(format!("{APP}.conf")));
+    let path = Ecosystem::QUVYTA.config_dir().map(|folder| folder.join(format!("{APP}.conf")));
     path.map_or_else(|| Settings::parse_str("packages.conf", ""), Settings::open).schema(schema())
 }
 
@@ -151,8 +151,8 @@ pub fn for_check() -> Settings {
 /// `settings.toml` stays whole beside it. A missing old folder is nothing to do.
 #[must_use]
 pub fn load_in(folder: &Path, legacy: &Path) -> Settings {
-    let moved = Family::QUVYTA.adopt_in(folder, APP, legacy);
-    checked(Settings::open(folder.join(format!("{APP}.conf"))).member_of(&Family::QUVYTA))
+    let moved = Ecosystem::QUVYTA.adopt_in(folder, APP, legacy);
+    checked(Settings::open(folder.join(format!("{APP}.conf"))).member_of(&Ecosystem::QUVYTA))
         .with_diagnostics(moved.diagnostics().to_vec())
 }
 
@@ -192,7 +192,7 @@ mod tests {
     const YAY: &str = "[aur]\nhelper = \"yay\"\n";
 
     #[test]
-    fn the_old_folder_moves_whole_into_the_family_and_is_removed() {
+    fn the_old_folder_moves_whole_into_the_ecosystem_and_is_removed() {
         let root = temp("move");
         let folder = root.join("quvyta");
         let legacy = root.join("quvyta-packages");

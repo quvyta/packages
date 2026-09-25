@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 use qframe::prelude::*;
 use qframe::runtime::{Update, UpdateCheck};
-use qframe::storage::Family;
+use qframe::storage::Ecosystem;
 use qframe::widgets::Toast;
 
 use super::{Msg, Qpackages};
@@ -37,7 +37,7 @@ impl SelfUpdateFolders {
     /// switch or the last question and so nothing is asked.
     #[must_use]
     pub fn here() -> Option<Self> {
-        let ecosystem = Family::QUVYTA;
+        let ecosystem = Ecosystem::QUVYTA;
         ecosystem.config_dir().zip(ecosystem.state_dir(settings::APP)).map(|(config, state)| Self { config, state })
     }
 }
@@ -63,7 +63,7 @@ impl Qpackages {
     #[must_use]
     pub fn with_self_update(mut self, folders: Option<SelfUpdateFolders>) -> Self {
         self.self_update = folders.map(|folders| {
-            let on = Family::QUVYTA.update_notice_in(&folders.config);
+            let on = Ecosystem::QUVYTA.update_notice_in(&folders.config);
             SelfUpdate { folders, on }
         });
         self
@@ -76,11 +76,11 @@ impl Qpackages {
     /// nothing at all.
     pub(super) fn ask_for_newer_qpac(&self) -> Command<Msg> {
         let Some(SelfUpdate { folders, .. }) = &self.self_update else { return Command::none() };
-        if !Family::QUVYTA.update_notice_in(&folders.config) {
+        if !Ecosystem::QUVYTA.update_notice_in(&folders.config) {
             return Command::none();
         }
         let check = UpdateCheck::new(
-            Family::QUVYTA,
+            Ecosystem::QUVYTA,
             settings::APP,
             env!("CARGO_PKG_NAME"),
             env!("CARGO_PKG_VERSION"),
@@ -96,14 +96,14 @@ impl Qpackages {
         self_update.on = on;
         let folder = self_update.folders.config.clone();
         Command::perform(move || {
-            Msg::SelfUpdateSaved(Family::QUVYTA.set_update_notice_in(&folder, on).map_err(|error| error.to_string()))
+            Msg::SelfUpdateSaved(Ecosystem::QUVYTA.set_update_notice_in(&folder, on).map_err(|error| error.to_string()))
         })
     }
 
     /// Says the switch could not be saved, and shows it as the file still has it.
     pub(super) fn self_update_not_saved(&mut self, reason: String) -> Command<Msg> {
         if let Some(self_update) = &mut self.self_update {
-            self_update.on = Family::QUVYTA.update_notice_in(&self_update.folders.config);
+            self_update.on = Ecosystem::QUVYTA.update_notice_in(&self_update.folders.config);
         }
         Command::toast(Toast::warning(t!("settings-page.not-saved")).body(reason))
     }
@@ -120,7 +120,7 @@ pub(super) fn notice(update: &Update) -> Toast<Msg> {
     let body = t!(
         "self-update.notice-body",
         current = update.current(),
-        launcher = Family::QUVYTA.id(),
+        launcher = Ecosystem::QUVYTA.id(),
         package = update.package()
     );
     Toast::info(title).body(body).key("quvyta-update").duration(std::time::Duration::from_secs(NOTICE_SECONDS))

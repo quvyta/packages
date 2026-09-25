@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use qframe::icons::GlyphMode;
 use qframe::prelude::*;
-use qframe::storage::Family;
+use qframe::storage::Ecosystem;
 
 use super::SelfUpdateFolders;
 use crate::app::Qpackages;
@@ -114,13 +114,13 @@ fn nothing_is_asked_while_the_setup_wizard_is_open() {
 }
 
 #[test]
-fn the_switch_on_the_settings_page_turns_the_question_off_for_the_family_and_back_on() {
+fn the_switch_on_the_settings_page_turns_the_question_off_for_every_app_and_back_on() {
     let scratch = machine("self-update-switch");
     let mut h = started(&scratch, 120);
     assert_eq!(h.update_checks().len(), 1, "on until someone turns it off");
     open_settings(&mut h);
     click_switch(&mut h, "Say when a newer qpac is out");
-    assert!(!Family::QUVYTA.update_notice_in(scratch.root()), "off:\n{}", h.screen());
+    assert!(!Ecosystem::QUVYTA.update_notice_in(scratch.root()), "off:\n{}", h.screen());
     let shared = fs::read_to_string(scratch.root().join("quvyta.conf")).expect("the ecosystem's file");
     assert!(shared.contains("update-notice = false"), "{shared}");
 
@@ -132,21 +132,21 @@ fn the_switch_on_the_settings_page_turns_the_question_off_for_the_family_and_bac
 
     open_settings(&mut off);
     click_switch(&mut off, "Say when a newer qpac is out");
-    assert!(Family::QUVYTA.update_notice_in(scratch.root()), "back on:\n{}", off.screen());
+    assert!(Ecosystem::QUVYTA.update_notice_in(scratch.root()), "back on:\n{}", off.screen());
     let on = started(&scratch, 120);
     assert_eq!(on.update_checks().len(), 1, "and the next start asks again");
 }
 
 #[test]
-fn the_switch_turned_off_elsewhere_in_the_family_is_off_here_too() {
+fn the_switch_turned_off_elsewhere_in_the_ecosystem_is_off_here_too() {
     let scratch = machine("self-update-elsewhere");
-    Family::QUVYTA.set_update_notice_in(scratch.root(), false).expect("written");
+    Ecosystem::QUVYTA.set_update_notice_in(scratch.root(), false).expect("written");
     let mut h = started(&scratch, 120);
     assert!(h.update_checks().is_empty(), "the ecosystem's file says off");
     open_settings(&mut h);
     // The page shows it off: turning it on is one click, and asks nothing until the next start.
     click_switch(&mut h, "Say when a newer qpac is out");
-    assert!(Family::QUVYTA.update_notice_in(scratch.root()), "{}", h.screen());
+    assert!(Ecosystem::QUVYTA.update_notice_in(scratch.root()), "{}", h.screen());
     assert!(h.update_checks().is_empty(), "switching asks nothing by itself");
 }
 

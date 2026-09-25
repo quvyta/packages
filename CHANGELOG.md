@@ -2,6 +2,21 @@
 
 Every release of quvyta-packages, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/); while the version starts with 0, a minor release may change the interface, the command line or the files qpac keeps under `~/.config/quvyta/` and `~/.local/state/quvyta/packages/`, and the notes say so when it does.
 
+## 0.1.13 - 2026-09-25
+
+### Added
+
+- qpac follows the Quvyta ecosystem while it is open. When another Quvyta application changes the language, the theme, the icons or reduced motion for every application, or gives qpac a value of its own, qpac takes it at once, and the appearance rows on the settings page say where the next change goes. qpac watches `~/.config/quvyta/` with the system's own file events for this; it reads nothing new and sends nothing.
+
+### Changed
+
+- Reduce motion is shared like the language: its row has the "In every Quvyta application" box, and while it is checked the switch is saved in `~/.config/quvyta/quvyta.conf`.
+- Built against quvyta-framework 0.1.29; quvyta-packages-core stays at 0.1.8.
+
+### Fixed
+
+- The README named `Accept-Encoding: gzip` among the headers of the question about a newer qpac; qpac never sends it. The headers are `Host`, `User-Agent` and `Accept: */*`, and nothing else.
+
 ## 0.1.12 - 2026-09-24
 
 ### Changed

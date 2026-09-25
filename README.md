@@ -98,7 +98,7 @@ of the Quvyta ecosystem of terminal applications, is built on
 - **Settings.** The gear at the top right (or `ctrl+,`) opens them: which sources are on, the AUR
   helper, who asks for permission, and the appearance rows every Quvyta application shares: language, theme,
   icons, reduced motion and the pillar, each shared one with a box under it that says whether the
-  change applies in every Quvyta application or here only. A missing source is shown with the
+  change applies in every Quvyta application or here only; a change another Quvyta application makes reaches qpac while it is open. A missing source is shown with the
   reason, and where its program is in the official repositories (`paru` for the AUR,
   `flatpak` for Flatpak) it can be installed from there, through the same confirmation. The AUR
   is refused when qpac runs as root, because packages are never built as root.
@@ -196,7 +196,7 @@ qpac collects no statistics and has no account, cookie or identifier of its own.
 
 ### A newer qpac
 
-When qpac starts, at most once a day, it asks crates.io whether a newer version of qpac itself is out, reading the same file `cargo install` reads: one HTTPS `GET` of `https://index.crates.io/qu/vy/quvyta-packages`. The request carries no cookie and no identifier; its headers are `User-Agent: quvyta-packages/<the version you run>`, `Accept: */*` and `Accept-Encoding: gzip`. crates.io sees, as with any connection, the address it comes from. When a newer qpac is out, a notice says *qpac 0.2.0 is out*, that it is about qpac and not your packages, and how to update it: from the Quvyta launcher, or with `cargo install quvyta-packages`. When there is no network, or crates.io does not answer within ten seconds, nothing is said and the next day asks again; qpac never waits for the answer before it opens. Nothing is asked while the first-run setup is open, and the background check (`qpac --check`) never asks it. The time of the last question is kept in `~/.local/state/quvyta/packages/update-check`.
+When qpac starts, at most once a day, it asks crates.io whether a newer version of qpac itself is out, reading the same file `cargo install` reads: one HTTPS `GET` of `https://index.crates.io/qu/vy/quvyta-packages`. The request carries no cookie and no identifier; its headers are `Host: index.crates.io`, `User-Agent: quvyta-packages/<the version you run>` and `Accept: */*`, and nothing else. crates.io sees, as with any connection, the address it comes from. When a newer qpac is out, a notice says *qpac 0.2.0 is out*, that it is about qpac and not your packages, and how to update it: from the Quvyta launcher, or with `cargo install quvyta-packages`. When there is no network, or crates.io does not answer within ten seconds, nothing is said and the next day asks again; qpac never waits for the answer before it opens. Nothing is asked while the first-run setup is open, and the background check (`qpac --check`) never asks it. The time of the last question is kept in `~/.local/state/quvyta/packages/update-check`.
 
 To turn it off, switch off **Say when a newer qpac is out** under **qpac itself** at the bottom of the settings. The switch is shared across the whole Quvyta ecosystem: it is `update-notice = false` in `~/.config/quvyta/quvyta.conf`, and turning it off stops the same question in every Quvyta application. While it is off, qpac asks nothing at all. It is a different switch from **Check in the background** under **Updates**, which is about your packages.
 

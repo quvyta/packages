@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use qframe::i18n::{Arg, I18n};
-use qframe::storage::Family;
+use qframe::storage::Ecosystem;
 use qpackages_core::catalog::aur::{info_urls, parse_response};
 use qpackages_core::catalog::net::{CURL, curl_args};
 use qpackages_core::check::{UpdateState, aur_updates, checked_recently};
@@ -57,7 +57,7 @@ impl Places {
     /// folder to keep them in, in which case no check can remember anything.
     #[must_use]
     pub fn for_user() -> Option<Self> {
-        let ecosystem = Family::QUVYTA;
+        let ecosystem = Ecosystem::QUVYTA;
         let places = Self::under(&ecosystem.state_dir(APP)?, &ecosystem.cache_dir(APP)?);
         // The downloads are under the home folder itself, whatever `XDG_CACHE_HOME` says: the
         // helper that takes them runs as root and finds the folder only through the password
@@ -599,7 +599,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn the_user_keeps_them_in_the_family_folders() {
+    fn the_user_keeps_them_in_the_ecosystem_folders() {
         // Reads the environment, writes nothing: the folders are the ecosystem's, under qpac's
         // name.
         let Some(places) = Places::for_user() else { return };

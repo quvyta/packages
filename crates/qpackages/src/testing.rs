@@ -63,9 +63,9 @@ pub fn first_start(
     // While the wizard asks nothing may be written, not even the ecosystem's shared file.
     let preferences = match &first_run {
         Some(first_run) => first_run.preferences().clone(),
-        None => qframe::storage::Family::QUVYTA.preferences_in(&folder, settings::APP, &crate::i18n()),
+        None => qframe::storage::Ecosystem::QUVYTA.preferences_in(&folder, settings::APP, &crate::i18n()),
     };
-    let appearance = Appearance::new(qframe::storage::Family::QUVYTA, settings::APP, preferences).in_folder(&folder);
+    let appearance = Appearance::new(qframe::storage::Ecosystem::QUVYTA, settings::APP, preferences).in_folder(&folder);
     on_machine(scratch, &settings, recorded, lookup, appearance, first_run, Some(uid))
 }
 

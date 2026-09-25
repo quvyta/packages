@@ -18,7 +18,7 @@
 use std::path::{Path, PathBuf};
 
 use qframe::prelude::*;
-use qframe::storage::{Family, Preferences, Settings};
+use qframe::storage::{Ecosystem, Preferences, Settings};
 use qframe::widgets::{Appearance, Checkbox, ScrollView, Select, SettingRow, SettingsList, Setup, SetupWizard, Switch};
 use qpackages_core::sources::{Availability, Source};
 
@@ -54,7 +54,7 @@ impl FirstRun {
     #[must_use]
     pub fn in_folder(folder: &Path) -> Option<Self> {
         let setup =
-            Setup::new_in(folder, Family::QUVYTA, settings::APP, &crate::i18n(), Msg::Setup).on_finish(Msg::SetUp);
+            Setup::new_in(folder, Ecosystem::QUVYTA, settings::APP, &crate::i18n(), Msg::Setup).on_finish(Msg::SetUp);
         setup.needed().then(|| Self { setup, folder: folder.to_path_buf() })
     }
 
@@ -188,7 +188,7 @@ impl Qpackages {
         let Some(setup) = self.setup.take() else { return Command::none() };
         // The appearance rows of the Settings page start from what the wizard chose; the wizard's
         // own Appearance held those values without writing them.
-        let appearance = Appearance::new(Family::QUVYTA, settings::APP, setup.preferences().clone());
+        let appearance = Appearance::new(Ecosystem::QUVYTA, settings::APP, setup.preferences().clone());
         self.appearance = match &self.setup_folder {
             Some(folder) => appearance.in_folder(folder),
             None => appearance,
