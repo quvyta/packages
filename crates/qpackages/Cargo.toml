@@ -5,7 +5,7 @@ repository = "https://github.com/quvyta/packages"
 readme = "../../README.md"
 keywords = ["tui", "terminal", "pacman", "arch", "packages"]
 categories = ["command-line-utilities"]
-version = "0.1.13"
+version = "0.1.14"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -22,7 +22,7 @@ name = "quvyta-packages"
 path = "src/bin/quvyta-packages.rs"
 
 [dependencies]
-quvyta-packages-core = { version = "0.1.8", path = "../qpackages-core" }
+quvyta-packages-core = { version = "0.1.9", path = "../qpackages-core" }
 # `updates` is the ecosystem's once-a-day question whether a newer qpac is out.
 quvyta-framework = { version = "0.1.29", features = ["updates"] }
 # Already built for the framework; used directly for the pipes an AUR build's root steps travel

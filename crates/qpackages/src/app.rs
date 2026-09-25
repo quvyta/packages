@@ -441,7 +441,7 @@ impl Qpackages {
     }
 
     /// Starts an update check in the background: the repositories always, the AUR through its
-    /// helper when it is in use and this machine has one.
+    /// helper when it is in use and this machine has one, and Flatpak when it is on and installed.
     fn check(&self) -> Command<Msg> {
         let helper = self
             .library
@@ -450,6 +450,12 @@ impl Qpackages {
             .filter(|_| self.aur_in_use())
             .map(qpackages_core::sources::AurHelper::program);
         let checker = self.checker.clone();
+        let flatpak = (self
+            .library
+            .as_ref()
+            .is_some_and(|found| matches!(found.sources.get(Source::Flatpak), Availability::Ready { .. }))
+            && settings::source_enabled(&self.settings, Source::Flatpak))
+        .then_some(qpackages_core::catalog::flatpak::FLATPAK);
         // snapd is asked only when Snap is on and it is really answering: without that the `snap`
         // program would retry for two minutes before saying anything.
         let snapd = self
@@ -458,7 +464,8 @@ impl Qpackages {
             .is_ready()
             .then(|| self.discover.snapd().clone())
             .filter(|_| settings::source_enabled(&self.settings, Source::Snap));
-        let check = Command::perform(move || Msg::Updates(updates::Msg::Checked(checker.run(helper, snapd.as_ref()))));
+        let check =
+            Command::perform(move || Msg::Updates(updates::Msg::Checked(checker.run(helper, snapd.as_ref(), flatpak))));
         Command::batch([check, self.fetch_news()])
     }
 

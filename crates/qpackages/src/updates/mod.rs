@@ -4,8 +4,8 @@
 //! The check itself is [`check::Checker`]; it runs in the background when the application has
 //! found its sources and whenever the user asks, and the list already on screen stays while it
 //! runs. Arch's recent news is read beside it, since an update that needs the user's hand is
-//! announced there. "Update all" hands the repositories' updates to the transaction flow; the
-//! AUR's need building, which the flow does not do, so they are listed and not offered.
+//! announced there. "Update all" hands the repositories' updates to the transaction flow and
+//! snaps to snapd; AUR and Flatpak updates are listed here but left to their own tools.
 
 pub mod check;
 mod restart;
@@ -47,6 +47,10 @@ pub struct Updates {
     snap: Option<Vec<Update>>,
     /// Why the latest check could not reach snapd.
     snap_failure: Option<Failure>,
+    /// The Flatpak refs with a newer commit waiting; `None` when Flatpak was not asked.
+    flatpak: Option<Vec<Update>>,
+    /// Why one Flatpak installation could not be reached.
+    flatpak_failure: Option<Failure>,
     /// The row selected in the list.
     selected: Option<usize>,
     /// Arch's news of the last two weeks, once read.
@@ -86,7 +90,7 @@ pub enum Request {
     /// Start a check in the background.
     Check,
     /// Update the system; these are the updates the confirmation lists, and the snaps that are
-    /// brought up to date in a step of their own after them.
+    /// brought up to date in a step of their own after them. Flatpak is deliberately absent.
     UpdateAll(Vec<Update>, Vec<String>),
 }
 
@@ -158,7 +162,7 @@ impl Updates {
     #[must_use]
     pub fn pending(&self, aur: bool) -> usize {
         let count = |list: &Option<Vec<Update>>| list.iter().flatten().filter(|update| !update.ignored).count();
-        count(&self.repo) + if aur { count(&self.aur) } else { 0 } + count(&self.snap)
+        count(&self.repo) + if aur { count(&self.aur) } else { 0 } + count(&self.snap) + count(&self.flatpak)
     }
 
     /// Takes in what a check found. A part that could not be reached keeps the list it had, so a
@@ -184,6 +188,21 @@ impl Updates {
             }
             Some(Err(failure)) => self.aur_failure = Some(failure),
         }
+        match found.flatpak {
+            None => {
+                self.flatpak = None;
+                self.flatpak_failure = None;
+            }
+            Some(Ok(updates)) => {
+                self.flatpak = Some(updates);
+                self.flatpak_failure = None;
+            }
+            Some(Err(Failure::Partial { updates, failure })) => {
+                self.flatpak = Some(updates);
+                self.flatpak_failure = Some(*failure);
+            }
+            Some(Err(failure)) => self.flatpak_failure = Some(failure),
+        }
         match found.snap {
             None => {
                 self.snap = None;
@@ -203,10 +222,12 @@ impl Updates {
         let aur = if cx.aur { self.aur.as_deref() } else { None };
         let aur_failure = self.aur_failure.as_ref().filter(|_| cx.aur);
         let snap = self.snap.as_deref();
-        let known = self.repo.is_some() || aur.is_some() || snap.is_some();
+        let flatpak = self.flatpak.as_deref();
+        let known = self.repo.is_some() || aur.is_some() || snap.is_some() || flatpak.is_some();
         let empty = self.repo.as_ref().is_none_or(Vec::is_empty)
             && aur.is_none_or(<[Update]>::is_empty)
-            && snap.is_none_or(<[Update]>::is_empty);
+            && snap.is_none_or(<[Update]>::is_empty)
+            && flatpak.is_none_or(<[Update]>::is_empty);
         let check =
             Button::new(t!("updates.check-now")).loading(self.checking).disabled(!cx.can_check).on_press(Msg::CheckNow);
 
@@ -220,7 +241,12 @@ impl Updates {
             ui.add(state).fill().id("updates");
             return;
         }
-        if empty && self.repo_failure.is_none() && aur_failure.is_none() && self.snap_failure.is_none() {
+        if empty
+            && self.repo_failure.is_none()
+            && aur_failure.is_none()
+            && self.snap_failure.is_none()
+            && self.flatpak_failure.is_none()
+        {
             let message = time.map_or_else(String::new, |time| t!("updates.last-checked", time = time));
             let state = EmptyState::new(t!("updates.up-to-date")).icon("check").message(message).action(check);
             ui.add(state).fill().id("updates");
@@ -309,7 +335,14 @@ impl Updates {
         arrow: &str,
         width: usize,
     ) -> Vec<ListItem> {
-        let every = || repo.into_iter().flatten().chain(aur.into_iter().flatten()).chain(snap.into_iter().flatten());
+        let flatpak = self.flatpak.as_deref();
+        let every = || {
+            repo.into_iter()
+                .flatten()
+                .chain(aur.into_iter().flatten())
+                .chain(snap.into_iter().flatten())
+                .chain(flatpak.into_iter().flatten())
+        };
         let widest = |text: fn(&Update) -> &str| every().map(|update| text(update).chars().count()).max().unwrap_or(0);
         let widths = (widest(|update| &update.name), widest(|update| &update.from));
         let note = every().filter_map(note).map(|note| note.chars().count()).max().unwrap_or(0);
@@ -317,7 +350,12 @@ impl Updates {
         // no version is ever cut off.
         let aligned = widths.0 + widths.1 + widest(|update| &update.to) + 9 + note + ROW_CHROME <= width;
         let mut items = Vec::new();
-        for (title, updates) in [(t!("updates.repo"), repo), (t!("source.aur"), aur), (t!("source.snap"), snap)] {
+        for (title, updates) in [
+            (t!("updates.repo"), repo),
+            (t!("source.aur"), aur),
+            (t!("source.snap"), snap),
+            (t!("source.flatpak"), flatpak),
+        ] {
             let Some(updates) = updates.filter(|updates| !updates.is_empty()) else {
                 continue;
             };
@@ -327,12 +365,24 @@ impl Updates {
             items.push(ListItem::header(title));
             items.extend(updates.iter().map(|update| row(update, widths, arrow, aligned)));
         }
+        if flatpak.is_some_and(|updates| !updates.is_empty()) {
+            items.push(ListItem::new(t!("updates.flatpak-note")).faint(true));
+        }
         if let Some(failure) = aur_failure {
             if !items.is_empty() {
                 items.push(ListItem::gap());
             }
             items.push(ListItem::header(t!("source.aur")));
             items.push(ListItem::new(t!("updates.aur-failed", reason = reason(failure))).faint(true));
+        }
+        if let Some(failure) = &self.flatpak_failure {
+            if flatpak.is_none_or(<[Update]>::is_empty) {
+                if !items.is_empty() {
+                    items.push(ListItem::gap());
+                }
+                items.push(ListItem::header(t!("source.flatpak")));
+            }
+            items.push(ListItem::new(t!("updates.flatpak-failed", reason = reason(failure))).faint(true));
         }
         items
     }
@@ -372,6 +422,7 @@ fn reason(failure: &Failure) -> String {
         Failure::NoFakeroot => t!("updates.no-fakeroot"),
         Failure::Said(text) if text.is_empty() => t!("updates.no-reason"),
         Failure::Said(text) => text.clone(),
+        Failure::Partial { failure, .. } => reason(failure),
     }
 }
 

@@ -6,7 +6,9 @@ use std::time::Duration;
 
 use qframe::icons::GlyphMode;
 use qframe::storage::Settings;
+use qpackages_core::catalog::flatpak::FLATPAK;
 use qpackages_core::catalog::net::{CURL, curl_args};
+use qpackages_core::flatpak::{self, Scope};
 use qpackages_core::news::NEWS_URL;
 use qpackages_core::pacman::command::{self, FAKEROOT, PACMAN};
 
@@ -28,6 +30,7 @@ fn found() -> Found {
         at: AT,
         repo: Ok(vec![update("linux", "6.18.1-1", "6.18.2-1"), update("mesa", "25.2.3-1", "25.2.4-1")]),
         aur: Some(Ok(vec![update("visual-studio-code-bin", "1.104.0-1", "1.105.0-1")])),
+        flatpak: None,
         snap: None,
     }
 }
@@ -86,7 +89,7 @@ fn an_empty_group_is_left_out_and_a_held_back_package_is_not_counted() {
     let mut h = tab(100, 20);
     let mut held = update("linux", "6.18.1-1", "6.18.2-1");
     held.ignored = true;
-    h.send(Msg::Checked(Found { at: AT, repo: Ok(vec![held]), aur: Some(Ok(Vec::new())), snap: None }));
+    h.send(Msg::Checked(Found { at: AT, repo: Ok(vec![held]), aur: Some(Ok(Vec::new())), flatpak: None, snap: None }));
     let screen = h.screen();
     assert!(screen.contains("0 updates"), "{screen}");
     assert!(screen.contains("held back by IgnorePkg"), "{screen}");
@@ -97,7 +100,7 @@ fn an_empty_group_is_left_out_and_a_held_back_package_is_not_counted() {
 #[test]
 fn nothing_to_update_says_so_with_the_time_of_the_check() {
     let mut h = tab(100, 20);
-    h.send(Msg::Checked(Found { at: AT, repo: Ok(Vec::new()), aur: None, snap: None }));
+    h.send(Msg::Checked(Found { at: AT, repo: Ok(Vec::new()), aur: None, flatpak: None, snap: None }));
     let screen = h.screen();
     for text in ["Everything is up to date", "Last checked 14:02.", "Check now"] {
         assert!(screen.contains(text), "`{text}` is missing:\n{screen}");
@@ -117,7 +120,7 @@ fn the_list_stays_while_a_check_runs_and_a_failed_check_keeps_it() {
     let screen = h.screen();
     assert!(screen.contains("linux") && screen.contains("checking"), "{screen}");
     let failure = Failure::Said("error: failed retrieving file 'core.db'".to_owned());
-    h.send(Msg::Checked(Found { at: AT + 600, repo: Err(failure), aur: None, snap: None }));
+    h.send(Msg::Checked(Found { at: AT + 600, repo: Err(failure), aur: None, flatpak: None, snap: None }));
     let screen = h.screen();
     assert!(screen.contains("linux"), "the list stays:\n{screen}");
     assert!(screen.contains("The last check did not finish: error: failed retrieving file"), "{screen}");
@@ -139,7 +142,7 @@ fn a_first_check_that_fails_says_why_and_offers_another() {
     let mut h = tab(100, 20);
     let screen = h.screen();
     assert!(screen.contains("Looking for updates"), "before any answer:\n{screen}");
-    h.send(Msg::Checked(Found { at: AT, repo: Err(Failure::NoFakeroot), aur: None, snap: None }));
+    h.send(Msg::Checked(Found { at: AT, repo: Err(Failure::NoFakeroot), aur: None, flatpak: None, snap: None }));
     let screen = h.screen();
     for text in ["Could not check for updates", "fakeroot", "base-devel", "Check now"] {
         assert!(screen.contains(text), "`{text}` is missing:\n{screen}");
@@ -340,4 +343,108 @@ fn the_feed_is_read_with_curl_and_the_recent_manual_item_reaches_the_tab() {
     assert!(screen.contains("2099-01-01  foo >= 2 requires manual intervention"), "{screen}");
     let curl = recorded.calls().into_iter().find(|call| call.program == CURL).expect("curl ran");
     assert!(curl.args.contains(&"=https".to_owned()), "only https: {:?}", curl.args);
+}
+
+#[test]
+fn flatpak_updates_are_their_own_group_listed_but_not_offered() {
+    let mut h = tab(100, 20);
+    let mut found = found();
+    found.flatpak = Some(Ok(vec![update("net.sourceforge.ExtremeTuxRacer", "0.8.4", "8f72400b6553")]));
+    h.send(Msg::Checked(found.clone()));
+    let screen = h.screen();
+    for text in ["4 updates", "Flatpak", "net.sourceforge.ExtremeTuxRacer", "8f72400b6553", "use flatpak update"] {
+        assert!(screen.contains(text), "`{text}` is missing:\n{screen}");
+    }
+    let mut updates = Updates::default();
+    let _ = updates.update(Msg::Checked(found));
+    let Some(Request::UpdateAll(list, snaps)) = updates.update(Msg::UpdateAll) else {
+        panic!("an update is asked for");
+    };
+    assert!(!list.iter().any(|update| update.name.starts_with("net.")), "Flatpak is not handed to pacman");
+    assert!(snaps.is_empty(), "nor to snapd");
+}
+
+#[test]
+fn a_flatpak_installation_that_did_not_answer_is_one_quiet_line_beside_the_rest() {
+    let reason = "error: Remote \"no-such-remote\" not found in the user installation";
+    let mut h = tab(120, 20);
+    let mut found = found();
+    found.flatpak = Some(Err(Failure::Partial {
+        updates: vec![update("org.freedesktop.Platform", "freedesktop-sdk-25.08.16", "d27f7a6a974e")],
+        failure: Box::new(Failure::Said(reason.to_owned())),
+    }));
+    h.send(Msg::Checked(found));
+    let screen = h.screen();
+    for text in ["org.freedesktop.Platform", "Flatpak could not be asked: error: Remote"] {
+        assert!(screen.contains(text), "`{text}` is missing:\n{screen}");
+    }
+    let headers = screen.lines().filter(|line| line.trim_end().ends_with("Flatpak")).count();
+    assert_eq!(headers, 1, "the failure stands under the rows' own heading:\n{screen}");
+
+    let mut h = tab(120, 20);
+    let mut found = super::tests::found();
+    found.flatpak = Some(Err(Failure::Said(reason.to_owned())));
+    h.send(Msg::Checked(found));
+    let screen = h.screen();
+    assert!(screen.contains("Flatpak could not be asked"), "{screen}");
+    assert!(!screen.contains("use flatpak update"), "no note without rows:\n{screen}");
+}
+
+/// The programs of a pretend machine that also has Flatpak.
+fn with_flatpak(program: &str) -> Option<std::path::PathBuf> {
+    crate::testing::programs(program)
+        .or_else(|| (program == FLATPAK).then(|| std::path::Path::new("/usr/bin").join(program)))
+}
+
+fn flatpak_fixture(name: &str) -> String {
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../qpackages-core/tests/fixtures/flatpak").join(name);
+    std::fs::read_to_string(path).expect("the recording is readable")
+}
+
+/// [`machine`] with Flatpak installed, its user installation having two refs waiting as the
+/// throwaway Arch container's Flatpak 1.18.3 printed them.
+fn flatpak_machine(settings: &str) -> (Harness<Qpackages>, Scratch, Arc<Recorded>) {
+    let scratch = Scratch::new("updates-flatpak", &[Sample::new("linux", "6.18.1-1", "The Linux kernel")]);
+    scratch.repository("core");
+    let work = scratch.check();
+    let recorded = Arc::new(Recorded::default());
+    recorded.answer(FAKEROOT, &command::refresh(&work), "", 0);
+    recorded.answer(PACMAN, &command::update_check(&work), "linux 6.18.1-1 -> 6.18.2-1\n", 0);
+    recorded.answer(FLATPAK, &flatpak::updates_args(Scope::User), &flatpak_fixture("updates-user.out"), 0);
+    recorded.answer(FLATPAK, &flatpak::installed_args(Scope::User), &flatpak_fixture("list-user.out"), 0);
+    recorded.answer(FLATPAK, &flatpak::updates_args(Scope::System), "", 0);
+    recorded.answer(FLATPAK, &flatpak::installed_args(Scope::System), "", 0);
+    let settings = Settings::parse_str("packages.conf", settings);
+    let app = crate::testing::app_with(&scratch, settings, &recorded, with_flatpak);
+    let mut h = Harness::with_env(app, crate::locales::env(), 120, 24);
+    h.set_locale("en").set_glyph_mode(GlyphMode::Unicode).set_reduced_motion(true);
+    h.advance(Duration::from_millis(20));
+    (h, scratch, recorded)
+}
+
+#[test]
+fn the_application_asks_flatpak_for_updates_when_it_is_installed_and_on() {
+    let (mut h, _scratch, recorded) = flatpak_machine("");
+    h.click_text("Updates");
+    let screen = h.screen();
+    for text in ["3 updates", "Flatpak", "net.sourceforge.ExtremeTuxRacer", "org.freedesktop.Platform"] {
+        assert!(screen.contains(text), "`{text}` is missing:\n{screen}");
+    }
+    let lines = recorded.command_lines();
+    assert!(lines.iter().any(|line| line.starts_with("flatpak --system remote-ls --updates")), "{lines:?}");
+    h.click_text("Update all");
+    let screen = h.screen();
+    // Three updates are listed, and the confirmation asks about pacman's one alone.
+    assert!(screen.contains("Update 1 package?"), "Flatpak's part is left to flatpak update:\n{screen}");
+}
+
+#[test]
+fn a_turned_off_flatpak_is_not_asked_for_updates() {
+    let (mut h, _scratch, recorded) = flatpak_machine("[sources]\nflatpak = false\n");
+    h.click_text("Updates");
+    let screen = h.screen();
+    assert!(screen.contains("1 update") && !screen.contains("ExtremeTuxRacer"), "{screen}");
+    let lines = recorded.command_lines();
+    assert!(!lines.iter().any(|line| line.contains("remote-ls")), "{lines:?}");
 }

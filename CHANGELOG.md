@@ -2,6 +2,18 @@
 
 Every release of quvyta-packages, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/); while the version starts with 0, a minor release may change the interface, the command line or the files qpac keeps under `~/.config/quvyta/` and `~/.local/state/quvyta/packages/`, and the notes say so when it does.
 
+## 0.1.14 - 2026-09-25
+
+### Added
+
+- The Updates tab lists waiting Flatpak updates, for you and for the whole system, as their own group. qpac lists them and a note says to run `flatpak update` for now; **Update all** leaves them out. When Flatpak gives a runtime no version, the row names its branch and the first twelve characters of the waiting commit. When one installation cannot be asked, the other's updates still show, with the reason on one quiet line. With Flatpak on, the check asks your Flatpak remotes, as the README's network section now says.
+
+### Changed
+
+- The list of packages that need a restart after an update is kept in one place, quvyta-packages-core, and the Updates tab and the update confirmation read the same one.
+- The README picture shows today's update settings.
+- Needs quvyta-packages-core 0.1.9, which reads Flatpak's update answers.
+
 ## 0.1.13 - 2026-09-25
 
 ### Added

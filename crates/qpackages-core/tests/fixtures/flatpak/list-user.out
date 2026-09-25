@@ -1,0 +1,8 @@
+net.sourceforge.ExtremeTuxRacer	0.8.4	stable	user
+org.freedesktop.Platform	freedesktop-sdk-24.08.36	24.08	user
+org.freedesktop.Platform	freedesktop-sdk-25.08.16	25.08	user
+org.freedesktop.Platform.GL.default	26.1.8	24.08	user
+org.freedesktop.Platform.GL.default	26.1.8	24.08extra	user
+org.freedesktop.Platform.GL.default	26.2.2	25.08	user
+org.freedesktop.Platform.GL.default	26.2.2	25.08-extra	user
+org.freedesktop.Platform.codecs-extra		25.08-extra	user

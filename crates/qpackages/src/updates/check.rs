@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use qframe::prelude::t;
+use qpackages_core::flatpak::{self, Scope};
 use qpackages_core::pacman::command::{self, FAKEROOT, PACMAN};
 use qpackages_core::pacman::syncdb;
 use qpackages_core::pacman::{Update, UpdateCheck, read_update_check};
@@ -30,6 +31,14 @@ pub enum Failure {
     /// A program ended without success, or could not be started; what it said, in English, for
     /// the user to read under the explanation.
     Said(String),
+    /// One installation answered and another did not. The updates that did arrive stay beside the
+    /// quiet reason instead of disappearing with the failed scope.
+    Partial {
+        /// The updates from every installation that answered.
+        updates: Vec<Update>,
+        /// Why the other installation could not be read.
+        failure: Box<Failure>,
+    },
 }
 
 /// What one check found.
@@ -42,6 +51,9 @@ pub struct Found {
     /// The AUR's updates, or why they are unknown; `None` when the AUR was not asked, because it
     /// is turned off, has no helper, or qpac runs as root.
     pub aur: Option<Result<Vec<Update>, Failure>>,
+    /// The Flatpak refs with a newer commit waiting, or why they are unknown; `None` when Flatpak
+    /// was not asked, because it is turned off or is not installed.
+    pub flatpak: Option<Result<Vec<Update>, Failure>>,
     /// The snaps with a newer version waiting, or why they are unknown; `None` when Snap was not
     /// asked, because it is turned off or snapd is not answering.
     pub snap: Option<Result<Vec<Update>, Failure>>,
@@ -78,16 +90,64 @@ impl Checker {
         Self { runner, lookup, local: local.to_path_buf(), sync: sync.to_path_buf(), work: work.map(Path::to_path_buf) }
     }
 
-    /// Checks here and now; `aur_helper` is the program asked about the AUR and `snapd` the snapd
-    /// asked about snaps, each if it is to be asked. Meant for a background thread: the refresh
-    /// downloads the repository databases.
+    /// Checks here and now. The AUR helper, Flatpak and snapd are asked only when each is to be
+    /// asked. Meant for a background thread: the refresh downloads the repository databases.
     #[must_use]
-    pub fn run(&self, aur_helper: Option<&str>, snapd: Option<&Snapd>) -> Found {
+    pub fn run(&self, aur_helper: Option<&str>, snapd: Option<&Snapd>, flatpak: Option<&str>) -> Found {
         let repo = self.repositories();
         let aur = aur_helper.map(|helper| self.query(helper, &command::aur_update_check()));
+        let flatpak = flatpak.map(|program| self.flatpak(program));
         let snap = snapd.map(|snapd| self.snaps(snapd));
         let at = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs());
-        Found { at: i64::try_from(at).unwrap_or(i64::MAX), repo, aur, snap }
+        Found { at: i64::try_from(at).unwrap_or(i64::MAX), repo, aur, flatpak, snap }
+    }
+
+    /// The Flatpak refs with a newer commit waiting across the user's and the machine's
+    /// installations. Each scope is independent, so one broken installation never hides rows the
+    /// other one found.
+    fn flatpak(&self, program: &str) -> Result<Vec<Update>, Failure> {
+        let mut updates = Vec::new();
+        let mut answered = false;
+        let mut failure = None;
+        for scope in [Scope::User, Scope::System] {
+            match self.flatpak_scope(program, scope) {
+                Ok(found) => {
+                    answered = true;
+                    updates.extend(found);
+                }
+                Err(reason) => failure = failure.or(Some(reason)),
+            }
+        }
+        match (answered, failure) {
+            (false, Some(failure)) => Err(failure),
+            (true, Some(failure)) => Err(Failure::Partial { updates, failure: Box::new(failure) }),
+            (true, None) => Ok(updates),
+            (false, None) => Err(Failure::Said(String::new())),
+        }
+    }
+
+    /// One Flatpak installation's updates, paired with the versions that installation has now.
+    fn flatpak_scope(&self, program: &str, scope: Scope) -> Result<Vec<Update>, Failure> {
+        let listed = self
+            .runner
+            .output(program, &flatpak::updates_args(scope), &command::parsed_env())
+            .map_err(|error| Failure::Said(error.to_string()))?;
+        let installed = self
+            .runner
+            .output(program, &flatpak::installed_args(scope), &command::parsed_env())
+            .map_err(|error| Failure::Said(error.to_string()))?;
+        match flatpak::read_updates(
+            listed.code,
+            &listed.stdout,
+            &listed.stderr,
+            installed.code,
+            &installed.stdout,
+            &installed.stderr,
+        ) {
+            flatpak::UpdateCheck::Updates(updates) => Ok(updates),
+            flatpak::UpdateCheck::Failed { stderr } => Err(Failure::Said(stderr)),
+            flatpak::UpdateCheck::Unreadable => Err(Failure::Said(t!("updates.flatpak-unreadable"))),
+        }
     }
 
     /// The snaps with a newer version waiting.
@@ -162,6 +222,7 @@ mod tests {
 
     use super::*;
     use crate::runner::Recorded;
+    use qpackages_core::catalog::flatpak::FLATPAK;
 
     fn scratch(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("qpackages-check-{name}-{}", std::process::id()));
@@ -190,7 +251,7 @@ mod tests {
         recorded.answer(PACMAN, &command::update_check(&work), "linux 6.18.1-1 -> 6.18.2-1\n", 0);
         recorded.answer("paru", &command::aur_update_check(), "brave-bin 1:1.95.101-1 -> 1:1.95.102-1\n", 0);
 
-        let found = checker(&dir, &recorded, Arc::new(with_fakeroot)).run(Some("paru"), None);
+        let found = checker(&dir, &recorded, Arc::new(with_fakeroot)).run(Some("paru"), None, None);
 
         assert_eq!(found.repo.expect("the repositories answered").len(), 1);
         assert_eq!(found.aur.expect("the AUR was asked").expect("and answered")[0].name, "brave-bin");
@@ -212,12 +273,12 @@ mod tests {
     fn nothing_runs_without_fakeroot_or_a_place_for_the_copy() {
         let dir = scratch("missing");
         let recorded = Arc::new(Recorded::default());
-        let found = checker(&dir, &recorded, Arc::new(|_| None)).run(None, None);
+        let found = checker(&dir, &recorded, Arc::new(|_| None)).run(None, None, None);
         assert_eq!(found.repo, Err(Failure::NoFakeroot));
         assert_eq!(found.aur, None, "the AUR is not asked when no helper is given");
         let placeless =
             Checker::new(Arc::clone(&recorded) as Arc<dyn Runner>, Arc::new(with_fakeroot), &dir, &dir, None);
-        assert_eq!(placeless.run(None, None).repo, Err(Failure::NoPlace));
+        assert_eq!(placeless.run(None, None, None).repo, Err(Failure::NoPlace));
         assert!(recorded.calls().is_empty());
         fs::remove_dir_all(dir).expect("cleanup");
     }
@@ -231,7 +292,7 @@ mod tests {
         recorded.fail(FAKEROOT, &command::refresh(&work), stderr, 1);
         recorded.answer("paru", &command::aur_update_check(), "", 1);
 
-        let found = checker(&dir, &recorded, Arc::new(with_fakeroot)).run(Some("paru"), None);
+        let found = checker(&dir, &recorded, Arc::new(with_fakeroot)).run(Some("paru"), None, None);
 
         assert_eq!(
             found.repo,
@@ -249,6 +310,72 @@ mod tests {
         fs::read_to_string(path).expect("the recording is readable")
     }
 
+    /// The Flatpak recordings the container produced.
+    fn flatpak_fixture(name: &str) -> String {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../qpackages-core/tests/fixtures/flatpak").join(name);
+        fs::read_to_string(path).expect("the recording is readable")
+    }
+
+    #[test]
+    fn both_flatpak_installations_are_asked_for_updates() {
+        // Recorded in the throwaway Arch container with Flatpak 1.18.3.
+        let dir = scratch("flatpak-both");
+        let recorded = Arc::new(Recorded::default());
+        recorded.answer(FLATPAK, &flatpak::updates_args(Scope::User), &flatpak_fixture("updates-user.out"), 0);
+        recorded.answer(FLATPAK, &flatpak::installed_args(Scope::User), &flatpak_fixture("list-user.out"), 0);
+        recorded.answer(FLATPAK, &flatpak::updates_args(Scope::System), &flatpak_fixture("updates-user-empty.out"), 0);
+        recorded.answer(FLATPAK, &flatpak::installed_args(Scope::System), &flatpak_fixture("list-system.out"), 0);
+        let checker = Checker::new(Arc::clone(&recorded) as Arc<dyn Runner>, Arc::new(with_fakeroot), &dir, &dir, None);
+
+        let found = checker.run(None, None, Some(FLATPAK));
+
+        let updates = found.flatpak.expect("Flatpak was asked").expect("both installations answered");
+        assert_eq!(updates.len(), 2);
+        assert_eq!(updates[0].name, "net.sourceforge.ExtremeTuxRacer");
+        assert_eq!(updates[1].name, "org.freedesktop.Platform");
+        assert_eq!(
+            recorded.command_lines(),
+            [
+                "flatpak --user remote-ls --updates --columns=application,branch,version,commit",
+                "flatpak --user list --columns=application,version,branch,installation",
+                "flatpak --system remote-ls --updates --columns=application,branch,version,commit",
+                "flatpak --system list --columns=application,version,branch,installation",
+            ]
+        );
+        assert!(recorded.calls().iter().all(|call| call.env.contains(&("LC_ALL".to_owned(), "C".to_owned()))));
+        fs::remove_dir_all(dir).expect("cleanup");
+    }
+
+    #[test]
+    fn one_broken_flatpak_installation_does_not_hide_the_other_updates() {
+        // Recorded in the throwaway Arch container with Flatpak 1.18.3.
+        let dir = scratch("flatpak-partial");
+        let recorded = Arc::new(Recorded::default());
+        recorded.answer_full(
+            FLATPAK,
+            &flatpak::updates_args(Scope::User),
+            "",
+            &flatpak_fixture("updates-error.err"),
+            1,
+        );
+        recorded.answer(FLATPAK, &flatpak::installed_args(Scope::User), &flatpak_fixture("list-user.out"), 0);
+        recorded.answer(FLATPAK, &flatpak::updates_args(Scope::System), &flatpak_fixture("updates-user.out"), 0);
+        recorded.answer(FLATPAK, &flatpak::installed_args(Scope::System), &flatpak_fixture("list-user.out"), 0);
+        let checker = Checker::new(Arc::clone(&recorded) as Arc<dyn Runner>, Arc::new(with_fakeroot), &dir, &dir, None);
+
+        let found = checker.run(None, None, Some(FLATPAK));
+
+        let Err(Failure::Partial { updates, failure }) = found.flatpak.expect("Flatpak was asked") else {
+            panic!("one installation failed")
+        };
+        assert_eq!(updates.len(), 2, "the system installation's rows still arrive");
+        assert_eq!(
+            failure.as_ref(),
+            &Failure::Said("error: Remote \"no-such-remote\" not found in the user installation".to_owned())
+        );
+        fs::remove_dir_all(dir).expect("cleanup");
+    }
+
     #[test]
     fn the_snaps_with_an_update_pair_the_new_version_with_the_one_installed() {
         let dir = scratch("snaps");
@@ -259,7 +386,7 @@ mod tests {
         recorded.answer(snap::SNAP, &snap::refresh_list_args(), &snap_fixture("refresh-list.out"), 0);
         let snapd = Snapd::new(true, &socket);
 
-        let found = checker(&dir, &recorded, Arc::new(with_fakeroot)).run(None, Some(&snapd));
+        let found = checker(&dir, &recorded, Arc::new(with_fakeroot)).run(None, Some(&snapd), None);
 
         let snaps = found.snap.expect("snapd was asked").expect("and answered");
         assert_eq!(snaps.len(), 1);
@@ -282,7 +409,7 @@ mod tests {
         recorded.answer_full(snap::SNAP, &snap::refresh_list_args(), "", &snap_fixture("refresh-list-none.err"), 0);
         let snapd = Snapd::new(true, &socket);
 
-        let found = checker(&dir, &recorded, Arc::new(with_fakeroot)).run(None, Some(&snapd));
+        let found = checker(&dir, &recorded, Arc::new(with_fakeroot)).run(None, Some(&snapd), None);
 
         assert_eq!(found.snap.expect("snapd was asked").expect("and answered"), Vec::<Update>::new());
         fs::remove_dir_all(dir).expect("cleanup");
@@ -295,7 +422,7 @@ mod tests {
         // Nothing listens on this path, so reading what is installed fails at once.
         let snapd = Snapd::new(true, dir.join("snapd.socket"));
 
-        let found = checker(&dir, &recorded, Arc::new(with_fakeroot)).run(None, Some(&snapd));
+        let found = checker(&dir, &recorded, Arc::new(with_fakeroot)).run(None, Some(&snapd), None);
 
         assert!(found.snap.expect("snapd was asked").is_err(), "the list is left as it was");
         assert!(

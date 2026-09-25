@@ -140,7 +140,7 @@ fn three_updates() -> Found {
         update("mesa", "25.2.3-1", "25.2.4-1"),
         update("bash", "5.3.15-1", "5.3.16-1"),
     ];
-    Found { at: 1_789_999_320, repo: Ok(repo), aur: None, snap: None }
+    Found { at: 1_789_999_320, repo: Ok(repo), aur: None, flatpak: None, snap: None }
 }
 
 #[test]

@@ -8,7 +8,7 @@
 [![Arch Linux](https://img.shields.io/badge/Arch_Linux-and_derivatives-1793d1?logo=archlinux&logoColor=white)](#requirements)
 [![Status: beta](https://img.shields.io/badge/status-beta-orange.svg)](CHANGELOG.md)
 
-![qpac in use: Discover with its app cards, a search for obs answered across the repositories, Flatpak and the AUR, OBS Studio's page with its sizes and its Install button, the confirmation naming the seven packages pacman will install, the install running with pacman's own output, and the updates waiting with the Arch news above them](https://raw.githubusercontent.com/quvyta/packages/main/docs/screenshots/qpac.gif)
+![qpac in use: Discover with its app cards and sources, a search for obs answered across the repositories, Flatpak and the AUR, OBS Studio's page, the confirmation naming the seven packages pacman will install, pacman's own output while it runs, updates with Arch news, and settings for downloading updates ahead and the separate switch for a newer qpac](https://raw.githubusercontent.com/quvyta/packages/main/docs/screenshots/qpac.gif)
 
 **quvyta-packages**, or **qpac** for short, is a package manager for Arch Linux that runs in the
 terminal. It is meant to bring pacman, the AUR, Flatpak and Snap together in one simple interface
@@ -70,7 +70,9 @@ of the Quvyta ecosystem of terminal applications, is built on
   age and speed, keep the old list beside the new one, and can turn on reflector's weekly timer.
 - **Flatpak, installed and removed.** An application installed for you needs no password; a
   system-wide one goes through the helper, and a mix of the two is confirmed once and then run
-  step by step. Without Flathub, the settings say so and offer to add it.
+  step by step. Without Flathub, the settings say so and offer to add it. Waiting Flatpak updates,
+  for you and for the whole system, join the Updates tab as their own group; qpac lists them and
+  leaves updating them to `flatpak update` for now.
 - **AUR packages, built and read first.** `paru` or `yay` does the building as you, never as
   root; the root steps it asks for are relayed to qpac's helper through a private pair of pipes,
   so a build never gets a shell with privileges, and the packages the build wants to install are
@@ -204,7 +206,7 @@ To turn it off, switch off **Say when a newer qpac is out** under **qpac itself*
 
 Everything else goes through programs Arch already has, run as you, and reaches the same servers they would reach without qpac. qpac's own requests are made with `curl` over HTTPS only, and carry curl's own `User-Agent: curl/<its version>`.
 
-- **Checking your packages for updates**, when qpac opens, when you press *Check now*, after an update, and from the background timer if you turned it on (which skips the mirrors when the last check is less than an hour old): `pacman -Sy` refreshes a private copy of the repository databases from your own mirrors; the AUR is asked about the packages no repository offers, through `https://aur.archlinux.org/rpc/v5/info` (the timer) or your `paru` or `yay` (the screen), which sends their names; and with Snap on, `snap refresh --list` asks snapd, which asks the Snap Store.
+- **Checking your packages for updates**, when qpac opens, when you press *Check now*, after an update, and from the background timer if you turned it on (which skips the mirrors when the last check is less than an hour old): `pacman -Sy` refreshes a private copy of the repository databases from your own mirrors; the AUR is asked about the packages no repository offers, through `https://aur.archlinux.org/rpc/v5/info` (the timer) or your `paru` or `yay` (the screen), which sends their names; with Flatpak on, `flatpak remote-ls --updates` asks your Flatpak remotes (Flathub, when you added it) for your installation and the system's; and with Snap on, `snap refresh --list` asks snapd, which asks the Snap Store.
 - **Arch news**, with each check on the Updates tab: `https://archlinux.org/feeds/news/`.
 - **Discover's home page**: the packages most machines report to `https://pkgstats.archlinux.de/api/packages` and Flathub's popular and recently updated apps from `https://flathub.org/api/v2/collection/`, both kept for a day, and the AUR's votes and popularity for the AUR row from its RPC.
 - **Searching in Discover**: a search with the AUR on sends your search words to `https://aur.archlinux.org/rpc/v5/search`; with Snap on, snapd searches the Snap Store for them. The repositories and Flatpak are searched in the catalogs already on your disk.

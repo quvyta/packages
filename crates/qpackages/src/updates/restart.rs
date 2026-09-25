@@ -1,38 +1,11 @@
-//! The packages whose update only takes full effect after a restart.
-//!
-//! The list is fixed rather than guessed: the kernels and their firmware and microcode, the init
-//! system, the C library every running program has loaded, the system bus, and the graphics
-//! drivers that live in the kernel. A wrong guess either way would teach the user to ignore the
-//! note.
-
-/// Every package the note is shown for.
-const NEEDS_RESTART: [&str; 20] = [
-    "linux",
-    "linux-lts",
-    "linux-zen",
-    "linux-hardened",
-    "linux-rt",
-    "linux-rt-lts",
-    "linux-firmware",
-    "amd-ucode",
-    "intel-ucode",
-    "systemd",
-    "systemd-libs",
-    "glibc",
-    "dbus",
-    "dbus-broker",
-    "nvidia",
-    "nvidia-lts",
-    "nvidia-open",
-    "nvidia-dkms",
-    "nvidia-open-dkms",
-    "nvidia-utils",
-];
+//! Whether an update only takes full effect after a restart. The list is the core's
+//! [`RESTART`](qpackages_core::pacman::RESTART), so the Updates tab and the transaction never
+//! disagree; a wrong guess either way would teach the user to ignore the note.
 
 /// Whether updating `name` needs a restart to take full effect.
 #[must_use]
 pub fn needs_restart(name: &str) -> bool {
-    NEEDS_RESTART.contains(&name)
+    qpackages_core::pacman::RESTART.contains(&name)
 }
 
 #[cfg(test)]
